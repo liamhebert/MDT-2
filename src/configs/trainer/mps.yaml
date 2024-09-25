@@ -1,0 +1,6 @@
+# Runs on Macs with M chips should use MPS.
+defaults:
+  - default
+
+accelerator: mps
+devices: 1

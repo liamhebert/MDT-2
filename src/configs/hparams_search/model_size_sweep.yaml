@@ -1,0 +1,17 @@
+defaults:
+  - default
+
+optimized_metric: "val/loss_best"
+
+hydra:
+  sweeper:
+    n_trials: 10
+
+    sampler:
+      n_startup_trials: 5
+
+    params:
+      model.net.lin1_size: choice(64, 128, 256)
+      # model.net.lin2_size: choice(64, 128, 256)
+      # model.net.lin3_size: choice(32, 64, 128, 256)
+      # ...
