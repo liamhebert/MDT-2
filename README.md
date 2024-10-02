@@ -1,4 +1,6 @@
-# Personal-IOL
+# MDT-2 Rewrite
+
+Work-in-progress rewrite of MDT, good to look at for how the Hydra+Lightning template can be used. 
 
 ## Setting up formatter rules
 
