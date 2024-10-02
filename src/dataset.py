@@ -129,9 +129,9 @@ class DataModule(LightningDataModule):
 
         return DataLoader(
             self._train_dataset,
-            batch_size=self.hparams.train_batch_size,
+            batch_size=self.hparams.train_batch_size,  # type: ignore
             shuffle=True,
-            num_workers=self.hparams.num_workers,
+            num_workers=self.hparams.num_workers,  # type: ignore
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -140,9 +140,9 @@ class DataModule(LightningDataModule):
 
         return DataLoader(
             self._val_dataset,
-            batch_size=self.hparams.train_batch_size,
+            batch_size=self.hparams.test_batch_size,  # type: ignore
             shuffle=False,
-            num_workers=self.hparams.num_workers,
+            num_workers=self.hparams.num_workers,  # type: ignore
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -150,9 +150,9 @@ class DataModule(LightningDataModule):
         assert self._test_dataset is not None, "Test dataset not loaded"
         return DataLoader(
             self._test_dataset,
-            batch_size=self.hparams.test_batch_size,
+            batch_size=self.hparams.test_batch_size,  # type: ignore
             shuffle=False,
-            num_workers=self.hparams.num_workers,
+            num_workers=self.hparams.num_workers,  # type: ignore
         )
 
 
