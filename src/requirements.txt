@@ -13,3 +13,4 @@ isort
 pre-commit
 hydra_colorlog
 torchmetrics
+mypy

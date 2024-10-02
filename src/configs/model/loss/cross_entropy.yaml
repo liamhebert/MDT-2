@@ -1,1 +1,11 @@
-__target__: loss.CrossEntropyLoss
+_target_: losses.NodeCrossEntropyLoss
+
+weights: [1.0, 1.0]
+
+output_head:
+  _target_: components.output_head.SimpleOutputHead
+  input_dim: 784
+  lin1_dim: 64
+  lin2_dim: 128
+  lin3_dim: 64
+  output_dim: 2

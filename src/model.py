@@ -1,53 +1,53 @@
 """Model classes and utilities."""
 
-from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import pytorch_lightning as pl
 import torch
-from torchmetrics import MaxMetric
-from torchmetrics import MeanMetric
+from torch import nn
 
-from components.simple_dense_net import SimpleDenseNet
-from loss import Loss
+from components.output_head import SimpleOutputHead
+from losses.loss_abstract import Loss
 
 
 class Model(pl.LightningModule):
     """Base class for models, fitting the PyTorch Lightning interface."""
 
-    net: SimpleDenseNet
+    net: nn.Module
     loss: Loss
 
     def __init__(
         self,
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler.LRScheduler,
-        net: torch.nn.Module,
+        net: nn.Module,
         loss: Loss,
         compile: bool = False,
     ) -> None:
         super().__init__()
 
-        # Since net is a nn.Module, it is already saved in checkpoints by
-        # default.
-        self.save_hyperparameters(logger=False, ignore=["net"])
+        # Since net and loss are nn.Modules, it is already saved in checkpoints
+        # by default.
+        self.save_hyperparameters(logger=False, ignore=["net", "loss"])
 
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.net = net
         self.loss = loss
 
-        # for averaging loss across batches
-        self.train_loss = MeanMetric()
-        self.val_loss = MeanMetric()
-        self.test_loss = MeanMetric()
+        self.metrics = {
+            state: {
+                "batch": self.loss.build_batch_metric_aggregators(),
+                "epoch": self.loss.build_epoch_metric_aggregators(),
+            }
+            for state in ["train", "val", "test"]
+        }
 
-        # for tracking best so far validation accuracy
-        self.val_loss_best = MaxMetric()
+        # for averaging loss across batches
 
     # TODO(liamhebert): Implement model logic
 
-    def forward(self, x) -> torch.Tensor:
+    def forward(self, x) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute the forward pass of the model.
 
         Args:
@@ -57,7 +57,7 @@ class Model(pl.LightningModule):
             The predicted values (y_hat).
         """
         # TODO(liamhebert): Implement forward pass with updated args
-        return self.net(x)
+        return self.net(x), self.net(x)
 
     def model_step(
         self, batch: dict[str, torch.Tensor]
@@ -72,10 +72,13 @@ class Model(pl.LightningModule):
             The loss value for that batch, using self.loss.
         """
         x, y = batch["x"], batch["y"]
-        logits = self.forward(x)
-        loss = self.loss(logits, y)
-        preds = torch.argmax(logits, dim=1)
-        return loss, preds, y
+        node_embeddings, graph_embeddings = self.forward(x)
+        loss = self.loss(
+            node_embeddings,
+            graph_embeddings,
+            y,
+        )
+        return loss
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -115,7 +118,7 @@ class Model(pl.LightningModule):
 
     def validation_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
-    ) -> None:
+    ) -> torch.Tensor:
         """Compute the loss and metrics for a validation batch of data.
 
         Args:
@@ -134,6 +137,7 @@ class Model(pl.LightningModule):
             on_epoch=True,
             prog_bar=True,
         )
+        return loss
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
@@ -172,6 +176,7 @@ class Model(pl.LightningModule):
             on_epoch=True,
             prog_bar=True,
         )
+        return loss
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train +
@@ -187,7 +192,7 @@ class Model(pl.LightningModule):
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)
 
-    def configure_optimizers(self) -> Dict[str, Any]:
+    def configure_optimizers(self):
         """Choose what optimizers and learning-rate schedulers to use in your
         optimization. Normally you'd need one. But in the case of GANs or
         similar you might have multiple.

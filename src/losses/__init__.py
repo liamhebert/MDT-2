@@ -1,0 +1,1 @@
+from losses.loss_cross import NodeCrossEntropyLoss

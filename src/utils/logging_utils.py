@@ -5,7 +5,7 @@ from typing import Any, Dict
 from lightning_utilities.core.rank_zero import rank_zero_only
 from omegaconf import OmegaConf
 
-from src.utils import pylogger
+from utils import pylogger
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -26,12 +26,13 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams = {}
 
     cfg = OmegaConf.to_container(object_dict["cfg"])
+    assert isinstance(cfg, dict)
+
     model = object_dict["model"]
     trainer = object_dict["trainer"]
 
     if not trainer.logger:
         log.warning("Logger not found! Skipping hyperparameter logging...")
-        return
 
     hparams["model"] = cfg["model"]
 

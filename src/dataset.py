@@ -125,6 +125,8 @@ class DataModule(LightningDataModule):
 
     def train_dataloader(self) -> DataLoader:
         """Return the training dataloader."""
+        assert self._train_dataset is not None, "Train dataset not loaded"
+
         return DataLoader(
             self._train_dataset,
             batch_size=self.hparams.train_batch_size,
@@ -134,6 +136,8 @@ class DataModule(LightningDataModule):
 
     def val_dataloader(self) -> DataLoader:
         """Return the validation dataloader."""
+        assert self._val_dataset is not None, "Val dataset not loaded"
+
         return DataLoader(
             self._val_dataset,
             batch_size=self.hparams.train_batch_size,
@@ -143,6 +147,7 @@ class DataModule(LightningDataModule):
 
     def test_dataloader(self) -> DataLoader:
         """Return the test dataloader."""
+        assert self._test_dataset is not None, "Test dataset not loaded"
         return DataLoader(
             self._test_dataset,
             batch_size=self.hparams.test_batch_size,

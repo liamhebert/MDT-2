@@ -13,7 +13,7 @@ from rich.prompt import Prompt
 import rich.syntax
 import rich.tree
 
-from src.utils import pylogger
+from utils import pylogger
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
