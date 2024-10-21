@@ -1,4 +1,6 @@
-"""Trainer class and parameters."""
+"""
+Trainer class and parameters.
+"""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,7 +13,9 @@ from pytorch_lightning.loggers import wandb
 
 @dataclass
 class TrainerParameters:
-    """Dataclass containing hyperparameters for the dataset."""
+    """
+    Dataclass containing hyperparameters for the dataset.
+    """
 
     MAX_EPOCHS: int
 

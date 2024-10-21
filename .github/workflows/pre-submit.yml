@@ -31,5 +31,6 @@ jobs:
           if [ -f src/requirements.txt ]; then pip install -r src/requirements.txt; fi
 
       - name: Test with pytest
+        working-directory: ./src
         run: |
-          pytest src
+          pytest .

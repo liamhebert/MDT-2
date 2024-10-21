@@ -1,26 +1,31 @@
-"""Model classes and utilities."""
+"""
+Model classes and utilities.
+"""
 
 from typing import Tuple
 
 import pytorch_lightning as pl
 import torch
 from torch import nn
+from torch import optim
+from torch.optim import lr_scheduler
 
-from components.output_head import SimpleOutputHead
 from losses.loss_abstract import Loss
 
 
 class Model(pl.LightningModule):
-    """Base class for models, fitting the PyTorch Lightning interface."""
+    """
+    Base class for models, fitting the PyTorch Lightning interface.
+    """
 
-    net: nn.Module
+    encoder: nn.Module
     loss: Loss
 
     def __init__(
         self,
-        optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler.LRScheduler,
-        net: nn.Module,
+        optimizer: optim.Optimizer,
+        scheduler: lr_scheduler.LRScheduler,
+        encoder: nn.Module,
         loss: Loss,
         compile: bool = False,
     ) -> None:
@@ -28,11 +33,11 @@ class Model(pl.LightningModule):
 
         # Since net and loss are nn.Modules, it is already saved in checkpoints
         # by default.
-        self.save_hyperparameters(logger=False, ignore=["net", "loss"])
+        self.save_hyperparameters(logger=False, ignore=["encoder", "loss"])
 
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.net = net
+        self.encoder = encoder
         self.loss = loss
 
         self.metrics = {
@@ -81,7 +86,9 @@ class Model(pl.LightningModule):
         return loss
 
     def on_train_start(self) -> None:
-        """Lightning hook that is called when training begins."""
+        """
+        Lightning hook that is called when training begins.
+        """
         # by default lightning executes validation step sanity checks before
         # training starts, so it's worth to make sure validation metrics don't
         # store results from these checks

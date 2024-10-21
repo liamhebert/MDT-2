@@ -11,8 +11,8 @@ import warnings
 
 from omegaconf import DictConfig
 
-from src.utils import pylogger
-from src.utils import rich_utils
+from utils import pylogger
+from utils import rich_utils
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -38,7 +38,8 @@ def extras(cfg: DictConfig) -> None:
         log.info("Disabling python warnings! <cfg.extras.ignore_warnings=True>")
         warnings.filterwarnings("ignore")
 
-    # prompt user to input tags from command line if none are provided in the config
+    # prompt user to input tags from command line if none are provided in the
+    # config
     if cfg.extras.get("enforce_tags"):
         log.info("Enforcing tags! <cfg.extras.enforce_tags=True>")
         rich_utils.enforce_tags(cfg, save_to_file=True)
@@ -88,9 +89,10 @@ def task_wrapper(task_func: Callable) -> Callable:
             # save exception to `.log` file
             log.exception("")
 
-            # some hyperparameter combinations might be invalid or cause out-of-memory errors
-            # so when using hparam search plugins like Optuna, you might want to disable
-            # raising the below exception to avoid multirun failure
+            # some hyperparameter combinations might be invalid or cause
+            # out-of-memory errors so when using hparam search plugins like
+            # Optuna, you might want to disable raising the below exception to
+            # avoid multirun failure
             raise ex
 
         # things to always do after either success or exception
@@ -98,7 +100,8 @@ def task_wrapper(task_func: Callable) -> Callable:
             # display output dir path in terminal
             log.info(f"Output dir: {cfg.paths.output_dir}")
 
-            # always close wandb run (even if exception occurs so multirun won't fail)
+            # always close wandb run (even if exception occurs so multirun won't
+            # fail)
             if find_spec("wandb"):  # check if wandb is installed
                 import wandb
 

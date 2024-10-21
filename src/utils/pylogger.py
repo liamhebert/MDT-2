@@ -13,7 +13,9 @@ from lightning_utilities.core.rank_zero import rank_zero_only
 
 
 class RankedLogger(logging.LoggerAdapter):
-    """A multi-GPU-friendly python command line logger."""
+    """
+    A multi-GPU-friendly python command line logger.
+    """
 
     def __init__(
         self,
@@ -35,9 +37,7 @@ class RankedLogger(logging.LoggerAdapter):
         super().__init__(logger=logger, extra=extra)
         self.rank_zero_only = rank_zero_only
 
-    def log(
-        self, level: int, msg: str, rank: Optional[int] = None, *args, **kwargs
-    ) -> None:
+    def log(self, level, msg, rank, *argv, **kwargs):
         """Delegate a log call to the underlying logger, after prefixing its
         message with the rank of the process it's being logged from. If 'rank'
         is provided, then the log will only occur on that rank/process.
@@ -47,7 +47,7 @@ class RankedLogger(logging.LoggerAdapter):
                 more information.
             msg (str): The message to log.
             rank (int, optional): The rank to log at.
-            args (tuple): Additional args to pass to the underlying logging
+            argv (tuple): Additional args to pass to the underlying logging
                 function.
             kwargs (dict): Any additional keyword args to pass to the underlying
                 logging function.
@@ -62,9 +62,9 @@ class RankedLogger(logging.LoggerAdapter):
             msg = rank_prefixed_message(msg, current_rank)
             if self.rank_zero_only:
                 if current_rank == 0:
-                    self.logger.log(level, msg, *args, **kwargs)
+                    self.logger.log(level, msg, *argv, **kwargs)
             else:
                 if rank is None:
-                    self.logger.log(level, msg, *args, **kwargs)
+                    self.logger.log(level, msg, *argv, **kwargs)
                 elif current_rank == rank:
-                    self.logger.log(level, msg, *args, **kwargs)
+                    self.logger.log(level, msg, *argv, **kwargs)

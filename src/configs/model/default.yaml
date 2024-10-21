@@ -1,5 +1,6 @@
 defaults:
   - loss: cross_entropy
+  - encoder: base
 
 _target_: model.Model
 
@@ -15,14 +16,6 @@ scheduler:
   mode: min
   factor: 0.1
   patience: 10
-
-net:
-  _target_: components.output_head.SimpleOutputHead
-  input_dim: 784
-  lin1_dim: 64
-  lin2_dim: 128
-  lin3_dim: 64
-  output_dim: 10
 
 # compile model for faster training with pytorch 2.0
 compile: false

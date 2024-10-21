@@ -1,4 +1,6 @@
-"""Utilities to log hydra configs using lightning loggers."""
+"""
+Utilities to log hydra configs using lightning loggers.
+"""
 
 from typing import Any, Dict
 
@@ -19,7 +21,8 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
 
     Args:
         object_dict (dict): A dictionary containing the following objects:
-            - "cfg" (DictConfig): A DictConfig object containing the main config.
+            - "cfg" (DictConfig): A DictConfig object containing the main
+                config.
             - "model" (LightningModule): The Lightning model.
             - "trainer" (Trainer): The Lightning trainer.
     """
