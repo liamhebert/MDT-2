@@ -15,3 +15,4 @@ hydra_colorlog
 torchmetrics
 mypy
 torch_geometric
+transformers
