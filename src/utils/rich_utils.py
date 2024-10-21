@@ -1,4 +1,6 @@
-"""Utilities for pretty printing hydra configs and enforcing exp tags."""
+"""
+Utilities for pretty printing hydra configs and enforcing exp tags.
+"""
 
 from pathlib import Path
 from typing import Sequence
@@ -57,7 +59,8 @@ def print_config_tree(
             queue.append(field)
             if field in cfg
             else log.warning(
-                f"Field '{field}' not found in config. Skipping '{field}' config printing..."
+                f"Field '{field}' not found in config. Skipping '{field}' config"
+                "printing..."
             )
         )
 

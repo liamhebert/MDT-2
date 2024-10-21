@@ -1,4 +1,6 @@
-"""Primary training script using hydra."""
+"""
+Primary training script using hydra.
+"""
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -10,10 +12,6 @@ from lightning import Trainer
 import lightning as L
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
-import rootutils
-import torch
-
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from utils import extras
 from utils import get_metric_value

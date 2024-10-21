@@ -21,18 +21,18 @@ repos:
     rev: 23.1.0
     hooks:
       - id: black
-        args: [--line-length, "80"]
+        args: [--line-length=80]
 
   # python import sorting
   - repo: https://github.com/PyCQA/isort
     rev: 5.12.0
     hooks:
       - id: isort
-        args: ["--profile", "google", "--filter-files"]
+        args: ["--profile", "google", "--filter-files", "--line-length", "80"]
 
   # python docstring formatting
   - repo: https://github.com/myint/docformatter
-    rev: v1.7.4
+    rev: master
     hooks:
       - id: docformatter
         args:
@@ -40,8 +40,8 @@ repos:
             --in-place,
             --wrap-summaries=80,
             --wrap-descriptions=80,
-            --style=google,
-            --black,
+            --make-summary-multi-line,
+            --recursive,
           ]
 
   # python docstring coverage checking
@@ -68,9 +68,10 @@ repos:
         args:
           [
             "--extend-ignore",
-            "E203,E402,E501,F401,F841,RST2,RST301",
+            "E203,F841,RST201,RST301,RST203,RST214,RST215",
             "--exclude",
-            "logs/*,data/*",
+            "logs/*,data/*,*/__init__.py",
+            "--max-line-length=82",
           ]
         additional_dependencies: [flake8-rst-docstrings==0.3.0]
 
@@ -102,12 +103,12 @@ repos:
 
   # word spelling linter
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.2.4
+    rev: v2.3.0
     hooks:
       - id: codespell
         args:
           - --skip=logs/**,data/**,*.ipynb
-          # - --ignore-words-list=abc,def
+          - -L=Golab
 
   # jupyter notebook cell output clearing
   - repo: https://github.com/kynan/nbstripout

@@ -1,6 +1,7 @@
-"""Dataset classes and utilities."""
+"""
+Dataset classes and utilities.
+"""
 
-from dataclasses import dataclass
 import os.path as osp
 
 import pandas as pd
@@ -124,7 +125,9 @@ class DataModule(LightningDataModule):
             raise ValueError(f"Unexpected stage: {stage}")
 
     def train_dataloader(self) -> DataLoader:
-        """Return the training dataloader."""
+        """
+        Return the training dataloader.
+        """
         assert self._train_dataset is not None, "Train dataset not loaded"
 
         return DataLoader(
@@ -135,7 +138,9 @@ class DataModule(LightningDataModule):
         )
 
     def val_dataloader(self) -> DataLoader:
-        """Return the validation dataloader."""
+        """
+        Return the validation dataloader.
+        """
         assert self._val_dataset is not None, "Val dataset not loaded"
 
         return DataLoader(
@@ -146,7 +151,9 @@ class DataModule(LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader:
-        """Return the test dataloader."""
+        """
+        Return the test dataloader.
+        """
         assert self._test_dataset is not None, "Test dataset not loaded"
         return DataLoader(
             self._test_dataset,
@@ -182,5 +189,7 @@ class Dataset(Dataset):
         pass
 
     def __len__(self) -> int:
-        """Return the size of the dataset."""
+        """
+        Return the size of the dataset.
+        """
         return len(self.df)

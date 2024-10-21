@@ -1,4 +1,6 @@
-"""These tests validate whether components can be loaded in using Hydra."""
+"""
+These tests validate whether components can be loaded in using Hydra.
+"""
 
 from pathlib import Path
 from typing import Generator

@@ -1,0 +1,50 @@
+_target_: components.discussion_transformer.DiscussionTransformer
+
+embedding_dim: 768
+
+graph_node_feature:
+  _target_: components.feature_layers.GraphNodeFeature
+  num_out_degree: 4
+  hidden_dim: "${model.encoder.embedding_dim}"
+
+graph_attn_bias:
+  _target_: components.feature_layers.GraphAttnBias
+  num_heads: "${model.encoder.graph_stack_config.num_attention_heads}"
+  num_spatial: 5
+
+graph_stack_config:
+  num_layers: 2
+  embedding_dim: "${model.encoder.embedding_dim}"
+  ffn_embedding_dim: 3072 # Computed as 768 * 4
+  num_attention_heads: 12
+  dropout: 0.4
+  attention_dropout: 0.3
+  activation_dropout: 0.3
+  activation_fn:
+    _target_: torch.nn.GELU
+
+num_total_fusion_layers: 8
+
+text_model_config:
+  bert_model_name: "bert-base-uncased"
+  attention_dropout: 0.3
+  activation_dropout: 0.3
+  num_fusion_layers: "${model.encoder.num_total_fusion_layers}"
+
+vit_model_config:
+  vit_model_name: "google/vit-base-patch16-224"
+  attention_dropout: 0.3
+  activation_dropout: 0.3
+  num_fusion_layers: "${model.encoder.num_total_fusion_layers}"
+
+num_bottle_neck: 4
+
+num_fusion_stack: 2
+
+encoder_normalize_before: False
+
+embed_scale: None
+
+num_graph_layers_to_freeze: 0
+
+freeze_initial_encoders: False

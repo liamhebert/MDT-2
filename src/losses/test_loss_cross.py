@@ -1,4 +1,6 @@
-"""Tests for the loss functions."""
+"""
+Tests for the loss functions.
+"""
 
 import pytest
 import torch
@@ -18,7 +20,9 @@ class IdentityOutputHead(SimpleOutputHead):
     """
 
     def __init__(self, input_dim: int, output_dim: int, **args):
-        """Construct an `IdentityOutputHead`, swapping the model to identity."""
+        """
+        Construct an `IdentityOutputHead`, swapping the model to identity.
+        """
         super().__init__(input_dim, output_dim, **args)
         self.model = nn.Identity()
         self.input_dim = input_dim
@@ -26,10 +30,14 @@ class IdentityOutputHead(SimpleOutputHead):
 
 
 class TestCrossEntropyLoss:
-    """Tests for the cross-entropy loss function."""
+    """
+    Tests for the cross-entropy loss function.
+    """
 
     def test_compute_batch_metrics(self):
-        """Test to check if we can compute."""
+        """
+        Test to check if we can compute.
+        """
         loss = NodeCrossEntropyLoss([1, 1], IdentityOutputHead(2, 2))
 
         metric_agg = loss.build_batch_metric_aggregators()
@@ -82,7 +90,9 @@ class TestCrossEntropyLoss:
         assert metrics == returned_metrics
 
     def test_compute_epoch_metrics(self):
-        """Test to check if we can correctly aggregate compute epoch metrics."""
+        """
+        Test to check if we can correctly aggregate compute epoch metrics.
+        """
         loss = NodeCrossEntropyLoss([1, 1], IdentityOutputHead(2, 2))
 
         batch_agg = loss.build_batch_metric_aggregators()
@@ -162,7 +172,9 @@ class TestCrossEntropyLoss:
 
     @pytest.mark.parametrize("weights", [[1.0, 1.0], [0.5, 0.3]])
     def test_call(self, weights: list[float]):
-        """Test to check if we can compute the loss."""
+        """
+        Test to check if we can compute the loss.
+        """
         loss = NodeCrossEntropyLoss(weights, IdentityOutputHead(2, 2))
 
         logits = torch.tensor(

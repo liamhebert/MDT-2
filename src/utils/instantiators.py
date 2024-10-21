@@ -1,4 +1,6 @@
-"""Instantiators for bulk objects, such as lists of callbacks and loggers."""
+"""
+Instantiators for bulk objects, such as lists of callbacks and loggers.
+"""
 
 from typing import List
 
@@ -16,7 +18,8 @@ def instantiate_callbacks(callbacks_cfg: DictConfig) -> List[Callback]:
     """Instantiates callbacks from config.
 
     Args:
-        callbacks_cfg (DictConfig): A DictConfig object containing callback configurations.
+        callbacks_cfg (DictConfig): A DictConfig object containing callback
+            configurations.
 
     Returns:
         List[Callback]: A list of instantiated callbacks.
@@ -42,7 +45,8 @@ def instantiate_loggers(logger_cfg: DictConfig) -> List[Logger]:
     """Instantiates loggers from config.
 
     Args:
-        logger_cfg (DictConfig): A DictConfig object containing logger configurations.
+        logger_cfg (DictConfig): A DictConfig object containing logger
+        configurations.
 
     Returns:
         List[Logger]: A list of instantiated loggers.

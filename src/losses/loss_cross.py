@@ -1,4 +1,6 @@
-"""Implementation for cross-entropy loss function."""
+"""
+Implementation for cross-entropy loss function.
+"""
 
 from typing import Literal
 
@@ -21,7 +23,9 @@ from losses.loss_abstract import Loss
 
 # TODO(liamhebert): create whatever loss set up we want here.
 class NodeCrossEntropyLoss(Loss):
-    """Cross-entropy loss function."""
+    """
+    Cross-entropy loss function.
+    """
 
     output_head: SimpleOutputHead
     weights: torch.Tensor
@@ -144,7 +148,9 @@ class NodeCrossEntropyLoss(Loss):
     def build_epoch_metric_aggregators(
         self,
     ) -> dict[str, Metric | None]:
-        """Build run-level metric aggregators for each metric."""
+        """
+        Build run-level metric aggregators for each metric.
+        """
         # TODO(liamhebert): Consider building this dynamically based on
         # batch_metrics
 
@@ -174,8 +180,8 @@ class NodeCrossEntropyLoss(Loss):
         Returns:
             Dictionary of metric values for the epoch, containing
             - "best_loss": The best loss value
-            - "best_classification": The best classification metrics, organized by
-                "(macro, weighed, class_0, class_1)_(metric_name)" for each
+            - "best_classification": The best classification metrics, organized
+                by "(macro, weighed, class_0, class_1)_(metric_name)" for each
                 metric.
         """
         # Update the best metrics

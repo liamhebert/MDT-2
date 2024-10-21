@@ -1,11 +1,15 @@
-"""Simple fully-connected neural net for computing predictions."""
+"""
+Simple fully-connected neural net for computing predictions.
+"""
 
 import torch
 from torch import nn
 
 
 class SimpleOutputHead(nn.Module):
-    """A simple fully-connected neural net for computing predictions."""
+    """
+    A simple fully-connected neural net for computing predictions.
+    """
 
     model: nn.Module
     input_dim: int

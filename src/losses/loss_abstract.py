@@ -1,4 +1,6 @@
-"""Loss classes."""
+"""
+Loss classes.
+"""
 
 import abc
 from dataclasses import dataclass
@@ -10,7 +12,9 @@ from torchmetrics import SumMetric
 
 @dataclass
 class Labels:
-    """Dataclass to format possible label formats."""
+    """
+    Dataclass to format possible label formats.
+    """
 
     y: torch.Tensor
     y_mask: torch.Tensor | None = None
@@ -18,7 +22,9 @@ class Labels:
 
 
 class LastValueMetric(SumMetric):
-    """Metric that returns the last value it was updated with."""
+    """
+    Metric that returns the last value it was updated with.
+    """
 
     def update(self, value: float | torch.Tensor) -> None:
         """Update last value aggregate with new value.
@@ -31,7 +37,9 @@ class LastValueMetric(SumMetric):
 
 
 class Loss(abc.ABC, torch.nn.Module):
-    """Abstract class for loss functions."""
+    """
+    Abstract class for loss functions.
+    """
 
     @abc.abstractmethod
     def build_batch_metric_aggregators(
@@ -47,7 +55,9 @@ class Loss(abc.ABC, torch.nn.Module):
     def build_epoch_metric_aggregators(
         self,
     ) -> dict[str, Metric | None]:
-        """Build run-level metric aggregators for each metric."""
+        """
+        Build run-level metric aggregators for each metric.
+        """
         # TODO(liamhebert): Consider building this dynamically based on
         ...
 
