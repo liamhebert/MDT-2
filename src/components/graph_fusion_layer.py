@@ -2,15 +2,35 @@
 Layers associated with computing multi-modal embeddings.
 """
 
+from dataclasses import dataclass
 from typing import Optional
 
 import torch
 import torch.nn as nn
+from transformers.modeling_utils import ModuleUtilsMixin
 from transformers.models.bert.modeling_bert import BertLayer
 from transformers.models.vit.modeling_vit import ViTLayer
 
 
-class GraphFusionLayer(nn.Module):
+class ModuleUtilsMixinWrapper(ModuleUtilsMixin):
+    """Wrapper to make ModuleUtilsMixin compatible with non HF modules.
+
+    ModuleUtilsMixin expects a config object with an is_decoder attribute. This
+    is a dummy config object that satisfies that requirement.
+    """
+
+    @dataclass
+    class MockConfig:
+        """
+        MockConfig object to satisfy ModuleUtilsMixin requirements.
+        """
+
+        is_decoder: bool = False
+
+    config: MockConfig = MockConfig()
+
+
+class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
     """
     Fuses text and image inputs using a shared set of bottleneck tokens.
     """
@@ -18,6 +38,8 @@ class GraphFusionLayer(nn.Module):
     bert_encoder: BertLayer
     vit_encoder: ViTLayer
     gradient_checkpointing: bool
+    bert_projection: nn.Module
+    vit_projection: nn.Module
 
     def __init__(
         self,
@@ -50,20 +72,21 @@ class GraphFusionLayer(nn.Module):
         self.vit_encoder = vit_layer
         self.gradient_checkpointing = False
         if use_projection:
-            self.bert_projection: nn.Module = nn.Linear(768, 768)
-            self.vit_projection: nn.Module = nn.Linear(768, 768)
+            # TODO(liamhebert): This should be tuned to the specific use case.
+            self.bert_projection = nn.Linear(768, 768)
+            self.vit_projection = nn.Linear(768, 768)
             raise NotImplementedError("Projection not implemented")
         else:
-            self.bert_projection: nn.Module = nn.Identity()
-            self.vit_projection: nn.Module = nn.Identity()
+            self.bert_projection = nn.Identity()
+            self.vit_projection = nn.Identity()
 
     def forward(
         self,
         bert_hidden_states: torch.Tensor,
         vit_hidden_states: torch.Tensor,
         bottle_neck: torch.Tensor,
-        bert_attention_mask: Optional[torch.FloatTensor] = None,
-        x_image_indexes: Optional[torch.Tensor] = None,
+        image_indices: torch.Tensor,
+        bert_attention_mask: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Computes both modality layers with bottle_neck information passing.
 
@@ -78,12 +101,14 @@ class GraphFusionLayer(nn.Module):
                 num_bottleneck, hidden_size) representing the hidden state of
                 the bottleneck tokens. These tokens are added to both inputs and
                 then removed before returning.
+            image_indices (torch.Tensor): Boolean tensor of shape
+                (batch_size) indicating whether that position has an image or
+                not.
             bert_attention_mask (torch.Tensor, optional): Tensor of shape
                 (batch_size, sequence_length) representing the attention mask to
-                avoid attending to padding. Defaults to None.
-            x_image_indexes (torch.Tensor, optional): Boolean tensor of shape
-                (batch_size) indicating whether that position has an image or
-                not. Defaults to None.
+                avoid attending to padding. Tokens with 1 are *not masked* and
+                tokens with 0 are *masked*. If None, all tokens are attended to.
+                Defaults to None.
 
         Returns:
             Three tensors, in order of
@@ -103,14 +128,28 @@ class GraphFusionLayer(nn.Module):
             bottleneck_dim,
         ) = bottle_neck.shape
         assert text_dim == vision_dim == bottleneck_dim
-        assert text_batch == vision_batch == bottleneck_batch
+        assert text_batch == bottleneck_batch
+
+        # TODO(liamhebert): Eventually, we will want to uncomment this line
+        # once we have static sizes for vision and text inputs.
+        # assert vision_batch == text_batch
 
         bert_hidden_states_in = torch.cat(
             [bottle_neck, bert_hidden_states], dim=1
         )
 
+        # If we have a custom attention mask, we have to append the bottleneck
+        # tokens to the mask as well.
+        if bert_attention_mask is not None:
+            bert_attention_mask_in = torch.cat(
+                (torch.ones_like(bottle_neck[:, :, 0]), bert_attention_mask),
+                dim=1,
+            )
+        else:
+            bert_attention_mask_in = None
+
         bert_hidden_output_out = self.bert_forward(
-            bert_hidden_states_in, bert_attention_mask, None, None, None
+            bert_hidden_states_in, bert_attention_mask_in, None, None, None
         )
 
         bert_hidden_output = bert_hidden_output_out[:, num_bottleneck_tokens:]
@@ -120,13 +159,15 @@ class GraphFusionLayer(nn.Module):
         # and others are not.
         if vit_hidden_states is not None:
             vit_hidden_states_in = torch.cat(
-                [bottle_neck[x_image_indexes], vit_hidden_states], dim=1
+                [bottle_neck[image_indices], vit_hidden_states], dim=1
             )
+
             vit_hidden_output_out = self.vit_forward(vit_hidden_states_in)
             vit_hidden_output = vit_hidden_output_out[:, num_bottleneck_tokens:]
-            bottle_neck_output[x_image_indexes] = (
+
+            bottle_neck_output[image_indices] = (
                 vit_hidden_output_out[:, :num_bottleneck_tokens]
-                + bottle_neck_output[x_image_indexes]
+                + bottle_neck_output[image_indices]
             ) / 2
 
         else:
@@ -182,10 +223,10 @@ class GraphFusionLayer(nn.Module):
     def bert_forward(
         self,
         hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.FloatTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
-        encoder_hidden_states: Optional[torch.FloatTensor] = None,
-        encoder_attention_mask: Optional[torch.FloatTensor] = None,
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Computes the BERT layer for the current hidden_state.
 
@@ -214,6 +255,14 @@ class GraphFusionLayer(nn.Module):
         layer_head_mask = head_mask if head_mask is not None else None
         past_key_value = None
 
+        attention_mask_in = (
+            self.get_extended_attention_mask(
+                attention_mask, attention_mask.shape
+            )
+            if attention_mask is not None
+            else None
+        )
+
         if self.gradient_checkpointing and self.training:
 
             def create_custom_forward(module):
@@ -225,7 +274,7 @@ class GraphFusionLayer(nn.Module):
             layer_outputs = torch.utils.checkpoint.checkpoint(
                 create_custom_forward(self.bert_encoder),
                 hidden_states,
-                attention_mask,
+                attention_mask_in,
                 layer_head_mask,
                 encoder_hidden_states,
                 encoder_attention_mask,
@@ -233,7 +282,7 @@ class GraphFusionLayer(nn.Module):
         else:
             layer_outputs = self.bert_encoder(
                 hidden_states,
-                attention_mask,
+                attention_mask_in,
                 layer_head_mask,
                 encoder_hidden_states,
                 encoder_attention_mask,
@@ -288,8 +337,8 @@ class GraphFusionStack(nn.Module):
         bert_hidden_states: torch.Tensor,
         vit_hidden_states: torch.Tensor,
         bottle_neck: torch.Tensor,
+        image_indices: torch.Tensor,
         bert_attention_mask: Optional[torch.FloatTensor] = None,
-        x_image_indexes: Optional[torch.Tensor] = None,
     ):
         """Computes the stack of text and image layers with bottleneck
         information passing.
@@ -305,12 +354,12 @@ class GraphFusionStack(nn.Module):
                 num_bottleneck, hidden_size) representing the hidden state of
                 the bottleneck tokens. These tokens are added to both inputs and
                 then removed before returning.
+            image_indices (torch.Tensor, optional): Boolean tensor of shape
+                (batch_size) indicating whether that position has an image or
+                not. Defaults to None.
             bert_attention_mask (torch.Tensor, optional): Tensor of shape
                 (batch_size, sequence_length) representing the attention mask to
                 avoid attending to padding. Defaults to None.
-            x_image_indexes (torch.Tensor, optional): Boolean tensor of shape
-                (batch_size) indicating whether that position has an image or
-                not. Defaults to None.
 
         Returns:
             Three tensors, in order of
@@ -324,11 +373,17 @@ class GraphFusionStack(nn.Module):
         """
         for f_layer in self.fusion_layers:
             bert_hidden_states, vit_hidden_states, bottle_neck = f_layer(
-                bert_hidden_states,
-                vit_hidden_states,
-                bottle_neck,
-                bert_attention_mask,
-                x_image_indexes,
+                bert_hidden_states=bert_hidden_states,
+                vit_hidden_states=vit_hidden_states,
+                bottle_neck=bottle_neck,
+                image_indices=image_indices,
+                bert_attention_mask=bert_attention_mask,
             )
 
         return bert_hidden_states, vit_hidden_states, bottle_neck
+
+    def __len__(self) -> int:
+        """
+        Returns the number of layers in the stack.
+        """
+        return len(self.fusion_layers)

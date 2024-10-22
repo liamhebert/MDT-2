@@ -125,7 +125,7 @@ def cfg_eval(
     generates its own temporary logging path.
 
     Args:
-        cfg_train_global: The input DictConfig object to be modified.
+        cfg_eval_global: The input DictConfig object to be modified.
         tmp_path: The temporary logging path.
 
     Returns:
@@ -179,3 +179,22 @@ def test_eval_config(cfg_eval: DictConfig) -> None:
     hydra.utils.instantiate(cfg_eval.data)
     hydra.utils.instantiate(cfg_eval.model)
     hydra.utils.instantiate(cfg_eval.trainer)
+
+
+def test_test_config(cfg_test: DictConfig) -> None:
+    """Tests the evaluation configuration provided by the `cfg_eval` pytest
+    fixture.
+
+    Args:
+        cfg_train: A DictConfig containing a valid evaluation configuration.
+    """
+    assert cfg_test
+    assert cfg_test.data
+    assert cfg_test.model
+    assert cfg_test.trainer
+
+    HydraConfig().set_config(cfg_test)
+
+    hydra.utils.instantiate(cfg_test.data)
+    hydra.utils.instantiate(cfg_test.model)
+    hydra.utils.instantiate(cfg_test.trainer)

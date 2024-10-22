@@ -23,23 +23,21 @@ graph_stack_config:
   activation_fn:
     _target_: torch.nn.GELU
 
-num_total_fusion_layers: 8
-
 text_model_config:
   bert_model_name: "bert-base-uncased"
   attention_dropout: 0.3
   activation_dropout: 0.3
-  num_fusion_layers: "${model.encoder.num_total_fusion_layers}"
 
 vit_model_config:
   vit_model_name: "google/vit-base-patch16-224"
   attention_dropout: 0.3
   activation_dropout: 0.3
-  num_fusion_layers: "${model.encoder.num_total_fusion_layers}"
 
 num_bottle_neck: 4
 
-num_fusion_stack: 2
+# 4 fusion stacks with 2 layers each
+num_fusion_stack: 4
+fusion_stack_size: 2
 
 encoder_normalize_before: False
 

@@ -205,3 +205,9 @@ class GraphEncoderStack(nn.Module):
         for layer in self.layers:
             x = layer(x, self_attn_bias, self_attn_mask, self_attn_padding_mask)
         return x
+
+    def __len__(self) -> int:
+        """
+        Returns the number of layers in the stack.
+        """
+        return len(self.layers)

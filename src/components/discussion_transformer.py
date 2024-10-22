@@ -15,9 +15,12 @@ from omegaconf import DictConfig
 import torch
 import torch.nn as nn
 from transformers import AutoModel
+from transformers import PretrainedConfig
+from transformers.models.bert.modeling_bert import BertConfig
 from transformers.models.bert.modeling_bert import BertLayer
 from transformers.models.bert.modeling_bert import BertModel
 from transformers.models.bert.modeling_bert import BertPooler
+from transformers.models.vit.modeling_vit import ViTConfig
 from transformers.models.vit.modeling_vit import ViTLayer
 from transformers.models.vit.modeling_vit import ViTModel
 from transformers.models.vit.modeling_vit import ViTPooler
@@ -27,6 +30,9 @@ from components.feature_layers import GraphAttnBias
 from components.feature_layers import GraphNodeFeature
 from components.graph_encoder_layer import GraphEncoderStack
 from components.graph_fusion_layer import GraphFusionStack
+from utils.pylogger import RankedLogger
+
+logger = RankedLogger(rank_zero_only=True)
 
 
 def init_graphormer_params(module):
@@ -85,8 +91,8 @@ class DiscussionTransformer(nn.Module):
         vit_model_config: DictConfig,
         text_model_config: DictConfig,
         num_bottle_neck: int,
-        num_total_fusion_layers: int,
         num_fusion_stack: int = 1,
+        fusion_stack_size: int = 1,
         embedding_dim: int = 768,
         encoder_normalize_before: bool = False,
         embed_scale: float = 1,
@@ -152,12 +158,12 @@ class DiscussionTransformer(nn.Module):
                 Text Transformer model. See build_bert_encoder for more details.
             num_bottle_neck (int): Number of learned bottleneck tokens to use
                 and append to the input of both models.
-            num_total_fusion_layers (int): The total number of fusion layers to
-                use, used for assertions. Both vit_model_config and
-                text_model_config *must* have this many fusion layers.
-            num_fusion_stack (int, optional): Number of consecutive fusion
-                layers before applying Graphormer layers. *Must* divide
-                num_total_fusion_layers. Defaults to 1.
+            num_fusion_stack (int): The number of fusion stack layers.
+                fusion_stack_size * num_fusion_stack must be less then the
+                number of ViT and Bert layers. Defaults to 1.
+            fusion_stack_size (int, optional): Number of consecutive fusion
+                layers in a stack. fusion_stack_size * num_fusion_stack must be
+                less then the number of ViT and Bert layers. Defaults to 1.
             embedding_dim (int, optional): Global embedding dimension used by
                 Graphromer and the modality models. Used to initialize the
                 LayerNorm layer and for asserts. Defaults to 768.
@@ -174,7 +180,10 @@ class DiscussionTransformer(nn.Module):
         """
         super().__init__()
 
-        assert num_total_fusion_layers % num_fusion_stack == 0
+        # TODO(liamhebert): It might be worth having a pass-through for
+        # no-fusion models, where we just use graph layers.
+        assert num_fusion_stack > 0, "num_fusion_stack must be greater than 0"
+        assert fusion_stack_size > 0, "fusion_stack_size must be greater than 0"
 
         self.embedding_dim = embedding_dim
         self.graph_node_feature = graph_node_feature
@@ -186,32 +195,34 @@ class DiscussionTransformer(nn.Module):
         if encoder_normalize_before:
             self.emb_layer_norm = nn.LayerNorm(self.embedding_dim)
 
+        total_fusion_layers = fusion_stack_size * num_fusion_stack
         (
             self.vit_model,
             vit_fusion_layers,
             self.vit_pooler,
         ) = self.build_vit_encoder(
-            **vit_model_config
+            num_fusion_layers=total_fusion_layers,
+            **vit_model_config,
         )  # type: ignore[misc]
+
         (
             self.text_model,
             text_fusion_layers,
             self.text_pooler,
         ) = self.build_bert_encoder(
-            **text_model_config
+            num_fusion_layers=total_fusion_layers,
+            **text_model_config,
         )  # type: ignore[misc]
 
         assert len(text_fusion_layers) == len(vit_fusion_layers)
         assert (
-            len(text_fusion_layers) == num_total_fusion_layers
-        ), f"Expected {num_total_fusion_layers=}, got {len(text_fusion_layers)=}"
+            len(text_fusion_layers) == fusion_stack_size * num_fusion_stack
+        ), f"Expected {total_fusion_layers=}, got {len(text_fusion_layers)=}"
 
         self.fusion_layers = self.build_fusion_layers(
-            text_fusion_layers,
-            vit_fusion_layers,
-            num_fusion_stack,
-            num_bottle_neck,
+            text_fusion_layers, vit_fusion_layers, fusion_stack_size
         )
+        assert len(self.fusion_layers) == num_fusion_stack
 
         num_fusion_layers = len(self.fusion_layers)
 
@@ -226,7 +237,7 @@ class DiscussionTransformer(nn.Module):
         )
 
         self.num_bottle_neck = num_bottle_neck
-        self.bottle_neck = nn.Embedding(num_bottle_neck, 768)
+        self.bottle_neck = nn.Embedding(num_bottle_neck, self.embedding_dim)
 
         def freeze_module_params(m: nn.Module):
             """Given a module, freeze all of its parameters.
@@ -261,23 +272,22 @@ class DiscussionTransformer(nn.Module):
         self,
         text_fusion_layers: list[BertLayer],
         vit_fusion_layers: list[ViTLayer],
-        num_fusion_stack: int,
-        num_bottle_neck: int,
+        fusion_stack_size: int,
     ) -> nn.ModuleList:
         """Fuses the lists of modality layers into a list of fusion layers.
 
-        Here, we group the layers into groups of `num_fusion_stack` layers,
+        Here, we group the layers into groups of `fusion_stack_size` layers,
         where each layer will process the output of the previous layer. We use
         num_bottle_neck to assist the fusion layers to know where the bottleneck
         tokens are.
 
         NOTE: the number of text and vision layers must be equal and divisible
-        by `num_fusion_stack`.
+        by `fusion_stack_size`.
 
         Args:
             text_fusion_layers (list[BertLayer]): List of text layers to fuse.
             vit_fusion_layers (list[ViTLayer]): List of vision layers to fuse.
-            num_fusion_stack (int): Number of consecutive fusion layers to
+            fusion_stack_size (int): Number of consecutive fusion layers to
                 stack.
             num_bottle_neck (int): Number of bottleneck tokens we will be using.
 
@@ -289,18 +299,20 @@ class DiscussionTransformer(nn.Module):
         # uneven lengths
         text_fusion_layers = [
             text_fusion_layers[
-                i * num_fusion_stack : (i + 1) * num_fusion_stack
+                i * fusion_stack_size : (i + 1) * fusion_stack_size
             ]
             for i in range(
-                (len(text_fusion_layers) + num_fusion_stack - 1)
-                // num_fusion_stack
+                (len(text_fusion_layers) + fusion_stack_size - 1)
+                // fusion_stack_size
             )
         ]
         vit_fusion_layers = [
-            vit_fusion_layers[i * num_fusion_stack : (i + 1) * num_fusion_stack]
+            vit_fusion_layers[
+                i * fusion_stack_size : (i + 1) * fusion_stack_size
+            ]
             for i in range(
-                (len(vit_fusion_layers) + num_fusion_stack - 1)
-                // num_fusion_stack
+                (len(vit_fusion_layers) + fusion_stack_size - 1)
+                // fusion_stack_size
             )
         ]
 
@@ -320,6 +332,7 @@ class DiscussionTransformer(nn.Module):
         attention_dropout: float,
         activation_dropout: float,
         num_fusion_layers: int,
+        test_config: ViTConfig | None = None,
     ) -> Tuple[ViTModel, list[ViTLayer], ViTPooler]:
         """Constructs the Vision Transformer model, taking the last
         `num_fusion_layers` layers for fusion.
@@ -331,6 +344,8 @@ class DiscussionTransformer(nn.Module):
                 activations
             num_fusion_layers (int): The number of layers to leave out for
                 fusion, taking from the end of the model stack.
+            test_config (ViTConfig, optional): If set, manual test_config to use
+                for testing. Should not be used in production. Defaults to None.
 
         Returns:
             Tuple[ViTModel, list[ViTLayer], ViTPooler]: A tuple conisting of
@@ -339,11 +354,24 @@ class DiscussionTransformer(nn.Module):
                 - The removed layers, to be used for fusion.
                 - The pooler layer of the model, used to get the final output.
         """
-        vit_model: ViTModel = AutoModel.from_pretrained(
-            vit_model_name,
-            hidden_dropout_prob=activation_dropout,
-            attention_probs_dropout_prob=attention_dropout,
-        )
+        if test_config is not None:
+            print(
+                type(test_config), not isinstance(test_config, PretrainedConfig)
+            )
+            print(type(test_config), isinstance(test_config, PretrainedConfig))
+
+            logger.warning(
+                "Using test config for ViT model."
+                "If this is production, please fix!"
+            )
+            vit_model: ViTModel = ViTModel(config=test_config)
+        else:
+            vit_model: ViTModel = AutoModel.from_pretrained(
+                vit_model_name,
+                hidden_dropout_prob=activation_dropout,
+                attention_probs_dropout_prob=attention_dropout,
+            )
+
         if num_fusion_layers == 0:
             vit_other_layers = []
         else:
@@ -361,6 +389,7 @@ class DiscussionTransformer(nn.Module):
         attention_dropout: float,
         activation_dropout: float,
         num_fusion_layers: int,
+        test_config: BertConfig | None = None,
     ) -> Tuple[BertModel, list[BertLayer], BertPooler]:
         """Constructs the Text Transformer model, taking the last
         `num_fusion_layers` layers for fusion.
@@ -372,6 +401,9 @@ class DiscussionTransformer(nn.Module):
                 activations
             num_fusion_layers (int): The number of layers to leave out for
                 fusion, taking from the end of the model stack.
+            test_config (BertConfig, optional): If set, manual test_config to
+                use for testing. Should not be used in production. Defaults to
+                None.
 
         Returns:
             Tuple[BertModel, list[BertLayer], BertPooler]: A tuple conisting of
@@ -384,11 +416,18 @@ class DiscussionTransformer(nn.Module):
         # together since they have the same logic, the only difference is the
         # bert_model call.
 
-        bert: BertModel = AutoModel.from_pretrained(
-            bert_model_name,
-            hidden_dropout_prob=activation_dropout,
-            attention_probs_dropout_prob=attention_dropout,
-        )
+        if test_config is not None:
+            logger.warning(
+                "Using test config for BERT model."
+                "If this is production, please fix!"
+            )
+            bert: BertModel = BertModel(test_config)
+        else:
+            bert: BertModel = AutoModel.from_pretrained(
+                bert_model_name,
+                hidden_dropout_prob=activation_dropout,
+                attention_probs_dropout_prob=attention_dropout,
+            )
 
         if num_fusion_layers == 0:
             bert_other_layers = []

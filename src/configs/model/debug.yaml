@@ -1,0 +1,3 @@
+defaults:
+  - default
+  - override encoder: debug
