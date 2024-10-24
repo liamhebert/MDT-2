@@ -12,12 +12,12 @@ from components.graph_fusion_layer import GraphFusionStack
 
 def test_forward(
     graph_fusion_layer_input: dict[str, torch.Tensor],
-    graph_fusion_layer_fixture: tuple[GraphFusionStack, DictConfig],
+    graph_fusion_stack_fixture: tuple[GraphFusionStack, DictConfig],
 ):
     """
     Tests the forward method of the graph fusion layer.
     """
-    model, config = graph_fusion_layer_fixture
+    model, config = graph_fusion_stack_fixture
 
     with torch.no_grad():
         bert_output, vit_output, bottle_neck_output = model(

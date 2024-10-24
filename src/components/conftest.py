@@ -10,6 +10,7 @@ from transformers import BertConfig
 from transformers import ViTConfig
 
 from components.discussion_transformer import DiscussionTransformer
+from components.graph_encoder_layer import GraphEncoderStack
 from components.graph_fusion_layer import GraphFusionStack
 
 
@@ -25,24 +26,35 @@ def discussion_transformer_fixture(
 
 
 @pytest.fixture(scope="module")
-def graph_fusion_layer_fixture(
+def graph_fusion_stack_fixture(
     discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
 ) -> tuple[GraphFusionStack, DictConfig]:
     """
-    Fixture to build the graph fusion layer.
+    Fixture to build the graph fusion stack.
     """
     model, config = discussion_transformer_fixture
     return model.fusion_layers[0], config
 
 
+@pytest.fixture(scope="module")
+def graph_encoder_stack_fixture(
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
+) -> tuple[GraphEncoderStack, DictConfig]:
+    """
+    Fixture to build the graph encoder stack.
+    """
+    model, config = discussion_transformer_fixture
+    return model.graphormer_layers[0], config.graph_stack_config
+
+
 @pytest.fixture(scope="function")
 def graph_fusion_layer_input(
-    graph_fusion_layer_fixture: tuple[DiscussionTransformer, DictConfig]
+    graph_fusion_stack_fixture: tuple[GraphFusionStack, DictConfig]
 ) -> dict[str, torch.Tensor]:
     """
     Fixture to build the graph fusion layer input.
     """
-    _, config = graph_fusion_layer_fixture
+    _, config = graph_fusion_stack_fixture
     batch_size = 5
     sequence_length = 5
     num_bottle_neck = config.num_bottle_neck
@@ -64,4 +76,25 @@ def graph_fusion_layer_input(
             torch.tensor([[1, 1, 1, 0, 0]]), (batch_size, 1)
         ),
         "image_indices": torch.arange(0, batch_size),
+    }
+
+
+@pytest.fixture(scope="function")
+def graph_encoder_layer_input(
+    graph_encoder_stack_fixture: tuple[GraphEncoderStack, DictConfig]
+) -> dict[str, torch.Tensor]:
+    """
+    Fixture to build the graph encoder layer input.
+    """
+    _, config = graph_encoder_stack_fixture
+    batch_size = 5
+    nodes = 10
+    embed_dim = config.embedding_dim
+    num_heads = config.num_attention_heads
+
+    return {
+        "x": torch.rand(batch_size, nodes, embed_dim),
+        "self_attn_bias": torch.rand(batch_size, num_heads, nodes, nodes),
+        "self_attn_mask": torch.zeros((batch_size * num_heads, nodes, nodes)),
+        "self_attn_padding_mask": torch.zeros((batch_size, nodes)),
     }
