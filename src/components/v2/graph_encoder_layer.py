@@ -233,33 +233,42 @@ class FeedForward(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, args: BaseTransformerArgs):
+    def __init__(
+        self,
+        head_dim,
+        n_heads,
+        n_kv_heads,
+        dim,
+        multiple_of,
+        ffn_dim_multiplier,
+        norm_eps,
+    ):
         super().__init__()
 
-        assert (args.head_dim is not None) or (
-            args.n_heads is not None
+        assert (head_dim is not None) or (
+            n_heads is not None
         ), "Should specify at least head_dim or n_heads"
-        self.head_dim = args.head_dim or args.dim // args.n_heads
-        self.n_heads = args.n_heads or args.dim // args.head_dim
-        self.n_kv_heads = args.n_kv_heads or self.n_heads
+        self.head_dim = head_dim or args.dim // args.n_heads
+        self.n_heads = n_heads or args.dim // args.head_dim
+        self.n_kv_heads = n_kv_heads or self.n_heads
 
-        assert args.n_heads % self.n_kv_heads == 0
-        assert args.dim % args.n_heads == 0
+        assert n_heads % self.n_kv_heads == 0
+        assert dim % args.n_heads == 0
 
         self.attention = Attention(
-            dim=args.dim,
+            dim=dim,
             head_dim=self.head_dim,
             n_heads=self.n_heads,
             n_kv_heads=self.n_kv_heads,
         )
         self.feed_forward = FeedForward(
-            dim=args.dim,
-            hidden_dim=4 * args.dim,
-            multiple_of=args.multiple_of,
-            ffn_dim_multiplier=args.ffn_dim_multiplier,
+            dim=dim,
+            hidden_dim=4 * dim,
+            multiple_of=multiple_of,
+            ffn_dim_multiplier=ffn_dim_multiplier,
         )
-        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
-        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.attention_norm = RMSNorm(dim, eps=norm_eps)
+        self.ffn_norm = RMSNorm(dim, eps=norm_eps)
 
     def forward(
         self,
