@@ -7,7 +7,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from components.custom_attn import MultiheadAttention
+from components.v1.custom_attn import MultiheadAttention
 
 
 class GraphormerGraphEncoderLayer(nn.Module):

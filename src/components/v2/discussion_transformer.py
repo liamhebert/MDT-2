@@ -26,10 +26,10 @@ from transformers.models.vit.modeling_vit import ViTModel
 from transformers.models.vit.modeling_vit import ViTPooler
 
 from components.graph_fusion_layer import GraphFusionStack
-from src.components.v1.custom_attn import MultiheadAttention
-from src.components.v1.feature_layers import GraphAttnBias
-from src.components.v1.feature_layers import GraphNodeFeature
-from src.components.v2.graph_encoder_layer import GraphEncoderStack
+from components.v1.custom_attn import MultiheadAttention
+from components.v1.graph_encoder_layer import GraphEncoderStack
+from components.v2.feature_layers import GraphAttnBias
+from components.v2.feature_layers import GraphNodeFeature
 from utils.pylogger import RankedLogger
 
 logger = RankedLogger(rank_zero_only=True)
@@ -354,6 +354,8 @@ class DiscussionTransformer(nn.Module):
                 - The removed layers, to be used for fusion.
                 - The pooler layer of the model, used to get the final output.
         """
+        vit_model: ViTModel
+
         if test_config is not None:
             print(
                 type(test_config), not isinstance(test_config, PretrainedConfig)
@@ -364,9 +366,9 @@ class DiscussionTransformer(nn.Module):
                 "Using test config for ViT model."
                 "If this is production, please fix!"
             )
-            vit_model: ViTModel = ViTModel(config=test_config)
+            vit_model = ViTModel(config=test_config)
         else:
-            vit_model: ViTModel = AutoModel.from_pretrained(
+            vit_model = AutoModel.from_pretrained(
                 vit_model_name,
                 hidden_dropout_prob=activation_dropout,
                 attention_probs_dropout_prob=attention_dropout,
@@ -415,15 +417,16 @@ class DiscussionTransformer(nn.Module):
         # TODO(liamhebert): Try to fuse the two build_(bert|vit) functions
         # together since they have the same logic, the only difference is the
         # bert_model call.
+        bert: BertModel
 
         if test_config is not None:
             logger.warning(
                 "Using test config for BERT model."
                 "If this is production, please fix!"
             )
-            bert: BertModel = BertModel(test_config)
+            bert = BertModel(test_config)
         else:
-            bert: BertModel = AutoModel.from_pretrained(
+            bert = AutoModel.from_pretrained(
                 bert_model_name,
                 hidden_dropout_prob=activation_dropout,
                 attention_probs_dropout_prob=attention_dropout,
@@ -486,147 +489,125 @@ class DiscussionTransformer(nn.Module):
 
     def forward(
         self,
-        node_mask: torch.Tensor,
-        token_type_ids: torch.Tensor,
+        text_input_ids: torch.Tensor,
+        text_token_type_ids: torch.Tensor,
         text_attention_mask: torch.Tensor,
+        image_inputs: torch.Tensor,
+        image_padding_mask: torch.Tensor,
+        graph_ids: torch.Tensor,
         spatial_pos: torch.Tensor,
-        input_ids: torch.Tensor,
-        attn_bias: torch.Tensor,
-        images: torch.Tensor,
-        image_indices: torch.Tensor,
-        graph_attention_mask: torch.Tensor,
         in_degree: torch.Tensor,
         out_degree: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """The forward function of the Discussion Transformer model.
 
         Args:
-            node_mask (torch.Tensor): A (batch_size, N) boolean mask to select
-                nodes from the graph that are not padding.
-            token_type_ids (torch.Tensor): batched token type ids, with shape
-                (batch_size, N, T)
-            attention_mask (torch.Tensor): batched text attention mask, with
-                shape (batch_size, N, T), where 1 indicates a token that should
-                be attended to and 0 indicates padding.
-            input_ids (torch.Tensor): batched tokenized text ids, with shape
-                (batch_size, N, T)
-            attn_bias (torch.Tensor): batched attention biases for each node.
-                We set the attn_bias for items with a distance larger than
-                spatial_pos_max to -inf, effectively masking them out during
-                attention. Shape (batch_size, N, N).
-            images (torch.Tensor): batched image features, with shape
-                (batch_size, num_images, D)
-            image_indices (torch.Tensor): batched boolean tensor indicating
-                which nodes have images, where the order of True values
-                corresponds to the order of images in the images tensor.
-                Shape (batch_size, N).
-            graph_attention_mask (torch.Tensor): _description_
-                TODO(liamhebert): add description once I figure out what this is
+            == Text inputs ==
+            text_input_ids (torch.Tensor): batched tokenized text ids, with shape
+                (batch_size * nodes, T)
+            text_token_type_ids (torch.Tensor): batched token type ids, with shape
+                (batch_size * nodes, N, T)
+            text_attention_mask (torch.Tensor): batched text attention mask, with
+                shape (batch_size * nodes, N, T), where 1 indicates a token that
+                should be attended to and 0 indicates padding.
+
+            == Image inputs ==
+            image_inputs (torch.Tensor): batched and tokenized image features, with
+                shape (batch_size * nodes, D)
+            image_padding_mask (torch.Tensor): batched boolean tensor indicating
+                whether a node has an image. Shape (batch_size * nodes).
+
+            == Graph inputs ==
+            graph_ids (torch.Tensor): Id of the graph each node belongs to,
+                where padding nodes are assigned the value PADDING_GRAPH_ID, with
+                shape (batch_size * nodes). This is used to mask out attention.
+            spatial_pos (torch.Tensor): Matrix with shape
+                (batch_size * nodes, batch_size * nodes, 2) indicating the
+                number of up hops and down hops between each node in the graph.
             in_degree (torch.Tensor): batched in-degrees, corresponding to the
                 in-degree of each node in the graph. Padded with 0s and shifted
-                by 1. Shape (batch_size, N).
-            out_degree (torch.Tensor): batched out-degrees, corresponding to
-                the out-degree of each node in the graph. Padded with 0s and
-                shifted by 1. Shape (batch_size, N).
+                by 1. Shape (batch_size * nodes).
+            out_degree (torch.Tensor): batched out-degrees, corresponding to the
+                out-degree of each node in the graph. Padded with 0s and shifted
+                by 1. Shape (batch_size * nodes).
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: Returns
                 - node_embedding: The final node embeddings for each node in the
-                    graph with shape (batch_size, N, C).
+                    graph with shape (batch_size * nodes, C).
                 - global_embedding: The final global embedding for the graph,
                     with shape (batch_size, C).
         """
         # Ideally, we keep a consistent shape and just flatten here, rather then
         # having to dynamically index here. Attention mask should handle this.
-        token_type_ids = token_type_ids[node_mask, :]
-        text_attention_mask = text_attention_mask[node_mask, :]
-        input_ids = input_ids[node_mask, :]
         bert_output = self.text_model(
-            token_type_ids=token_type_ids,
+            token_type_ids=text_token_type_ids,
             attention_mask=text_attention_mask,
-            input_ids=input_ids,
+            input_ids=text_input_ids,
         ).last_hidden_state
 
-        n_graph, n_node = bert_output.size()[:2]
+        flattened_batch, seq_len, hidden_dim = bert_output.size()
 
-        if images is not None:
-            vit_output = self.vit_model(images).last_hidden_state
+        if image_inputs is not None:
+            # TODO(liamhebert): Add image padding mask
+            vit_output = self.vit_model(image_inputs).last_hidden_state
         else:
             vit_output = None
 
-        bottle_neck = self.bottle_neck.weight.unsqueeze(0).repeat(n_graph, 1, 1)
-
-        added_mask = (
-            torch.Tensor([1] * self.num_bottle_neck)
-            .unsqueeze(0)
-            .repeat(n_graph, 1)
-        )
-        text_attention_mask = torch.cat(
-            [added_mask, text_attention_mask], dim=1
-        )
-        extended_attention_mask = text_attention_mask[:, None, None, :]
-        extended_attention_mask = extended_attention_mask.to(dtype=torch.half)
-
-        # fp16 compatibility
-        extended_attention_mask = (1.0 - extended_attention_mask) * torch.finfo(
-            torch.half
-        ).min
+        bottle_neck = self.bottle_neck.weight.repeat(flattened_batch, 1, 1)
 
         bert_output, vit_output, bottle_neck = self.fusion_layers[0](
             bert_output,
             vit_output,
             bottle_neck,
-            extended_attention_mask,
-            image_indices,
+            text_attention_mask,
+            image_padding_mask,
         )
-        bottle_neck_nodes = bottle_neck[:, 0, :]
-        # TODO(liamhebert): check if this works
-        shape = token_type_ids.shape
 
-        graph_data = torch.zeros((shape[0], shape[1], 768)).to(
-            bottle_neck_nodes.dtype
-        )
-        # TODO(liamhebert): check if this works
-        graph_data[text_attention_mask, :] = bottle_neck_nodes
+        bottle_neck_nodes = bottle_neck[:, 0, :]
+        assert bottle_neck_nodes.size() == (flattened_batch, hidden_dim)
 
         # compute padding mask. This is needed for multi-head attention
-        x = graph_data
+        graph_x = bottle_neck_nodes
+        # Assumes that PADDING_GRAPH_ID is -1
+        unique_graph_ids = torch.count_nonzero(graph_ids) + 1
 
-        n_graph, n_node = x.size()[:2]
-        padding_mask = (x[:, :, 0]).eq(0)  # B x T x 1
         padding_mask_cls = torch.zeros(
-            n_graph, 1, device=padding_mask.device, dtype=padding_mask.dtype
+            unique_graph_ids,
+            1,
+            device=padding_mask.device,
+            dtype=padding_mask.dtype,
         )
 
         padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
         mask = torch.cat((padding_mask_cls, node_mask), dim=1)
         # B x (T+1) x 1
 
-        x = self.graph_node_feature(x, in_degree, out_degree)
+        graph_x = self.graph_node_feature(graph_x, in_degree, out_degree)
 
         # x: B x T x C
 
         attn_bias = self.graph_attn_bias(attn_bias, spatial_pos)
 
-        x = x * self.embed_scale
+        graph_x = graph_x * self.embed_scale
 
         if self.emb_layer_norm is not None:
-            x = self.emb_layer_norm(x)
+            graph_x = self.emb_layer_norm(graph_x)
 
         # account for padding while computing the representation
 
         for g_layer, f_layer in zip(
             self.graphormer_layers[:-1], self.fusion_layers[1:]
         ):
-            x, _ = g_layer(
-                x,
+            graph_x, _ = g_layer(
+                graph_x,
                 self_attn_padding_mask=padding_mask,
                 self_attn_mask=graph_attention_mask,
                 self_attn_bias=attn_bias,
             )
 
             # extract bottle_neck tokens
-            bottle_neck[:, 0, :] = x[mask, :]
+            bottle_neck[:, 0, :] = graph_x[mask, :]
 
             bert_output, vit_output, bottle_neck = f_layer(
                 bert_output,
@@ -636,15 +617,15 @@ class DiscussionTransformer(nn.Module):
                 image_indices,
             )
 
-            x[mask, :] = bottle_neck[:, 0, :]
+            graph_x[mask, :] = bottle_neck[:, 0, :]
 
-        x, _ = self.graphormer_layers[-1](
-            x,
+        graph_x, _ = self.graphormer_layers[-1](
+            graph_x,
             self_attn_padding_mask=padding_mask,
             self_attn_mask=graph_attention_mask,
             self_attn_bias=attn_bias,
         )
 
-        global_embedding = x[:, 0, :]
-        node_embedding = x[:, 1:, :]
+        global_embedding = graph_x[:, 0, :]
+        node_embedding = graph_x[:, 1:, :]
         return node_embedding, global_embedding
