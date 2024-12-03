@@ -1,4 +1,5 @@
-_target_: dataset.DataModule
+_target_: dataloaders.GraphormerDataset
+
 data_dir: ${paths.data_dir}
 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 train_batch_size: 8

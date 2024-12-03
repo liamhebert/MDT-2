@@ -26,10 +26,11 @@ from transformers.models.vit.modeling_vit import ViTModel
 from transformers.models.vit.modeling_vit import ViTPooler
 
 from components.graph_fusion_layer import GraphFusionStack
-from src.components.v1.custom_attn import MultiheadAttention
-from src.components.v1.feature_layers import GraphAttnBias
-from src.components.v1.feature_layers import GraphNodeFeature
-from src.components.v2.graph_encoder_layer import GraphEncoderStack
+from components.v1.custom_attn import MultiheadAttention
+from components.v1.feature_layers import GraphAttnBias
+from components.v1.feature_layers import GraphNodeFeature
+from components.v1.graph_encoder_layer import GraphEncoderStack
+# from src.components.v2.graph_encoder_layer import GraphEncoderStack
 from utils.pylogger import RankedLogger
 
 logger = RankedLogger(rank_zero_only=True)
@@ -487,10 +488,7 @@ class DiscussionTransformer(nn.Module):
     def forward(
         self,
         node_mask: torch.Tensor,
-        token_type_ids: torch.Tensor,
-        text_attention_mask: torch.Tensor,
         spatial_pos: torch.Tensor,
-        input_ids: torch.Tensor,
         attn_bias: torch.Tensor,
         images: torch.Tensor,
         image_indices: torch.Tensor,

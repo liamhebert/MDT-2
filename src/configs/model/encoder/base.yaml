@@ -1,14 +1,14 @@
-_target_: components.discussion_transformer.DiscussionTransformer
+_target_: components.v1.discussion_transformer.DiscussionTransformer
 
 embedding_dim: 768
 
 graph_node_feature:
-  _target_: components.feature_layers.GraphNodeFeature
+  _target_: components.v1.feature_layers.GraphNodeFeature
   num_out_degree: 4
   hidden_dim: "${model.encoder.embedding_dim}"
 
 graph_attn_bias:
-  _target_: components.feature_layers.GraphAttnBias
+  _target_: components.v1.feature_layers.GraphAttnBias
   num_heads: "${model.encoder.graph_stack_config.num_attention_heads}"
   num_spatial: 5
 

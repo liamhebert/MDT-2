@@ -9,10 +9,10 @@ import torch
 from transformers import BertConfig
 from transformers import ViTConfig
 
-from components.discussion_transformer import DiscussionTransformer
 from components.graph_fusion_layer import GraphFusionStack
-from src.components.v1.graph_encoder_layer import GraphEncoderStack
-from src.components.v2.graph_attention_utils import PADDING_GRAPH_ID
+from components.v1.discussion_transformer import DiscussionTransformer
+from components.v1.graph_encoder_layer import GraphEncoderStack
+from components.v2.graph_attention_mask import PADDING_GRAPH_ID
 
 
 @pytest.fixture(scope="module")

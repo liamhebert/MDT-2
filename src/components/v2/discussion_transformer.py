@@ -506,9 +506,9 @@ class DiscussionTransformer(nn.Module):
             text_input_ids (torch.Tensor): batched tokenized text ids, with shape
                 (batch_size * nodes, T)
             text_token_type_ids (torch.Tensor): batched token type ids, with shape
-                (batch_size * nodes, N, T)
+                (batch_size * nodes, T)
             text_attention_mask (torch.Tensor): batched text attention mask, with
-                shape (batch_size * nodes, N, T), where 1 indicates a token that
+                shape (batch_size * nodes, T), where 1 indicates a token that
                 should be attended to and 0 indicates padding.
 
             == Image inputs ==
@@ -575,8 +575,8 @@ class DiscussionTransformer(nn.Module):
         padding_mask_cls = torch.zeros(
             unique_graph_ids,
             1,
-            device=padding_mask.device,
-            dtype=padding_mask.dtype,
+            device=text_attention_mask.device,
+            dtype=text_attention_mask.dtype,
         )
 
         padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
@@ -613,8 +613,8 @@ class DiscussionTransformer(nn.Module):
                 bert_output,
                 vit_output,
                 bottle_neck,
-                extended_attention_mask,
-                image_indices,
+                padding_mask,
+                image_padding_mask,
             )
 
             graph_x[mask, :] = bottle_neck[:, 0, :]

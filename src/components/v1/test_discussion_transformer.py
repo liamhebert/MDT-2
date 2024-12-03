@@ -7,7 +7,7 @@ from omegaconf import DictConfig
 from transformers import BertConfig
 from transformers import ViTConfig
 
-from components.discussion_transformer import DiscussionTransformer
+from components.v1.discussion_transformer import DiscussionTransformer
 
 
 def test_build_discussion_transformer(

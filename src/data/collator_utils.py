@@ -5,6 +5,15 @@ Collator functions to merge data samples into a batch.
 from typing import List
 
 import torch
+from torch_geometric.data import Data
+from transformers import BatchEncoding
+
+from data.types import GraphFeatures
+from data.types import ImageFeatures
+from data.types import TextFeatures
+from utils.pylogger import RankedLogger
+
+log = RankedLogger(__name__)
 
 
 def pad_1d_unsqueeze(
@@ -176,34 +185,58 @@ def pad_spatial_pos_unsqueeze(x: torch.Tensor, padlen: int):
     return x.unsqueeze(0)
 
 
-def collator(
-    items: List[List[torch.Tensor]], spatial_pos_max: int = 10
-) -> dict[str, torch.Tensor]:
+InputFeatures = dict[str, List[torch.Tensor]]
+
+
+def generic_collator(
+    graph_features: InputFeatures,
+    text_features: InputFeatures,
+    image_features: InputFeatures,
+    spatial_pos_max: int = 10,
+) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
     """Collate function to merge data samples of various sizes into a batch.
 
     Individual data samples are comprised of the following attributes:
-    - idxs: (int) list of unique indices from 0 to batch_size for each item
-    - attn_biases: (List[float]) list of attention biases values for each node
-        in the graph.
-    - spatial_poses: (List[int]) list of spatial indexes for each node in the
-        graph. Used to fetch spatial position embeddings
-    - in_degrees: (List[int]) list of the in-degree for each node in the graph.
-        Used to fetch degree embeddings
-    - x_text: (List[Dict[str, torch.Tensor]]) list of text input data for each
-        node in the graph. Each input is a dictionary with pre-tokenized text
-        tokens
-    - x_image_indexes: (List[torch.Tensor]) list of boolean tensors indicating
-        which nodes have images
-    - x_images: (List[torch.Tensor]) list of image features for each node in the
-        graph
-    - distance: (List[torch.Tensor]) list of exact spatial distance between
-        nodes, used to clip attention bias
-    - ys: (List[torch.Tensor]) list of target labels for each node in the graph
-        or a single label per graph
+    Graph Features:
+        - edge_index (Tensor): The edge index of the graph, with shape
+            [2, num_edges].
+        - image_mask (Tensor): A mask indicating whether a node has an image or
+            not, with shape [num_nodes].
+        - distance (Tensor): The relative distance between each node in the
+            graph, with shape [num_nodes, num_nodes, 2].
+        - attn_bias (Tensor): The initial attention bias for the graph, with
+            shape [num_nodes, num_nodes]. By default this is all zeros.
+        - in_degree (Tensor): The in-degree of each node in the graph, with
+            shape [num_nodes]. Since we treat the graph as bidirectional, this
+            is the same as the out-degree.
+        - out_degree (Tensor): The out-degree of each node in the graph, with
+            shape [num_nodes]. Since we treat the graph as bidirectional, this
+            is the same as the in-degree.
+        - distance_index (Tensor): A flattened version of the distance tensor,
+            mapping each distance to a unique index, with shape
+            [num_nodes, num_nodes].
+    Text Features:
+        - input_ids (Tensor): The tokenized text of the graph as produced by the
+            text_tokenizer, with shape [num_nodes, max_text_length].
+        - attention_mask (Tensor): The attention mask of the text, with shape
+            [num_nodes, max_text_length].
+        - token_type_ids (Tensor): The token type ids of the text, with shape
+            [num_nodes, max_text_length].
+    Image Features:
+        - pixel_values (Tensor): The pixel values of the images, with shape
+            [num_images, ...].
+
+    NOTE: This collator function *DOES NOT* handle y features. That is the
+    responsibility of task specific collator functions.
+    See ContrastiveTaskDataset and NodeBatchedDataset for examples.
 
     Args:
-        items: list of data samples making up a match, with the attributes
-            described above
+        graph_features: list of graph specific features making up a batch, with
+            the attributes described above
+        text_features: list of text specific features making up a batch, with
+            the attributes described above
+        image_features: list of image specific features making up a batch, with
+            the attributes described above
         spatial_pos_max: maximum spatial position to attend to when computing
             attention. Any node farther away then this distance is masked.
 
@@ -212,8 +245,6 @@ def collator(
         largest size in the batch.
 
         Each output dictionary contains the following keys:
-        - idx (torch.Tensor): batched indices corresponding to the data samples
-            making up the batch, with shape (batch_size).
         - attn_bias (torch.Tensor): batched attention biases for each node.
             Note that we set the attn_bias for items with a distance larger
             than spatial_pos_max to -inf, effectively masking them out.
@@ -241,83 +272,102 @@ def collator(
         - image_indexes (torch.Tensor): batched boolean tensor indicating
             which nodes have images, where the order of True values corresponds
             to the order of images in the images tensor. Shape (batch_size, N).
-        - y (torch.Tensor): batched target labels for each node, with shape
-            (batch_size, N).
     """
 
-    zipped_items = zip(*items)
-    assert all(len(item) == len(items[0]) for item in zipped_items)
-    (
-        idxs,
-        attn_biases,
-        spatial_poses,
-        in_degrees,
-        text_inputs,
-        image_indices,
-        images,
-        distance,
-        ys,
-    ) = zipped_items
+    attn_biases: list[torch.Tensor] = graph_features[GraphFeatures.AttnBias]
+    in_degrees: list[torch.Tensor] = graph_features[GraphFeatures.InDegree]
+    image_masks: list[torch.Tensor] = graph_features[GraphFeatures.ImageMask]
+    distances: list[torch.Tensor] = graph_features[GraphFeatures.Distance]
+    distance_indices: list[torch.Tensor] = graph_features[
+        GraphFeatures.DistanceIndex
+    ]
+
     # assert that each property is a list of torch tensors
-    assert all(isinstance(i, torch.Tensor) for i in idxs)
     assert all(isinstance(i, torch.Tensor) for i in attn_biases)
-    assert all(isinstance(i, torch.Tensor) for i in spatial_poses)
     assert all(isinstance(i, torch.Tensor) for i in in_degrees)
-    assert all(isinstance(i, dict) for i in text_inputs)
-    assert all(isinstance(i, torch.Tensor) for i in image_indices)
-    assert all(isinstance(i, torch.Tensor) for i in images)
-    assert all(isinstance(i, torch.Tensor) for i in distance)
-    assert all(isinstance(i, torch.Tensor) for i in ys)
+    assert all(isinstance(i, torch.Tensor) for i in image_masks)
+    assert all(isinstance(i, torch.Tensor) for i in distances)
+    assert all(isinstance(i, torch.Tensor) for i in distance_indices)
+
+    assert all(
+        all(isinstance(i, torch.Tensor) for i in value)
+        for value in text_features.values()
+    )
+    assert all(
+        all(isinstance(i, torch.Tensor) for i in value)
+        for value in image_features.values()
+    )
 
     # Clip attention bias to -inf for nodes that are farther then spatial_pos_max
     # setting to -inf sets the attention value to 0, removing them from inference
+
     for idx, _ in enumerate(attn_biases):
-        # [1: , 1:] to avoid setting the global token to -inf
-        # TODO(liamhebert): Check if this works when using cantor pairing values.
         # TODO(liamhebert): Consider never masking direct parents, only children.
-        attn_biases[idx][1:, 1:][distance[idx] >= spatial_pos_max] = float(
-            "-inf"
+        attn_biases[idx][distances[idx].sum(dim=1) >= spatial_pos_max] = (
+            -torch.inf
         )
 
-    max_node_num = max(i["input_ids"].size(0) for i in text_inputs)
+    max_node_num = max(i.size(0) for i in in_degrees)
 
-    y = torch.cat(ys)
+    collated_text_features: dict[str, torch.Tensor] = {}
 
-    text_input: dict[str, torch.Tensor] = {}
-    # currently in the format of [tokens, size]
-    for key in ["input_ids", "token_type_ids", "attention_mask"]:
-        # TODO(liamhebert): Consider checking that attention_mask can be padded
-        # with 0s or if it should be 1s.
-        # TODO(liamhebert): Likewise for token_type ids.
-        text_input[key] = torch.cat(
+    # As we try out newer models, we may need to change this as we verify them.
+    known_keys = [
+        TextFeatures.InputIds,
+        TextFeatures.TokenTypeIds,
+        TextFeatures.AttentionMask,
+    ]
+    for key, value in text_features.items():
+        # Attention masks are padded with 0s (0 indicates no attention, 1 means
+        # attention).
+        # Token type ids technically doesn't matter, can be 0s.
+        # Padding tokens are 0s.
+        # As a result, we can set all padding to 0s.
+        if key not in known_keys:
+            log.warning(
+                f"Unknown key {key} in text_features. Padding to 0s, but this "
+                "may not be correct."
+            )
+        collated_text_features[key] = torch.cat(
             [
-                pad_2d_unsqueeze(a[key], max_node_num, pad_value=0, shift=False)
-                for a in text_inputs
+                pad_2d_unsqueeze(i, max_node_num, pad_value=0, shift=False)
+                for i in value
             ]
         )
+
     # TODO(liamhebert): We shouldn't need this if we are using the attention mask.
     # We also use this to index which nodes in the graph are padding.
-    node_mask = ~text_input["input_ids"].eq(0).all(dim=2)
+    node_mask = torch.cat(
+        [
+            pad_1d_unsqueeze(
+                torch.ones(i.size(0)),
+                shift=False,
+                pad_value=False,
+                padlen=max_node_num,
+            )
+            for i in in_degrees
+        ]
+    )
 
     # Remove placeholder images
     # TODO(liamhebert): This should be static, with mask, versus dynamic sizes
-    # of images.
-    # To make this more efficient, we should set a maximum number of images and
-    # always pad to that size, versus for all nodes.
-
+    # of images. To make this more efficient, we should set a maximum number of
+    # images and always pad to that size, versus for all nodes.
+    # This should operate on image_features.
+    image_pixels: list[torch.Tensor] = image_features[ImageFeatures.PixelValues]
     filtered_images: list[torch.Tensor] = [
-        x for x in images if not torch.all(x.eq(0))
+        x for x in image_pixels if not torch.all(x.eq(0))
     ]
-    if len(images) != 0:
+    if len(image_pixels) != 0:
         filtered_image = torch.cat(filtered_images)
     else:
         filtered_image = torch.Tensor([])
-    image_index = torch.cat(
+    image_padding = torch.cat(
         [
             pad_1d_unsqueeze(
                 z, max_node_num, pad_value=False, shift=False
             ).squeeze(0)
-            for z in image_indices
+            for z in image_masks
         ]
     ).bool()
 
@@ -332,17 +382,13 @@ def collator(
     )
 
     return {
-        "idx": torch.LongTensor(idxs),
         "attn_bias": attn_bias,
         "spatial_pos": spatial_pos,
         # Since we are using undirected graph, in_degree == out_degree
         "in_degree": in_degree,
         "out_degree": in_degree,
         "node_mask": node_mask,
-        "input_ids": text_input["input_ids"],
-        "token_type_ids": text_input["token_type_ids"],
-        "attention_mask": text_input["attention_mask"],
-        "images": filtered_image,
-        "image_indices": image_index,
-        "y": y,
+        "text_input": collated_text_features,
+        "image_inputs": {"pixel_values": filtered_image},
+        "image_padding_mask": image_padding,
     }

@@ -3,7 +3,7 @@ default_language_version:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v5.0.0
     hooks:
       # list of supported hooks: https://pre-commit.com/hooks.html
       - id: trailing-whitespace
@@ -18,31 +18,25 @@ repos:
 
   # python code formatting
   - repo: https://github.com/psf/black
-    rev: 23.1.0
+    rev: 24.10.0
     hooks:
       - id: black
         args: [--line-length=80]
 
   # python import sorting
   - repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
+    rev: 5.13.2
     hooks:
       - id: isort
         args: ["--profile", "google", "--filter-files", "--line-length", "80"]
 
   # python docstring formatting
-  - repo: https://github.com/myint/docformatter
-    rev: master
+  - repo: https://github.com/keewis/blackdoc
+    rev: v0.3.9
     hooks:
-      - id: docformatter
-        args:
-          [
-            --in-place,
-            --wrap-summaries=80,
-            --wrap-descriptions=80,
-            --make-summary-multi-line,
-            --recursive,
-          ]
+      - id: blackdoc
+        additional_dependencies: ["black==24.10.0"]
+      - id: blackdoc-autoupdate-black
 
   # python docstring coverage checking
   - repo: https://github.com/econchick/interrogate
@@ -62,7 +56,7 @@ repos:
 
   # python check (PEP8), programming errors and code complexity
   - repo: https://github.com/PyCQA/flake8
-    rev: 6.0.0
+    rev: 7.1.1
     hooks:
       - id: flake8
         args:
@@ -85,13 +79,13 @@ repos:
 
   # shell scripts linter
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.9.0.2
+    rev: v0.10.0.1
     hooks:
       - id: shellcheck
 
   # md formatting
   - repo: https://github.com/executablebooks/mdformat
-    rev: 0.7.16
+    rev: 0.7.19
     hooks:
       - id: mdformat
         args: ["--number"]
@@ -107,18 +101,18 @@ repos:
     hooks:
       - id: codespell
         args:
-          - --skip=logs/**,data/**,*.ipynb
+          - --skip=logs/**,tasks/sample_test_data/**,*.ipynb,*.json
           - -L=Golab
 
   # jupyter notebook cell output clearing
   - repo: https://github.com/kynan/nbstripout
-    rev: 0.6.1
+    rev: 0.8.1
     hooks:
       - id: nbstripout
 
   # jupyter notebook linting
   - repo: https://github.com/nbQA-dev/nbQA
-    rev: 1.6.3
+    rev: 1.9.1
     hooks:
       - id: nbqa-black
         args: ["--line-length=80"]

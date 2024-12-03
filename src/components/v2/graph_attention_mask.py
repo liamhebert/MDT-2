@@ -1,25 +1,16 @@
-"""Currently unused code for using FlexAttention with graph data.
-
-We currently don't use this because flex attention does not have support for
-having learnable biases in the score mods, which is necessary for the Graphormer
-to use.
-
-See: https://github.com/pytorch-labs/attention-gym/issues/20
-"""
-
 from typing import Callable
 
 import torch
 from torch import Tensor
 from torch.nn.attention.flex_attention import _mask_mod_signature
 
+PADDING_GRAPH_ID = -1
+
 # Signature for mask mod that operates on individual graphs.
 # Batch size, num_heads, q_idx, kv_idx, distance
 logical_graph_mask_mod_signature = Callable[
     [Tensor, Tensor, Tensor, Tensor, Tensor | None], Tensor
 ]
-
-PADDING_GRAPH_ID = -1
 
 
 def generate_doc_mask_mod(
@@ -31,7 +22,7 @@ def generate_doc_mask_mod(
     sequence stacked format.
 
     Args:
-        inner_mask_mod: The mask mod to apply to indivdual graphs.
+        inner_mask_mod: The mask mod to apply to individual graphs.
         document_ids: Id of the document each token belongs to, where padding
             tokens are assigned the value PADDING_GRAPH_ID.
         spatial_distance_matrix: A (N, N, 2) matrix of consisting of the
@@ -77,7 +68,7 @@ def generate_doc_mask_mod(
 
         Returns:
             Tensor: A boolean tensor indicating whether there should be
-                attention beteween the query and key-value pair.
+                attention between the query and key-value pair.
         """
         same_doc = document_ids[q_idx] == document_ids[kv_idx]
         valid_doc = (document_ids[q_idx] != PADDING_GRAPH_ID) & (

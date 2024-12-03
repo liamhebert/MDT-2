@@ -148,12 +148,12 @@ class GraphAttnBias(nn.Module):
             attn_bias (torch.Tensor): Initial attention bias for each node pair,
                 with shape (Batch, Nodes + 1, Nodes + 1), +1 for the graph node.
             spatial_pos (torch.Tensor): Set of distance indices between nodes,
-                with shape (Batch, Nodes + 1, Nodes + 1).
+                with shape (Batch, Nodes, Nodes).
 
         Returns:
             torch.Tensor: Returns an updated attn_bias with added values
                 corresponding to spatial pos + a virtual distance for the
-                graph token. Shape (Batch, Nodes + 1, Nodes + 1)
+                graph token. Shape (Batch, Num Heads, Nodes + 1, Nodes + 1)
         """
         graph_attn_bias = attn_bias.clone()
         graph_attn_bias = graph_attn_bias.unsqueeze(1).repeat(
@@ -171,9 +171,14 @@ class GraphAttnBias(nn.Module):
 
         # reset spatial pos here
         t = self.graph_token_virtual_distance.weight.view(1, self.num_heads, 1)
-        graph_attn_bias[:, :, 1:, 0] = graph_attn_bias[:, :, 1:, 0] + t
-        graph_attn_bias[:, :, 0, :] = graph_attn_bias[:, :, 0, :] + t
+        graph_attn_bias[:, :, 1:, 0] += t
+        graph_attn_bias[:, :, 0, :] += t
 
         graph_attn_bias = graph_attn_bias + attn_bias.unsqueeze(1)  # reset
-
+        assert graph_attn_bias.shape == (
+            graph_attn_bias.shape[0],
+            self.num_heads,
+            graph_attn_bias.shape[2],
+            graph_attn_bias.shape[2],
+        )
         return graph_attn_bias

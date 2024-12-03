@@ -77,13 +77,11 @@ class Attention(nn.Module):
         head_dim: int,
         n_heads: int,
         n_kv_heads: int,
-        rope_theta: float,
     ):
         super().__init__()
 
         self.dim = dim
         self.head_dim = head_dim
-        self.rope_theta = rope_theta
 
         self.n_heads = n_heads
         self.n_kv_heads = n_kv_heads
@@ -134,14 +132,13 @@ class Attention(nn.Module):
         # sdpa requires B H S D format
         # B S H D -> B H S D
         xq, xk, xv = map(lambda e: e.transpose(1, 2), (xq, xk, xv))
-        assert mask is None or isinstance(mask, (str, torch.Tensor))
-        is_causal = (mask == "causal") if isinstance(mask, str) else False
-        mask = mask if isinstance(mask, torch.Tensor) else None
+        assert mask is None or isinstance(mask, torch.Tensor)
+
         output = F.scaled_dot_product_attention(
             xq,
             xk,
             xv,
-            is_causal=is_causal,
+            is_causal=False,
             attn_mask=mask,
         )
         output = output.transpose(1, 2).contiguous()  # B H S D -> B S H D
@@ -248,12 +245,12 @@ class TransformerBlock(nn.Module):
         assert (head_dim is not None) or (
             n_heads is not None
         ), "Should specify at least head_dim or n_heads"
-        self.head_dim = head_dim or args.dim // args.n_heads
-        self.n_heads = n_heads or args.dim // args.head_dim
+        self.head_dim = head_dim or dim // n_heads
+        self.n_heads = n_heads or dim // head_dim
         self.n_kv_heads = n_kv_heads or self.n_heads
 
         assert n_heads % self.n_kv_heads == 0
-        assert dim % args.n_heads == 0
+        assert dim % n_heads == 0
 
         self.attention = Attention(
             dim=dim,
@@ -274,13 +271,11 @@ class TransformerBlock(nn.Module):
         self,
         x: torch.Tensor,
         freq_cis: torch.Tensor,
-        tok_idx: Optional[torch.Tensor] = None,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         h = x + self.attention(
             self.attention_norm(x),
             freq_cis,
-            tok_idx=tok_idx,
             mask=mask,
         )
         out = h + self.feed_forward(self.ffn_norm(h))
@@ -305,25 +300,18 @@ class BaseTransformer(nn.Module):
         self.max_seqlen = max_seqlen
 
         self.layers = nn.ModuleList()
-        for _ in range(args.n_layers):
+        for _ in range(n_layers):
             self.layers.append(TransformerBlock(args))
 
     def forward(
         self,
         h,
-        tok_idx: Optional[torch.Tensor] = None,
-        mask: Optional[Union[BlockMask, AttentionBias, str]] = None,
+        mask: torch.Tensor | None = None,
         attn_impl: str = "sdpa",
     ):
         for i, layer in enumerate(self.layers):
-            h = layer(
-                h, freq_cis, tok_idx=tok_idx, mask=mask, attn_impl=attn_impl
-            )
+            h = layer(h, freq_cis, mask=mask, attn_impl=attn_impl)
         return h
-
-    def reset_parameters(self):
-        # Either use fixed base std or sqrt model dim
-        self.rope_embeddings.reset_parameters()
 
     def init_weights(self):
         self.reset_parameters()
