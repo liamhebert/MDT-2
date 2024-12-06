@@ -3,7 +3,6 @@ from enum import StrEnum
 
 class GraphFeatures(StrEnum):
     AttnBias = "attn_biases"
-    SpatialPos = "spatial_poses"
     InDegree = "in_degree"
     ImageMask = "image_mask"
     Distance = "distance"
@@ -25,5 +24,7 @@ class Labels(StrEnum):
     YMask = "y_mask"
 
 
-class ContrastiveLabels(Labels):
+class ContrastiveLabels(StrEnum):
+    Ys = "ys"
+    YMask = "y_mask"
     HardYs = "hard_ys"

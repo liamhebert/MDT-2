@@ -188,6 +188,51 @@ def pad_spatial_pos_unsqueeze(x: torch.Tensor, padlen: int):
 InputFeatures = dict[str, List[torch.Tensor]]
 
 
+def extract_and_merge_features(
+    graphs: List[Data],
+) -> tuple[InputFeatures, InputFeatures, InputFeatures]:
+    """Extracts and merges features from a list of graphs."""
+    graph_features: InputFeatures = {
+        GraphFeatures.AttnBias: [],
+        GraphFeatures.InDegree: [],
+        GraphFeatures.ImageMask: [],
+        GraphFeatures.Distance: [],
+        GraphFeatures.DistanceIndex: [],
+    }
+
+    text_features: InputFeatures = {
+        TextFeatures.InputIds: [],
+        TextFeatures.AttentionMask: [],
+        TextFeatures.TokenTypeIds: [],
+    }
+
+    image_features: InputFeatures = {
+        ImageFeatures.PixelValues: [],
+    }
+
+    for graph in graphs:
+        # TODO(liamhebert): The current implementation requires each feature
+        # to be manually inserted here. It might be nice to change this to
+        # instead iterate over the keys of the enums and insert them.
+
+        graph_features[GraphFeatures.AttnBias].append(graph.attn_bias)
+        graph_features[GraphFeatures.InDegree].append(graph.in_degree)
+        graph_features[GraphFeatures.ImageMask].append(graph.image_mask)
+        graph_features[GraphFeatures.Distance].append(graph.distance)
+        graph_features[GraphFeatures.DistanceIndex].append(graph.distance_index)
+
+        text: BatchEncoding = graph.text
+        text_features[TextFeatures.InputIds].append(text.input_ids)
+        text_features[TextFeatures.AttentionMask].append(text.attention_mask)
+        text_features[TextFeatures.TokenTypeIds].append(text.token_type_ids)
+
+        image_features[ImageFeatures.PixelValues].append(
+            graph.image.pixel_values
+        )
+
+    return graph_features, text_features, image_features
+
+
 def generic_collator(
     graph_features: InputFeatures,
     text_features: InputFeatures,
@@ -300,7 +345,7 @@ def generic_collator(
 
     # Clip attention bias to -inf for nodes that are farther then spatial_pos_max
     # setting to -inf sets the attention value to 0, removing them from inference
-
+    attn_biases = [i.float() for i in attn_biases]
     for idx, _ in enumerate(attn_biases):
         # TODO(liamhebert): Consider never masking direct parents, only children.
         attn_biases[idx][distances[idx].sum(dim=1) >= spatial_pos_max] = (
@@ -355,10 +400,17 @@ def generic_collator(
     # images and always pad to that size, versus for all nodes.
     # This should operate on image_features.
     image_pixels: list[torch.Tensor] = image_features[ImageFeatures.PixelValues]
+    print("image_pixels", image_pixels)
     filtered_images: list[torch.Tensor] = [
         x for x in image_pixels if not torch.all(x.eq(0))
     ]
     if len(image_pixels) != 0:
+        # filtered_image = torch.cat(
+        #     [
+        #         pad_2d_unsqueeze(x, max_node_num, pad_value=0, shift=False)
+        #         for x in filtered_images
+        #     ]
+        # )
         filtered_image = torch.cat(filtered_images)
     else:
         filtered_image = torch.Tensor([])
@@ -372,10 +424,10 @@ def generic_collator(
     ).bool()
 
     attn_bias = torch.cat(
-        [pad_attn_bias_unsqueeze(i, max_node_num + 1) for i in attn_biases]
+        [pad_attn_bias_unsqueeze(i, max_node_num) for i in attn_biases]
     )
     spatial_pos = torch.cat(
-        [pad_spatial_pos_unsqueeze(i, max_node_num) for i in spatial_poses]
+        [pad_spatial_pos_unsqueeze(i, max_node_num) for i in distance_indices]
     ).int()
     in_degree = torch.cat(
         [pad_1d_unsqueeze(i, max_node_num) for i in in_degrees]

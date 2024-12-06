@@ -92,7 +92,7 @@ def test_flatten_graph(dataset: DummyTaskDataset):
         {"root": [1, 0], "child1": [1, 1], "child2": [0, 0]},
     ]
     assert flattened_graph["text"] == [
-        "Title: Root Title\n Body: Root Body",
+        "Title: Root Title\nBody: Root Body",
         "Comment: Child 1 Body",
         "Comment: Child 2 Body",
     ]

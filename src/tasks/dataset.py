@@ -311,49 +311,10 @@ class TaskDataset(Dataset, ABC):
             added but they are not needed for general processing.
         """
         graphs = [item for item in batch if item is not None]
-        graph_features: InputFeatures = {
-            GraphFeatures.AttnBias: [],
-            GraphFeatures.SpatialPos: [],
-            GraphFeatures.InDegree: [],
-            GraphFeatures.ImageMask: [],
-            GraphFeatures.Distance: [],
-            GraphFeatures.DistanceIndex: [],
-        }
 
-        text_features: InputFeatures = {
-            TextFeatures.InputIds: [],
-            TextFeatures.AttentionMask: [],
-            TextFeatures.TokenTypeIds: [],
-        }
-
-        image_features: InputFeatures = {
-            ImageFeatures.PixelValues: [],
-        }
-
-        for graph in graphs:
-            # TODO(liamhebert): The current implementation requires each feature
-            # to be manually inserted here. It might be nice to change this to
-            # instead iterate over the keys of the enums and insert them.
-
-            graph_features[GraphFeatures.AttnBias].append(graph.attn_bias)
-            graph_features[GraphFeatures.SpatialPos].append(graph.spatial_pos)
-            graph_features[GraphFeatures.InDegree].append(graph.in_degree)
-            graph_features[GraphFeatures.ImageMask].append(graph.image_mask)
-            graph_features[GraphFeatures.Distance].append(graph.distance)
-            graph_features[GraphFeatures.DistanceIndex].append(
-                graph.distance_index
-            )
-
-            text: BatchEncoding = graph.text
-            text_features[TextFeatures.InputIds].append(text.input_ids)
-            text_features[TextFeatures.AttentionMask].append(
-                text.attention_mask
-            )
-            text_features[TextFeatures.TokenTypeIds].append(text.token_type_ids)
-
-            image_features[ImageFeatures.PixelValues].append(
-                graph.image.pixel_values
-            )
+        graph_features, text_features, image_features = (
+            collator_utils.extract_and_merge_features(graphs)
+        )
 
         collated_output = collator_utils.generic_collator(
             graph_features, text_features, image_features, self.spatial_pos_max
@@ -642,7 +603,7 @@ class TaskDataset(Dataset, ABC):
             y_mask=torch.tensor(flattened_graph["y_mask"]),
             image_mask=image_mask,
             images=tokenized_images,
-            distance=combined_distance,
+            distance=distance_tensor,
             attn_bias=attn_bias,
         )
         # We do [1:] to remove the self-loop from the root node because it is it's
@@ -692,7 +653,7 @@ class TaskDataset(Dataset, ABC):
         return data
 
 
-class ContrastiveTaskDataset(ABC, TaskDataset):
+class ContrastiveTaskDataset(TaskDataset):
     """
     Dataset with contrastive learning specific collate function.
     """
@@ -732,7 +693,7 @@ class ContrastiveTaskDataset(ABC, TaskDataset):
         return tensor_out
 
 
-class NodeBatchedDataDataset(ABC, TaskDataset):
+class NodeBatchedDataDataset(TaskDataset):
     """
     Dataset with Node learning specific collate function.
     """
