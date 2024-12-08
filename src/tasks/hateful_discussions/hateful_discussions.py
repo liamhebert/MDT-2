@@ -1,10 +1,11 @@
 import logging
 from typing import Any
 
-from tasks.dataset import TaskDataset
+from data.types import Labels
+from tasks.dataset import NodeBatchedDataDataset
 
 
-class HatefulDiscussions(TaskDataset):
+class HatefulDiscussions(NodeBatchedDataDataset):
     """
     Task dataset for HatefulDiscussions.
     """
@@ -17,7 +18,10 @@ class HatefulDiscussions(TaskDataset):
     ]
     not_hate_labels: list[str] = ["Neutral", "lti_normal", "NDG", "HOM"]
 
-    def retrieve_label(self, data: dict[str, Any]) -> tuple[int, bool]:
+    def has_node_labels(self) -> bool:
+        return True
+
+    def retrieve_label(self, data: dict[str, Any]) -> dict[str, bool | int]:
         """Retrieves the label for the comment corresponding to
         HatefulDiscussions.
 
@@ -32,11 +36,21 @@ class HatefulDiscussions(TaskDataset):
         ), '"label" key not found in data, please check that the data format is compatible with HatefulDiscussions.'
 
         label = data["label"]
+
         if label in self.hate_labels:
-            return 1, True
+            return {
+                Labels.Ys: 1,
+                Labels.YMask: True,
+            }
         elif label in self.not_hate_labels:
-            return 0, True
+            return {
+                Labels.Ys: 0,
+                Labels.YMask: True,
+            }
         else:
             if label != "NA":
                 logging.info("Encountered unknown label: %s", label)
-            return -1, False
+            return {
+                Labels.Ys: -1,
+                Labels.YMask: False,
+            }

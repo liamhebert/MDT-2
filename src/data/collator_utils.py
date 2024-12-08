@@ -226,9 +226,10 @@ def extract_and_merge_features(
         text_features[TextFeatures.AttentionMask].append(text.attention_mask)
         text_features[TextFeatures.TokenTypeIds].append(text.token_type_ids)
 
-        image_features[ImageFeatures.PixelValues].append(
-            graph.image.pixel_values
-        )
+        if hasattr(graph, "image"):
+            image_features[ImageFeatures.PixelValues].append(
+                graph.image.pixel_values
+            )
 
     return graph_features, text_features, image_features
 
@@ -348,7 +349,7 @@ def generic_collator(
     attn_biases = [i.float() for i in attn_biases]
     for idx, _ in enumerate(attn_biases):
         # TODO(liamhebert): Consider never masking direct parents, only children.
-        attn_biases[idx][distances[idx].sum(dim=1) >= spatial_pos_max] = (
+        attn_biases[idx][distances[idx].sum(dim=-1) >= spatial_pos_max] = (
             -torch.inf
         )
 
@@ -400,10 +401,8 @@ def generic_collator(
     # images and always pad to that size, versus for all nodes.
     # This should operate on image_features.
     image_pixels: list[torch.Tensor] = image_features[ImageFeatures.PixelValues]
-    print("image_pixels", image_pixels)
-    filtered_images: list[torch.Tensor] = [
-        x for x in image_pixels if not torch.all(x.eq(0))
-    ]
+
+    filtered_images: list[torch.Tensor] = [x for x in image_pixels if not None]
     if len(image_pixels) != 0:
         # filtered_image = torch.cat(
         #     [
@@ -416,9 +415,7 @@ def generic_collator(
         filtered_image = torch.Tensor([])
     image_padding = torch.cat(
         [
-            pad_1d_unsqueeze(
-                z, max_node_num, pad_value=False, shift=False
-            ).squeeze(0)
+            pad_1d_unsqueeze(z, max_node_num, pad_value=False, shift=False)
             for z in image_masks
         ]
     ).bool()
@@ -436,7 +433,7 @@ def generic_collator(
     return {
         "attn_bias": attn_bias,
         "spatial_pos": spatial_pos,
-        # Since we are using undirected graph, in_degree == out_degree
+        # Since we are using undirected graphs, in_degree == out_degree
         "in_degree": in_degree,
         "out_degree": in_degree,
         "node_mask": node_mask,

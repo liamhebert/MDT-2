@@ -2,13 +2,13 @@ from enum import auto
 from enum import IntEnum
 
 import torch
+from torch_geometric.data import Data
+from transformers import BatchEncoding
 
 from data import collator_utils as cut
 from data.types import GraphFeatures
 from data.types import ImageFeatures
 from data.types import TextFeatures
-from torch_geometric.data import Data
-from transformers import BatchEncoding
 
 
 def test_pad_1d_unsqueeze():
@@ -99,17 +99,17 @@ def test_pad_2d_unsqueeze():
 
 def test_pad_attn_bias_unsqueeze():
     # Test case: pad attention bias
-    x = torch.tensor([[1, 2], [3, 4]])
+    x = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
     padlen = 4
 
     result = cut.pad_attn_bias_unsqueeze(x, padlen)
     expected = torch.tensor(
         [
             [
-                [1, 2, -torch.inf, -torch.inf],
-                [3, 4, -torch.inf, -torch.inf],
-                [0, 0, -torch.inf, -torch.inf],
-                [0, 0, -torch.inf, -torch.inf],
+                [1.0, 2.0, -torch.inf, -torch.inf],
+                [3.0, 4.0, -torch.inf, -torch.inf],
+                [0.0, 0.0, -torch.inf, -torch.inf],
+                [0.0, 0.0, -torch.inf, -torch.inf],
             ]
         ]
     )
@@ -174,42 +174,40 @@ def create_sample_input(
 ) -> Data:
 
     data = Data(
-        attn_bias=torch.tensor(
-            [[DummyValues.ATTN_BIAS * num_nodes] * num_nodes] * num_nodes
+        attn_bias=torch.full(
+            (num_nodes, num_nodes), DummyValues.ATTN_BIAS * num_nodes
         ),
-        in_degree=torch.tensor([DummyValues.IN_DEGREE * num_nodes] * num_nodes),
+        in_degree=torch.full((num_nodes,), DummyValues.IN_DEGREE * num_nodes),
         image_mask=torch.tensor(
             [True] * num_images + [False] * (num_nodes - num_images)
         ),
-        distance=torch.tensor(
-            [[DummyValues.DISTANCE * num_nodes] * num_nodes] * num_nodes
-        ),  # dummy value
-        distance_index=torch.tensor(
-            [[DummyValues.DISTANCE_INDEX * num_nodes] * num_nodes] * num_nodes
-        ),  # dummy value
+        distance=torch.full(
+            (num_nodes, num_nodes, 2), DummyValues.DISTANCE * num_nodes
+        ),
+        distance_index=torch.full(
+            (num_nodes, num_nodes), DummyValues.DISTANCE_INDEX * num_nodes
+        ),
         text=BatchEncoding(
             {
-                TextFeatures.InputIds: torch.tensor(
-                    [[DummyValues.INPUT_IDS * num_nodes] * text_length]
-                    * num_nodes
+                TextFeatures.InputIds: torch.full(
+                    (num_nodes, text_length), DummyValues.INPUT_IDS * num_nodes
                 ),
-                TextFeatures.TokenTypeIds: torch.tensor(
-                    [[DummyValues.TOKEN_TYPE_IDS * num_nodes] * text_length]
-                    * num_nodes
+                TextFeatures.TokenTypeIds: torch.full(
+                    (num_nodes, text_length),
+                    DummyValues.TOKEN_TYPE_IDS * num_nodes,
                 ),
-                TextFeatures.AttentionMask: torch.tensor(
-                    [[DummyValues.ATTENTION_MASK * num_nodes] * text_length]
-                    * num_nodes
+                TextFeatures.AttentionMask: torch.full(
+                    (num_nodes, text_length),
+                    DummyValues.ATTENTION_MASK * num_nodes,
                 ),
             }
         ),
         image=BatchEncoding(
             {
-                ImageFeatures.PixelValues: torch.tensor(
-                    [[DummyValues.IMAGES * num_nodes] * image_length]
-                    * num_images
-                    + [[0] * image_length] * (num_nodes - num_images)
-                ),
+                ImageFeatures.PixelValues: torch.full(
+                    (num_images, 3, image_length, image_length),
+                    DummyValues.IMAGES * num_nodes,
+                )
             }
         ),
     )
@@ -359,12 +357,11 @@ def test_collator():
                 ]
             ),
         },
-        # TODO(liamhebert): This input is unrealistic and should be fixed.
         "image_inputs": {
-            "pixel_values": torch.tensor(
+            "pixel_values": torch.cat(
                 [
-                    [[DummyValues.IMAGES * 3] * 3] * 2
-                    + [[DummyValues.IMAGES * 2] * 3],
+                    torch.full((2, 3, 3, 3), DummyValues.IMAGES * 3),
+                    torch.full((1, 3, 3, 3), DummyValues.IMAGES * 2),
                 ]
             )
         },

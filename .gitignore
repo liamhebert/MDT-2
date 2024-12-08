@@ -1,5 +1,6 @@
 # Custom scratch files
 scratch.ipynb
+src/tasks/*/raw_files/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -3,30 +3,54 @@ import pathlib
 import pytest
 import torch
 
-from tasks.dataset import NodeBatchedDataDataset
+from data.types import ContrastiveLabels
+from data.types import Labels
+from data.collated_datasets import (
+    ContrastiveTaskDataset,
+    NodeBatchedDataDataset,
+)
 
 
-class DummyTaskDataset(NodeBatchedDataDataset):
-    def retrieve_label(self, tree: dict) -> tuple[int, bool]:
-        return tree["label"] != "NA", tree["label"] != "NA"
+class DummyNodeTaskDataset(NodeBatchedDataDataset):
+    def has_node_labels(self) -> bool:
+        return True
+
+    def retrieve_label(self, tree: dict) -> dict[str, bool | int]:
+        return {
+            Labels.Ys: tree["label"] != "NA",
+            Labels.YMask: tree["label"] != "NA",
+        }
+
+
+class DummyGraphTaskDataset(ContrastiveTaskDataset):
+    def has_graph_labels(self) -> bool:
+        return True
+
+    def retrieve_label(self, tree: dict) -> dict[str, bool | int]:
+        return {
+            ContrastiveLabels.Ys: tree["label"] != "NA",
+            ContrastiveLabels.YMask: tree["label"] != "NA",
+            ContrastiveLabels.HardYs: tree["label"] != "NA",
+        }
 
 
 @pytest.fixture(scope="function")
 def dataset(tmp_path: pathlib.Path):
     (tmp_path / "processed").mkdir()
-    return DummyTaskDataset(
+    return DummyNodeTaskDataset(
         raw_graph_path="test10.json",
         image_path="",
         root="tasks/sample_test_data",
         output_graph_path=tmp_path,
         max_distance_length=2,
+        split_graphs=False,
     )
 
 
 @pytest.fixture(scope="function")
 def split_dataset(tmp_path: pathlib.Path):
     (tmp_path / "processed").mkdir()
-    return DummyTaskDataset(
+    return DummyNodeTaskDataset(
         raw_graph_path="test10.json",
         image_path="",
         root="tasks/sample_test_data",
@@ -35,18 +59,50 @@ def split_dataset(tmp_path: pathlib.Path):
     )
 
 
-def test_process(dataset: DummyTaskDataset):
+@pytest.fixture(scope="function")
+def graph_dataset(tmp_path: pathlib.Path):
+    (tmp_path / "processed").mkdir()
+    return DummyGraphTaskDataset(
+        raw_graph_path="test10.json",
+        image_path="",
+        root="tasks/sample_test_data",
+        output_graph_path=tmp_path,
+        split_graphs=False,
+    )
+
+
+def test_process_split(split_dataset: DummyNodeTaskDataset):
+    split_dataset.process()
+    data = []
+    for x in split_dataset:
+        data += [x]
+        assert torch.sum(x.y_mask) == 1
+    split_dataset.collate_fn(data)
+    assert len(split_dataset) == 15
+
+
+def test_node_process(dataset: DummyNodeTaskDataset):
+    dataset.process()
+    data = []
+    for x in dataset:
+        data += [x]
+    dataset.collate_fn(data)
     assert len(dataset) == 10
 
-    k = 0
-    num_images = 0
-    for x in dataset:
-        k += 1
-        if hasattr(x, "images"):
-            num_images += x["images"]["pixel_values"].shape[0]
+
+def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
+    graph_dataset.process()
+    data = []
+    for x in graph_dataset:
+        data += [x]
+    res = graph_dataset.collate_fn(data)
+    assert len(graph_dataset) == 10
+    assert res["y"][ContrastiveLabels.Ys].shape == (10,)
+    assert res["y"][ContrastiveLabels.YMask].shape == (10,)
+    assert res["y"][ContrastiveLabels.HardYs].shape == (10,)
 
 
-def test_flatten_graph(dataset: DummyTaskDataset):
+def test_flatten_graph(dataset: DummyNodeTaskDataset):
     tree = {
         "id": "root",
         "images": ["image1.png"],
@@ -84,7 +140,7 @@ def test_flatten_graph(dataset: DummyTaskDataset):
     assert flattened_graph["id"] == ["root", "child1", "child2"]
     assert flattened_graph["parent_id"] == ["root", "root", "root"]
     assert flattened_graph["is_root"] == [True, False, False]
-    assert flattened_graph["y"] == [True, True, False]
+    assert [x[Labels.Ys] for x in flattened_graph["y"]] == [True, True, False]
     assert flattened_graph["y_mask"] == [True, True, False]
     assert flattened_graph["distances"] == [
         {"root": [0, 0], "child1": [0, 1], "child2": [0, 1]},
@@ -98,7 +154,7 @@ def test_flatten_graph(dataset: DummyTaskDataset):
     ]
 
 
-def test_process_graph(dataset: DummyTaskDataset):
+def test_process_graph(dataset: DummyNodeTaskDataset):
     json_data = {
         "id": "root",
         "images": [],
@@ -123,7 +179,7 @@ def test_process_graph(dataset: DummyTaskDataset):
 
     assert data.text is not None
     assert data.edge_index.tolist() == [[0, 1, 2], [0, 0, 0]]
-    assert data.y.tolist() == [True, True, False]
+    assert data.y[Labels.Ys].tolist() == [True, True, False]
     assert data.y_mask.tolist() == [True, True, False]
     assert data.image_mask.tolist() == [False, False, False]
     assert data.distance.tolist() == [
@@ -139,7 +195,7 @@ def test_process_graph(dataset: DummyTaskDataset):
     assert data.text["attention_mask"].shape == (3, 256)
 
 
-def test_truncated_distance(dataset: DummyTaskDataset):
+def test_truncated_distance(dataset: DummyNodeTaskDataset):
     """
     Testing whether we can correctly map distances to the correct indices.
     """
