@@ -4,6 +4,7 @@ import copy
 from glob import glob
 import json
 import os
+import pprint
 from typing import Any
 
 from PIL import Image
@@ -20,7 +21,6 @@ from transformers import BatchEncoding
 from data.types import Labels
 import tasks.dataset_utils as dut
 from utils.pylogger import RankedLogger
-import pprint
 
 log = RankedLogger(__name__)
 

@@ -30,7 +30,6 @@ from components.v1.custom_attn import MultiheadAttention
 from components.v1.feature_layers import GraphAttnBias
 from components.v1.feature_layers import GraphNodeFeature
 from components.v1.graph_encoder_layer import GraphEncoderStack
-
 # from src.components.v2.graph_encoder_layer import GraphEncoderStack
 from utils.pylogger import RankedLogger
 

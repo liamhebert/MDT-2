@@ -3,12 +3,10 @@ import pathlib
 import pytest
 import torch
 
+from data.collated_datasets import ContrastiveTaskDataset
+from data.collated_datasets import NodeBatchedDataDataset
 from data.types import ContrastiveLabels
 from data.types import Labels
-from data.collated_datasets import (
-    ContrastiveTaskDataset,
-    NodeBatchedDataDataset,
-)
 
 
 class DummyNodeTaskDataset(NodeBatchedDataDataset):

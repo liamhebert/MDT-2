@@ -1,9 +1,12 @@
-from tasks.dataset import TaskDataset
-from torch_geometric.data import Data
 from abc import abstractmethod
+
 import torch
+from torch_geometric.data import Data
+
 from data import collator_utils
-from data.types import ContrastiveLabels, Labels
+from data.types import ContrastiveLabels
+from data.types import Labels
+from tasks.dataset import TaskDataset
 
 
 class CollatedDataset(TaskDataset):

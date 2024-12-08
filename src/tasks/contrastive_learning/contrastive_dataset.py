@@ -1,8 +1,8 @@
 import logging
 from typing import Any
 
-from tasks.dataset import ContrastiveTaskDataset
 from data.types import ContrastiveLabels
+from tasks.dataset import ContrastiveTaskDataset
 
 
 class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
