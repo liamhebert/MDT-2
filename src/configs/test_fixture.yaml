@@ -4,3 +4,4 @@ defaults:
   - train
   - override model: debug
   - override debug: default
+  - override task: debug

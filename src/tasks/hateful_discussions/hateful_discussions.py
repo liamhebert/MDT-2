@@ -1,8 +1,8 @@
 import logging
 from typing import Any
 
+from data.collated_datasets import NodeBatchedDataDataset
 from data.types import Labels
-from tasks.dataset import NodeBatchedDataDataset
 
 
 class HatefulDiscussions(NodeBatchedDataDataset):

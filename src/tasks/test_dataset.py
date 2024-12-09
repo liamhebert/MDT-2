@@ -37,7 +37,6 @@ def dataset(tmp_path: pathlib.Path):
     (tmp_path / "processed").mkdir()
     return DummyNodeTaskDataset(
         raw_graph_path="test10.json",
-        image_path="",
         root="tasks/sample_test_data",
         output_graph_path=tmp_path,
         max_distance_length=2,
@@ -50,7 +49,6 @@ def split_dataset(tmp_path: pathlib.Path):
     (tmp_path / "processed").mkdir()
     return DummyNodeTaskDataset(
         raw_graph_path="test10.json",
-        image_path="",
         root="tasks/sample_test_data",
         output_graph_path=tmp_path,
         split_graphs=True,
@@ -62,7 +60,6 @@ def graph_dataset(tmp_path: pathlib.Path):
     (tmp_path / "processed").mkdir()
     return DummyGraphTaskDataset(
         raw_graph_path="test10.json",
-        image_path="",
         root="tasks/sample_test_data",
         output_graph_path=tmp_path,
         split_graphs=False,
@@ -75,8 +72,10 @@ def test_process_split(split_dataset: DummyNodeTaskDataset):
     for x in split_dataset:
         data += [x]
         assert torch.sum(x.y_mask) == 1
-    split_dataset.collate_fn(data)
+
     assert len(split_dataset) == 15
+    assert len(data) == 15
+    split_dataset.collate_fn(data)
 
 
 def test_node_process(dataset: DummyNodeTaskDataset):
@@ -84,8 +83,10 @@ def test_node_process(dataset: DummyNodeTaskDataset):
     data = []
     for x in dataset:
         data += [x]
-    dataset.collate_fn(data)
+
     assert len(dataset) == 10
+    assert len(data) == 10
+    dataset.collate_fn(data)
 
 
 def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
@@ -93,8 +94,11 @@ def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
     data = []
     for x in graph_dataset:
         data += [x]
-    res = graph_dataset.collate_fn(data)
+
     assert len(graph_dataset) == 10
+    assert len(data) == 10
+    res = graph_dataset.collate_fn(data)
+
     assert res["y"][ContrastiveLabels.Ys].shape == (10,)
     assert res["y"][ContrastiveLabels.YMask].shape == (10,)
     assert res["y"][ContrastiveLabels.HardYs].shape == (10,)

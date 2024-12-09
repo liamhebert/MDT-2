@@ -40,8 +40,8 @@ def cfg_train_global() -> DictConfig:
             cfg.trainer.limit_test_batches = 0.1
             cfg.trainer.accelerator = "cpu"
             cfg.trainer.devices = 1
-            cfg.data.num_workers = 0
-            cfg.data.pin_memory = False
+            cfg.task.num_workers = 0
+            cfg.task.pin_memory = False
             cfg.extras.print_config = False
             cfg.extras.enforce_tags = False
             cfg.logger = None
@@ -74,8 +74,8 @@ def cfg_eval_global() -> DictConfig:
             cfg.trainer.limit_test_batches = 0.1
             cfg.trainer.accelerator = "cpu"
             cfg.trainer.devices = 1
-            cfg.data.num_workers = 0
-            cfg.data.pin_memory = False
+            cfg.task.num_workers = 0
+            cfg.task.pin_memory = False
             cfg.extras.print_config = False
             cfg.extras.enforce_tags = False
             cfg.logger = None
@@ -151,13 +151,13 @@ def test_train_config(cfg_train: DictConfig) -> None:
         cfg_train: A DictConfig containing a valid training configuration.
     """
     assert cfg_train
-    assert cfg_train.data
+    assert cfg_train.task
     assert cfg_train.model
     assert cfg_train.trainer
 
     HydraConfig().set_config(cfg_train)
 
-    hydra.utils.instantiate(cfg_train.data)
+    hydra.utils.instantiate(cfg_train.task)
     hydra.utils.instantiate(cfg_train.model)
     hydra.utils.instantiate(cfg_train.trainer)
 
@@ -170,13 +170,13 @@ def test_eval_config(cfg_eval: DictConfig) -> None:
         cfg_train: A DictConfig containing a valid evaluation configuration.
     """
     assert cfg_eval
-    assert cfg_eval.data
+    assert cfg_eval.task
     assert cfg_eval.model
     assert cfg_eval.trainer
 
     HydraConfig().set_config(cfg_eval)
 
-    hydra.utils.instantiate(cfg_eval.data)
+    hydra.utils.instantiate(cfg_eval.task)
     hydra.utils.instantiate(cfg_eval.model)
     hydra.utils.instantiate(cfg_eval.trainer)
 
@@ -189,12 +189,12 @@ def test_test_config(cfg_test: DictConfig) -> None:
         cfg_train: A DictConfig containing a valid evaluation configuration.
     """
     assert cfg_test
-    assert cfg_test.data
+    assert cfg_test.task
     assert cfg_test.model
     assert cfg_test.trainer
 
     HydraConfig().set_config(cfg_test)
 
-    hydra.utils.instantiate(cfg_test.data)
+    hydra.utils.instantiate(cfg_test.task)
     hydra.utils.instantiate(cfg_test.model)
     hydra.utils.instantiate(cfg_test.trainer)

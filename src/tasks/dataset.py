@@ -41,23 +41,22 @@ class TaskDataset(Dataset, ABC):
     text_tokenizer_key: str
     max_distance_length: int
 
-    split_path: str | None
-    train_size: int | float
-    valid_size: int | float
-    test_size: int | float
+    train_size: int | float | None
+    valid_size: int | float | None
+    test_size: int | float | None
 
     spatial_pos_max: int = 100
 
+    _splits: dict[str, list[int]] | None
+
     def __init__(
         self,
-        raw_graph_path: str | list[str],
-        image_path: str,
-        output_graph_path: str,
         root: str,
-        split_path: str | None = None,
-        train_size: int | float = 0.8,
-        valid_size: int | float = 0.1,
-        test_size: int | float = 0.1,
+        raw_graph_path: str | list[str],
+        output_graph_path: str,
+        train_size: int | float | None = 0.8,
+        valid_size: int | float | None = 0.1,
+        test_size: int | float | None = 0.1,
         split_seed: int = 42,
         image_tokenizer_key: str = "google/vit-base-patch16-224",
         text_tokenizer_key: str = "bert-base-uncased",
@@ -69,7 +68,6 @@ class TaskDataset(Dataset, ABC):
         super().__init__()
 
         self.raw_graph_path = raw_graph_path
-        self.image_path = image_path
         self.output_graph_path = output_graph_path
         self.root = root
 
@@ -90,8 +88,6 @@ class TaskDataset(Dataset, ABC):
         self.split_seed = split_seed
 
         self.force_reload = force_reload
-
-        self._splits: dict[str, list[int]] | None = None
 
     def get_idx_mapping(self) -> dict[str, dict[int, list[int]]]:
         idx_mapping: dict[str, dict[int, list[int]]] = {}
@@ -180,6 +176,9 @@ class TaskDataset(Dataset, ABC):
                 for indices in current_dataset_mapping.values():
                     all_indices_for_dataset += indices
 
+                assert self.train_size is not None
+                assert self.test_size is not None
+
                 train_idx, test_valid_idx = train_test_split(
                     all_indices_for_dataset,
                     train_size=self.train_size,
@@ -262,14 +261,17 @@ class TaskDataset(Dataset, ABC):
             paths = [self.raw_graph_path]
         else:
             paths = self.raw_graph_path
-        final_paths = []
+        final_paths: list[str] = []
 
         for path in paths:
             assert "-data.json" not in path
             assert "-split.json" not in path
             path = path.replace(".json", "-data.json")
             path = self.root + "/" + path
-            final_paths.extend(list(glob(os.path.expandvars(path))))
+            paths_found = list(glob(os.path.expandvars(path)))
+            assert len(paths_found) > 0, f"No files found for {path=}"
+            final_paths.extend(paths_found)
+
         return final_paths
 
     @property
@@ -349,10 +351,17 @@ class TaskDataset(Dataset, ABC):
         for file in self.raw_paths:
             file_name = os.path.basename(file)
             log.info(f"Processing file {file_name}")
-            file_name = file_name.removesuffix(".json")
+            file_name = file_name.removesuffix("-data.json")
+            os.makedirs(
+                f"{self.output_graph_path}/processed/{file_name}", exist_ok=True
+            )
+
             with open(file, "r") as f:
                 for idx, line in tqdm(enumerate(f)):
-                    if f"graph-{idx}" in corrected_files[file_name]:
+                    if (
+                        file_name in corrected_files
+                        and f"graph-{idx}" in corrected_files[file_name]
+                    ):
                         continue
                     json_data = json.loads(line)
                     data = self.process_graph(json_data)

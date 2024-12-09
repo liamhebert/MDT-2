@@ -9,7 +9,10 @@ from pytorch_lightning import LightningDataModule
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
+from torch.utils.data import Subset
 from tqdm import tqdm
+
+from data.collated_datasets import CollatedDataset
 
 tqdm.pandas()
 
@@ -44,22 +47,20 @@ class DataModule(LightningDataModule):
     _train_device_batch_size: int = 1
     _test_device_batch_size: int = 1
 
+    master_dataset: CollatedDataset
+
     def __init__(
         self,
-        data_dir: str,
+        dataset: CollatedDataset,
         train_batch_size: int,
         test_batch_size: int,
-        train_val_test_split: tuple[float, float, float],
         num_workers: int,
-        force_remake: bool,
         pin_memory: bool,
     ):
-        super()
-        assert (
-            sum(train_val_test_split) == 1.0
-        ), f"Train/val/test split must sum to 1.0. Got {train_val_test_split=}"
+        super().__init__()
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
+        self.master_dataset = dataset
         self.save_hyperparameters(logger=False)
 
     def prepare_data(self):
@@ -68,10 +69,7 @@ class DataModule(LightningDataModule):
         This is only called once on the rank 0 gpu per run, and results in
         memory are not replicated across gpus. This is useful for downloading.
         """
-        # TODO(liamhebert): Implement data preparation logic
-        if self.hparams.force_remake is False and osp.exists(self.tensor_dir):
-            return
-        pass
+        self.master_dataset.process()
 
     def setup(self, stage: str):
         """Load dataset for training/validation/testing.
@@ -112,15 +110,21 @@ class DataModule(LightningDataModule):
         # TODO(liamhebert): Implement debug mode
         if stage == "fit" and self._train_dataset is None:
             # make training dataset
-            self._train_dataset = Dataset()
+            self._train_dataset = Subset(
+                self.master_dataset, self.master_dataset.train_idx
+            )
         elif stage == "validate" and self._val_dataset is None:
             # make validation dataset
-            self._val_dataset = Dataset()
+            self._val_dataset = Subset(
+                self.master_dataset, self.master_dataset.valid_idx
+            )
         elif (
             stage == "test" or stage == "predict"
         ) and self._test_dataset is None:
             # Make test dataset
-            self._test_dataset = Dataset()
+            self._test_dataset = Subset(
+                self.master_dataset, self.master_dataset.test_idx
+            )
         else:
             raise ValueError(f"Unexpected stage: {stage}")
 
@@ -135,6 +139,7 @@ class DataModule(LightningDataModule):
             batch_size=self.hparams.train_batch_size,  # type: ignore
             shuffle=True,
             num_workers=self.hparams.num_workers,  # type: ignore
+            pin_memory=self.hparams.pin_memory,  # type: ignore
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -148,6 +153,7 @@ class DataModule(LightningDataModule):
             batch_size=self.hparams.test_batch_size,  # type: ignore
             shuffle=False,
             num_workers=self.hparams.num_workers,  # type: ignore
+            pin_memory=self.hparams.pin_memory,  # type: ignore
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -160,36 +166,5 @@ class DataModule(LightningDataModule):
             batch_size=self.hparams.test_batch_size,  # type: ignore
             shuffle=False,
             num_workers=self.hparams.num_workers,  # type: ignore
+            pin_memory=self.hparams.pin_memory,  # type: ignore
         )
-
-
-class Dataset(Dataset):
-    """Dataset instance for a dataloader.
-
-    Params:
-        df: The dataframe containing the dataset, used for tracking sizes.
-        tensor_dir: The directory containing processed tensors.
-    """
-
-    # NOTE: If things are bigger then what can be held in memory, we will need
-    # to offload some to disk. This is particularly relevant with distributed
-    # training, where each gpu will have a copy of df.
-    df: pd.DataFrame
-
-    def __getitem__(self, idx) -> dict[str, torch.Tensor]:
-        """Fetch a single item from the dataset indexed by idx.
-
-        Params:
-            idx: The index of the item to fetch.
-
-        Returns:
-            A dictionary mapping keys to torch tensors. It is expected that the
-            tensors have a shape of (batch_size, ...).
-        """
-        pass
-
-    def __len__(self) -> int:
-        """
-        Return the size of the dataset.
-        """
-        return len(self.df)
