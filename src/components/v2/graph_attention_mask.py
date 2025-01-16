@@ -3,6 +3,7 @@ from typing import Callable
 import torch
 from torch import Tensor
 from torch.nn.attention.flex_attention import _mask_mod_signature
+from torch.nn.attention.flex_attention import BlockMask, create_block_mask
 
 PADDING_GRAPH_ID = -1
 
@@ -13,7 +14,40 @@ logical_graph_mask_mod_signature = Callable[
 ]
 
 
-def generate_doc_mask_mod(
+def generate_graph_attn_mask_mod(
+    graph_ids: torch.Tensor,
+    spatial_distance_matrix: torch.Tensor,
+    max_spatial_distance: int = 0,
+    num_heads: int = 1,
+) -> BlockMask:
+    """Shortcut to generate a spatial mask mod for flex attention
+
+    See: generate_attn_mask_mod and create_spatial_distance_mask_mod
+    """
+    num_nodes = graph_ids.shape[0]
+    query_len, key_value_len = spatial_distance_matrix.shape[:2]
+    assert query_len == key_value_len == num_nodes, (
+        "Expecting square spatial distance matrix, got:",
+        f"{query_len=}, {key_value_len=}, {num_nodes=}",
+    )
+
+    mask_mod = generate_attn_mask_mod(
+        create_spatial_distance_mask_mod(max_spatial_distance),
+        graph_ids,
+        spatial_distance_matrix,
+    )
+
+    return create_block_mask(
+        mask_mod=mask_mod,
+        B=None,
+        H=num_heads,
+        Q_LEN=query_len,
+        KV_LEN=key_value_len,
+        device=spatial_distance_matrix.device,  # type: ignore
+    )
+
+
+def generate_attn_mask_mod(
     inner_mask_mod: logical_graph_mask_mod_signature,
     document_ids: torch.Tensor,
     spatial_distance_matrix: torch.Tensor | None = None,
@@ -46,6 +80,7 @@ def generate_doc_mask_mod(
     b 0 0 1 1 1 0 0
     P 0 0 0 0 0 0 0
     P 0 0 0 0 0 0 0
+
     """
     # Get unique document IDs and their counts
     _, counts = torch.unique_consecutive(document_ids, return_counts=True)
@@ -70,6 +105,12 @@ def generate_doc_mask_mod(
             Tensor: A boolean tensor indicating whether there should be
                 attention between the query and key-value pair.
         """
+        if not num_heads.is_cuda:
+            # This is a stupid workaround to get this to run
+            # in eager mode and not crash. This is not a good solution.
+            # print("q", q_idx)
+            ...
+
         same_doc = document_ids[q_idx] == document_ids[kv_idx]
         valid_doc = (document_ids[q_idx] != PADDING_GRAPH_ID) & (
             document_ids[kv_idx] != PADDING_GRAPH_ID

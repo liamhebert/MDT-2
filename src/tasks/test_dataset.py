@@ -1,3 +1,5 @@
+"""Tests for the generic dataset class."""
+
 import pathlib
 
 import pytest
@@ -10,33 +12,42 @@ from data.types import Labels
 
 
 class DummyNodeTaskDataset(NodeBatchedDataDataset):
+    """Dummy task dataset to simulate a node dataset."""
+
     def has_node_labels(self) -> bool:
+        """Indicating the dataset has node labels."""
         return True
 
     def retrieve_label(self, tree: dict) -> dict[str, bool | int]:
-        return {
-            Labels.Ys: tree["label"] != "NA",
-            Labels.YMask: tree["label"] != "NA",
-        }
+        """Return node labels, which is a boolean label and mask."""
+        if tree["label"] == "NA":
+            return {Labels.Ys: -100}
+        return {Labels.Ys: tree["label"] != "NA"}
 
 
 class DummyGraphTaskDataset(ContrastiveTaskDataset):
+    """Dummy task dataset to simulate a contrastive dataset."""
+
     def has_graph_labels(self) -> bool:
+        """Indicating the dataset has graph labels."""
         return True
 
     def retrieve_label(self, tree: dict) -> dict[str, bool | int]:
+        """Return constrastive graph labels, which is a boolean y, mask,
+        hard y.
+        """
         return {
             ContrastiveLabels.Ys: tree["label"] != "NA",
-            ContrastiveLabels.YMask: tree["label"] != "NA",
             ContrastiveLabels.HardYs: tree["label"] != "NA",
         }
 
 
 @pytest.fixture(scope="function")
 def dataset(tmp_path: pathlib.Path):
+    """Generate a dummy node dataset without graph splitting."""
     (tmp_path / "processed").mkdir()
     return DummyNodeTaskDataset(
-        raw_graph_path="test10.json",
+        raw_graph_path="test10",
         root="tasks/sample_test_data",
         output_graph_path=tmp_path,
         max_distance_length=2,
@@ -46,9 +57,10 @@ def dataset(tmp_path: pathlib.Path):
 
 @pytest.fixture(scope="function")
 def split_dataset(tmp_path: pathlib.Path):
+    """Generate a dummy node dataset with graph splitting."""
     (tmp_path / "processed").mkdir()
     return DummyNodeTaskDataset(
-        raw_graph_path="test10.json",
+        raw_graph_path="test10",
         root="tasks/sample_test_data",
         output_graph_path=tmp_path,
         split_graphs=True,
@@ -57,9 +69,10 @@ def split_dataset(tmp_path: pathlib.Path):
 
 @pytest.fixture(scope="function")
 def graph_dataset(tmp_path: pathlib.Path):
+    """Generate a dummy graph constrastive dataset without graph splitting."""
     (tmp_path / "processed").mkdir()
     return DummyGraphTaskDataset(
-        raw_graph_path="test10.json",
+        raw_graph_path="test10",
         root="tasks/sample_test_data",
         output_graph_path=tmp_path,
         split_graphs=False,
@@ -67,11 +80,12 @@ def graph_dataset(tmp_path: pathlib.Path):
 
 
 def test_process_split(split_dataset: DummyNodeTaskDataset):
+    """Test the process method for a dataset with graph splitting."""
     split_dataset.process()
     data = []
     for x in split_dataset:
         data += [x]
-        assert torch.sum(x.y_mask) == 1
+        assert torch.sum(x.y[Labels.Ys] != -100) == 1
 
     assert len(split_dataset) == 15
     assert len(data) == 15
@@ -79,6 +93,7 @@ def test_process_split(split_dataset: DummyNodeTaskDataset):
 
 
 def test_node_process(dataset: DummyNodeTaskDataset):
+    """Test the process method for a dataset without graph splitting."""
     dataset.process()
     data = []
     for x in dataset:
@@ -90,6 +105,7 @@ def test_node_process(dataset: DummyNodeTaskDataset):
 
 
 def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
+    """Test the process method for a contrastive dataset."""
     graph_dataset.process()
     data = []
     for x in graph_dataset:
@@ -100,11 +116,14 @@ def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
     res = graph_dataset.collate_fn(data)
 
     assert res["y"][ContrastiveLabels.Ys].shape == (10,)
-    assert res["y"][ContrastiveLabels.YMask].shape == (10,)
     assert res["y"][ContrastiveLabels.HardYs].shape == (10,)
 
 
 def test_flatten_graph(dataset: DummyNodeTaskDataset):
+    """
+    Test the flatten graph method, which converts a json tree to a flat graph
+    with distances.
+    """
     tree = {
         "id": "root",
         "images": ["image1.png"],
@@ -142,8 +161,7 @@ def test_flatten_graph(dataset: DummyNodeTaskDataset):
     assert flattened_graph["id"] == ["root", "child1", "child2"]
     assert flattened_graph["parent_id"] == ["root", "root", "root"]
     assert flattened_graph["is_root"] == [True, False, False]
-    assert [x[Labels.Ys] for x in flattened_graph["y"]] == [True, True, False]
-    assert flattened_graph["y_mask"] == [True, True, False]
+    assert [x[Labels.Ys] for x in flattened_graph["y"]] == [True, True, -100]
     assert flattened_graph["distances"] == [
         {"root": [0, 0], "child1": [0, 1], "child2": [0, 1]},
         {"root": [1, 0], "child1": [0, 0], "child2": [1, 1]},
@@ -157,6 +175,7 @@ def test_flatten_graph(dataset: DummyNodeTaskDataset):
 
 
 def test_process_graph(dataset: DummyNodeTaskDataset):
+    """Test the end-to-end process of an individual graph."""
     json_data = {
         "id": "root",
         "images": [],
@@ -181,8 +200,7 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
 
     assert data.text is not None
     assert data.edge_index.tolist() == [[0, 1, 2], [0, 0, 0]]
-    assert data.y[Labels.Ys].tolist() == [True, True, False]
-    assert data.y_mask.tolist() == [True, True, False]
+    assert data.y[Labels.Ys].tolist() == [True, True, -100]
     assert data.image_mask.tolist() == [False, False, False]
     assert data.distance.tolist() == [
         [[0, 0], [0, 1], [0, 1]],

@@ -1,3 +1,12 @@
+"""Task dataset for hate speech detection, as used in mDT.
+
+Hebert, L., Sahu, G., Guo, Y., Sreenivas, N. K., Golab, L., & Cohen, R. (2024).
+Multi-Modal Discussion Transformer: Integrating Text, Images and Graph
+Transformers to Detect Hate Speech on Social Media.
+Proceedings of the AAAI Conference on Artificial Intelligence,
+38(20), 22096-22104. https://doi.org/10.1609/aaai.v38i20.30213
+"""
+
 import logging
 from typing import Any
 
@@ -19,6 +28,7 @@ class HatefulDiscussions(NodeBatchedDataDataset):
     not_hate_labels: list[str] = ["Neutral", "lti_normal", "NDG", "HOM"]
 
     def has_node_labels(self) -> bool:
+        """Indicating that the dataset has node labels."""
         return True
 
     def retrieve_label(self, data: dict[str, Any]) -> dict[str, bool | int]:
@@ -31,26 +41,24 @@ class HatefulDiscussions(NodeBatchedDataDataset):
         Returns:
             tuple[int, bool]: _description_
         """
-        assert (
-            "label" in data
-        ), '"label" key not found in data, please check that the data format is compatible with HatefulDiscussions.'
+        assert "label" in data, (
+            '"label" key not found in data, please check that the data format ',
+            "is compatible with HatefulDiscussions.",
+        )
 
         label = data["label"]
 
         if label in self.hate_labels:
             return {
                 Labels.Ys: 1,
-                Labels.YMask: True,
             }
         elif label in self.not_hate_labels:
             return {
                 Labels.Ys: 0,
-                Labels.YMask: True,
             }
         else:
             if label != "NA":
                 logging.info("Encountered unknown label: %s", label)
             return {
-                Labels.Ys: -1,
-                Labels.YMask: False,
+                Labels.Ys: -100,
             }

@@ -36,3 +36,6 @@ trainer:
 data:
   num_workers: 0 # debuggers don't like multiprocessing
   pin_memory: False # disable gpu memory pin
+  dataset:
+    debug: True
+    force_reload: True

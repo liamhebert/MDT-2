@@ -1,22 +1,33 @@
+"""Dataset wrappers for collation of multiple graphs into a single batch."""
+
 from abc import abstractmethod
 
 import torch
 from torch_geometric.data import Data
 
-from data import collator_utils
+from data import collator_utils, collator_utils_v2
 from data.types import ContrastiveLabels
 from data.types import Labels
 from tasks.dataset import TaskDataset
+from torch.nn.attention.flex_attention import _DEFAULT_SPARSE_BLOCK_SIZE
 
 
 class CollatedDataset(TaskDataset):
+    """
+    Dataset wrapper to include a function to collate multiple graphs of various
+    sizes into a single batch.
+    """
+
+    def __init__(self, *args, use_flattened_collator: bool = True, **kwargs):
+        self.use_flattened_collator = use_flattened_collator
+        super().__init__(*args, **kwargs)
 
     @abstractmethod
     def label_collate_fn(
         self,
         batch: list[Data],
         batch_size: int,
-        max_nodes: int,
+        max_nodes: int | None = None,
     ) -> dict[str, torch.Tensor]: ...
 
     def collate_fn(self, batch: list[Data]) -> Data:
@@ -60,7 +71,8 @@ class CollatedDataset(TaskDataset):
             - attn_bias: (torch.Tensor) batched attention biases, with shape
                 [batch_size * num_nodes, batch_size * num_nodes].
             - segment_ids: (torch.Tensor) batched segment ids, indicating which
-                graph a given node belongs to, with shape [batch_size * num_nodes].
+                graph a given node belongs to, with shape
+                [batch_size * num_nodes].
             - spatial_pos: (torch.Tensor) batched spatial positions, with shape
                 [batch_size * num_nodes, 2].
             - in_degree: (torch.Tensor) batched in-degrees, with shape
@@ -91,18 +103,31 @@ class CollatedDataset(TaskDataset):
             collator_utils.extract_and_merge_features(graphs)
         )
 
-        collated_output = collator_utils.generic_collator(
-            graph_features, text_features, image_features, self.spatial_pos_max
-        )
-        # TODO(liamhebert): If we swap to a flattened batch, this will break.
-        batch_size, num_nodes = collated_output["node_mask"].shape
+        if self.use_flattened_collator:
+            collated_output = collator_utils_v2.generic_collator(
+                graph_features,
+                text_features,
+                image_features,
+                _DEFAULT_SPARSE_BLOCK_SIZE,
+            )
+            batch_size = collated_output["graph_ids"].max() + 1
+            num_nodes = collated_output["in_degree"].shape[0]
+        else:
+            collated_output = collator_utils.generic_collator(
+                graph_features,
+                text_features,
+                image_features,
+                self.spatial_pos_max,
+            )
+            # TODO(liamhebert): If we swap to a flattened batch, this will break.
+            batch_size, num_nodes = collated_output["node_mask"].shape
 
         # TODO(liamhebert): Consider making this generic to collate extra
         # features beyond just the labels.
-        collated_output["y"] = self.label_collate_fn(
-            graphs, batch_size, num_nodes
-        )
-        return collated_output
+        return {
+            "x": collated_output,
+            "y": self.label_collate_fn(graphs, batch_size, num_nodes),
+        }
 
 
 class ContrastiveTaskDataset(CollatedDataset):
@@ -111,7 +136,7 @@ class ContrastiveTaskDataset(CollatedDataset):
     """
 
     def label_collate_fn(
-        self, batch: list[Data], batch_size: int, max_nodes: int
+        self, batch: list[Data], batch_size: int, max_nodes: int | None = None
     ) -> dict[str, torch.Tensor]:
         """Collate function specific to contrastive learning tasks.
 
@@ -131,14 +156,10 @@ class ContrastiveTaskDataset(CollatedDataset):
                 ContrastiveLabels.HardYs,
             ]
         }
-        out[ContrastiveLabels.YMask] = torch.cat(
-            [item.y_mask for item in batch]
-        ).flatten()
 
         for key in [
             ContrastiveLabels.HardYs,
             ContrastiveLabels.Ys,
-            ContrastiveLabels.YMask,
         ]:
             assert out[key].shape == (
                 batch_size,
@@ -152,42 +173,52 @@ class NodeBatchedDataDataset(CollatedDataset):
     """
 
     def label_collate_fn(
-        self, batch: list[Data], batch_size: int, max_nodes: int
+        self, batch: list[Data], batch_size: int, max_nodes: int | None = None
     ) -> dict[str, torch.Tensor]:
         """Collate function specific to node prediction tasks.
 
         Each item follows the data structure as the general collate function but
         with each item having the following version specific attributes:
-        - y_mask: (torch.Tensor) boolean tensor for each node in the graph
-            indicating if it has a label
         - y: (torch.Tensor) tensor of labels for each node in the graph.
             If a node does not have a label, it is padded with 0
         """
-        # TODO(liamhebert): Update docstring
 
-        out: dict[str, torch.Tensor] = {
-            Labels.Ys: torch.cat(
-                [
-                    collator_utils.pad_1d_unsqueeze(
-                        item.y[Labels.Ys], max_nodes, -1, False
-                    )
-                    for item in batch
-                ]
-            ),
-            Labels.YMask: torch.cat(
-                [
-                    collator_utils.pad_1d_unsqueeze(
-                        item.y_mask, max_nodes, False, False
-                    )
-                    for item in batch
-                ]
-            ),
-        }
+        out: dict[str, torch.Tensor] = {}
 
-        for key in [Labels.Ys, Labels.YMask]:
-            assert out[key].shape == (
-                batch_size,
-                max_nodes,
-            ), f"{key}: {out[key].shape} != {(batch_size, max_nodes)}"
+        if self.use_flattened_collator:
+            out = {
+                Labels.Ys: torch.cat([item.y[Labels.Ys] for item in batch]),
+            }
+            if max_nodes is not None:
+                have_nodes = out[Labels.Ys].shape[0]
+                padding = torch.full((max_nodes - have_nodes,), -100)
+                out[Labels.Ys] = torch.cat([out[Labels.Ys], padding.long()])
+
+            # TODO(liamhebert): Not sure what kind of assert would be good here,
+            # batch size maybe?
+
+            # for key in [Labels.Ys, Labels.YMask]:
+            #     assert out[key].shape == (
+            #         batch_size,
+            #     ), f"{key}: {out[key].shape} != {(batch_size, max_nodes)}"
+
+        else:
+            assert max_nodes is not None, "max_nodes must be provided"
+            out = {
+                Labels.Ys: torch.cat(
+                    [
+                        collator_utils.pad_1d_unsqueeze(
+                            item.y[Labels.Ys], max_nodes, -100, False
+                        )
+                        for item in batch
+                    ]
+                ),
+            }
+
+            for key in [Labels.Ys, Labels.YMask]:
+                assert out[key].shape == (
+                    batch_size,
+                    max_nodes,
+                ), f"{key}: {out[key].shape} != {(batch_size, max_nodes)}"
 
         return out

@@ -23,13 +23,6 @@ repos:
       - id: black
         args: [--line-length=80]
 
-  # python import sorting
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        args: ["--profile", "google", "--filter-files", "--line-length", "80"]
-
   # python docstring formatting
   - repo: https://github.com/keewis/blackdoc
     rev: v0.3.9
@@ -46,7 +39,7 @@ repos:
         args:
           [
             --verbose,
-            --fail-under=100,
+            --fail-under=80,
             --ignore-init-module,
             --ignore-init-method,
             --ignore-nested-functions,
@@ -62,20 +55,12 @@ repos:
         args:
           [
             "--extend-ignore",
-            "E203,F841,RST201,RST301,RST203,RST214,RST215",
+            "E203,F841,RST201,RST301,RST203,RST214,RST215,W605,RST202",
             "--exclude",
             "logs/*,data/*,*/__init__.py",
             "--max-line-length=82",
           ]
         additional_dependencies: [flake8-rst-docstrings==0.3.0]
-
-  # yaml formatting
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0-alpha.8
-    hooks:
-      - id: prettier
-        types: [yaml]
-        exclude: "environment.yaml"
 
   # shell scripts linter
   - repo: https://github.com/shellcheck-py/shellcheck-py

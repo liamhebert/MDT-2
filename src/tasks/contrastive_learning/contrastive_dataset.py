@@ -1,11 +1,17 @@
+"""Contrastive pre-training dataset for the contrastive learning task."""
+
 import logging
 from typing import Any
 
 from data.types import ContrastiveLabels
-from tasks.dataset import ContrastiveTaskDataset
+from data.collated_datasets import ContrastiveTaskDataset
 
 
 class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
+    """
+    Task dataset for Contrastive DisCo Pre-Training.
+    """
+
     def __init__(self, **kwargs):
         groups = {
             "Partisan A": {
@@ -164,7 +170,7 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
         # Map to convert a subreddit name to a group
         self.idx_map = {}
         idx = 0
-        for _, value in self.groups.items():
+        for _, value in groups.items():
             a = idx
             b = idx + 1
             idx += 2
@@ -175,41 +181,47 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
                     pos, neg = b, a
                 for subreddit in subreddits:
                     if subreddit in self.idx_map:
-                        logging.error("Duplicate index found: %s", subreddit)
+                        logging.warning("Duplicate index found: %s", subreddit)
                     self.idx_map[subreddit] = (pos, neg)
 
         super().__init__(**kwargs)
 
     def has_graph_labels(self) -> bool:
+        """Indicating that the dataset has graph labels."""
         return True
 
     def retrieve_label(self, data: dict[str, Any]) -> dict[str, bool | int]:
-        """Retrieves the label for the comment corresponding to
-        HatefulDiscussions.
+        """Retrieves the graph label from the root node.
+
+        Since has_graph_labels is True, this function is only called on the root
+        node of the graph. This function is called with the "data" field of the
+        node, which contains whatever auxiliary information is available for the
+        node.
 
         Args:
             data (dict[str, Any]): The metadata of the comment.
 
         Returns:
-            tuple[int, bool]: _description_
+            dict[str, bool | int]: The label information for the node, which must
+                contain "Ys" and "YMask" as keys.
         """
-        assert (
-            "label" in data
-        ), '"label" key not found in data, please check that the data format is compatible with HatefulDiscussions.'
+        assert "label" in data, (
+            '"label" key not found in data, please check that the data format ',
+            "is compatible with HatefulDiscussions.",
+        )
 
         subreddit = data["subreddit"]
         if subreddit not in self.idx_map:
+            # Ideally, this should never happen.
             logging.error("Subreddit not found: %s", subreddit)
             return {
-                ContrastiveLabels.Ys: -1,
-                ContrastiveLabels.YMask: False,
-                ContrastiveLabels.HardYs: -1,
+                ContrastiveLabels.Ys: -100,
+                ContrastiveLabels.HardYs: -100,
             }
 
         pos, neg = self.idx_map[subreddit]
 
         return {
             ContrastiveLabels.Ys: pos,
-            ContrastiveLabels.YMask: True,
             ContrastiveLabels.HardYs: neg,
         }

@@ -395,6 +395,12 @@ def generic_collator(
         ]
     )
 
+    # add graph ids for flat masking later
+    # NOTE: This still has (B, N) shape, whereas later we will need (B * N,)
+    graph_id = torch.arange(node_mask.size(0)).unsqueeze(1)
+    graph_id = graph_id.expand(-1, node_mask.size(1)).clone()
+    graph_id[node_mask == 0] = -1
+
     # Remove placeholder images
     # TODO(liamhebert): This should be static, with mask, versus dynamic sizes
     # of images. To make this more efficient, we should set a maximum number of
@@ -440,4 +446,5 @@ def generic_collator(
         "text_input": collated_text_features,
         "image_inputs": {"pixel_values": filtered_image},
         "image_padding_mask": image_padding,
+        "graph_ids": graph_id,
     }

@@ -21,10 +21,8 @@ class ImageFeatures(StrEnum):
 
 class Labels(StrEnum):
     Ys = "ys"
-    YMask = "y_mask"
 
 
 class ContrastiveLabels(StrEnum):
     Ys = "ys"
-    YMask = "y_mask"
     HardYs = "hard_ys"

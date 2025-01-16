@@ -1,13 +1,13 @@
-_target_: dataset.DataModule
+_target_: datamodule.DataModule
 train_batch_size: 8
 test_batch_size: 32
 num_workers: 8
 pin_memory: True
 
 dataset:
-  _target_: tasks.hateful_discussions.hateful_discussions.HatefulDiscussions
-  root_dir: ${paths.data_dir}
-  raw_graph_path: raw_files/*.json
+  _target_: "tasks.test_dataset.DummyNodeTaskDataset"
+  root: "tasks/sample_test_data"
+  raw_graph_path: "test10"
   output_graph_path: ${paths.data_dir}/processed_files
 
   train_size: 0.8
@@ -19,7 +19,9 @@ dataset:
   image_tokenizer_key: ${modality_encoder.vision_model_name}
   text_tokenizer_key: ${modality_encoder.text_model_name}
 
-  split_graphs: False
-  strict: True
+  split_graphs: True
+  strict: False
   max_distance_length: 6
   force_reload: True
+  debug: True
+  max_text_length: 10

@@ -85,7 +85,7 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
         bert_hidden_states: torch.Tensor,
         vit_hidden_states: torch.Tensor,
         bottle_neck: torch.Tensor,
-        image_indices: torch.Tensor,
+        image_padding_mask: torch.Tensor,
         bert_attention_mask: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Computes both modality layers with bottle_neck information passing.
@@ -101,7 +101,7 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
                 num_bottleneck, hidden_size) representing the hidden state of
                 the bottleneck tokens. These tokens are added to both inputs and
                 then removed before returning.
-            image_indices (torch.Tensor): Boolean tensor of shape
+            image_padding_mask (torch.Tensor): Boolean tensor of shape
                 (batch_size) indicating whether that position has an image or
                 not.
             bert_attention_mask (torch.Tensor, optional): Tensor of shape
@@ -121,14 +121,17 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
                 with shape (batch_size, num_bottleneck, hidden_size).
         """
         text_batch, _, text_dim = bert_hidden_states.shape
-        vision_batch, _, vision_dim = vit_hidden_states.shape
+
         (
             bottleneck_batch,
             num_bottleneck_tokens,
             bottleneck_dim,
         ) = bottle_neck.shape
-        assert text_dim == vision_dim == bottleneck_dim
+        assert text_dim == bottleneck_dim
         assert text_batch == bottleneck_batch
+        if vit_hidden_states is not None:
+            _, _, vision_dim = vit_hidden_states.shape
+            assert vision_dim == bottleneck_dim
 
         # TODO(liamhebert): Eventually, we will want to uncomment this line
         # once we have static sizes for vision and text inputs.
@@ -158,16 +161,20 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
         # TODO(liamhebert): Check how this behaves when some images are present
         # and others are not.
         if vit_hidden_states is not None:
+            assert image_padding_mask.dtype == torch.bool, (
+                f"Mask must be bool, got {image_padding_mask=}, "
+                f"{image_padding_mask.dtype=}"
+            )
             vit_hidden_states_in = torch.cat(
-                [bottle_neck[image_indices], vit_hidden_states], dim=1
+                [bottle_neck[image_padding_mask], vit_hidden_states], dim=1
             )
 
             vit_hidden_output_out = self.vit_forward(vit_hidden_states_in)
             vit_hidden_output = vit_hidden_output_out[:, num_bottleneck_tokens:]
 
-            bottle_neck_output[image_indices] = (
+            bottle_neck_output[image_padding_mask] = (
                 vit_hidden_output_out[:, :num_bottleneck_tokens]
-                + bottle_neck_output[image_indices]
+                + bottle_neck_output[image_padding_mask]
             ) / 2
 
         else:
@@ -337,7 +344,7 @@ class GraphFusionStack(nn.Module):
         bert_hidden_states: torch.Tensor,
         vit_hidden_states: torch.Tensor,
         bottle_neck: torch.Tensor,
-        image_indices: torch.Tensor,
+        image_padding_mask: torch.Tensor,
         bert_attention_mask: Optional[torch.FloatTensor] = None,
     ):
         """Computes the stack of text and image layers with bottleneck
@@ -354,7 +361,7 @@ class GraphFusionStack(nn.Module):
                 num_bottleneck, hidden_size) representing the hidden state of
                 the bottleneck tokens. These tokens are added to both inputs and
                 then removed before returning.
-            image_indices (torch.Tensor, optional): Boolean tensor of shape
+            image_padding_mask (torch.Tensor, optional): Boolean tensor of shape
                 (batch_size) indicating whether that position has an image or
                 not. Defaults to None.
             bert_attention_mask (torch.Tensor, optional): Tensor of shape
@@ -376,7 +383,7 @@ class GraphFusionStack(nn.Module):
                 bert_hidden_states=bert_hidden_states,
                 vit_hidden_states=vit_hidden_states,
                 bottle_neck=bottle_neck,
-                image_indices=image_indices,
+                image_padding_mask=image_padding_mask,
                 bert_attention_mask=bert_attention_mask,
             )
 

@@ -1,13 +1,13 @@
-_target_: dataset.DataModule
+_target_: datamodule.DataModule
 train_batch_size: 8
 test_batch_size: 32
 num_workers: 8
 pin_memory: True
 
 dataset:
-  _target_: tasks.contrastive_learning.contrastive_dataset.ContrastivePreTrainingDataset
-  root_dir: ${paths.data_dir}
-  raw_graph_path: raw_files/*/*.json
+  _target_: tasks.hateful_discussions.hateful_discussions.HatefulDiscussions
+  root: ${paths.data_dir}
+  raw_graph_path: raw_files/*.json
   output_graph_path: ${paths.data_dir}/processed_files
 
   train_size: 0.8
@@ -23,4 +23,3 @@ dataset:
   strict: True
   max_distance_length: 6
   force_reload: True
-

@@ -1,4 +1,4 @@
 defaults:
   - default
   - override loss: cross_entropy
-  - override encoder: debug
+  - override encoder: debug_v2

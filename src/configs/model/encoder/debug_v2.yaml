@@ -1,13 +1,14 @@
 defaults:
-  - base
+  - base_v2
 
-embedding_dim: 10
+embedding_dim: 16
 
-graph_stack_config:
+graph_stack_factory:
   num_layers: 2
-  ffn_embedding_dim: 20
-  num_attention_heads: 2
-  dropout: 0.0
+  graph_tfmr_factory:
+    n_heads: 2
+    n_kv_heads: 2
+    ffn_dim: 32
 
 # 1 fusion stack with 2 layers
 num_fusion_stack: 1
@@ -17,9 +18,9 @@ text_model_config:
   # L=4, A=1, H=10
   test_config:
     _target_: transformers.BertConfig
-    hidden_size: 10
-    intermediate_size: 20
-    vocab_size: 10
+    hidden_size: "${model.encoder.embedding_dim}"
+    intermediate_size: 32
+    vocab_size: 16
     max_position_embeddings: 20
     num_hidden_layers: 4
     num_attention_heads: 1
@@ -28,11 +29,11 @@ vit_model_config:
   # L=4, A=1, H=10
   test_config:
     _target_: transformers.ViTConfig
-    hidden_size: 10
+    hidden_size: "${model.encoder.embedding_dim}"
     intermediate_size: 20
-    image_size: 100
-    patch_size: 10
-    encoder_stride: 10
+    image_size: 128
+    patch_size: 16
+    encoder_stride: 16
     num_hidden_layers: 4
     num_attention_heads: 1
 

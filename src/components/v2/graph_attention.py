@@ -144,13 +144,17 @@ class RotaryEmbedding(torch.nn.Module):
         tok_idx: torch.Tensor | None = None,
     ):
         """
-        Return freqs_cis corresponding to consecutive seqlen positions or the corresponding tok_idx positions
+        Return freqs_cis corresponding to consecutive seqlen positions or the
+        corresponding tok_idx positions
+
         Args:
             seqlen (int): Contiguous sequence length
-            tok_idx (torch.Tensor[int]): Position indices of each token this overrides seqlen
+            tok_idx (torch.Tensor[int]): Position indices of each token this
+                overrides seqlen
 
         Returns:
-            Tuple(torch.Tensor, torch.Tensor): Embedded input tensor and freqs_cis
+            Tuple(torch.Tensor, torch.Tensor): Embedded input tensor and
+                freqs_cis
         """
         test = (seqlen is not None) or (tok_idx is not None)
         assert test, "Should provide at least seqlen or tok_idx"
@@ -229,7 +233,7 @@ class Attention(nn.Module):
             assert mask is None or isinstance(mask, BlockMask)
             xq, xk, xv = map(lambda e: e.transpose(1, 2), (xq, xk, xv))
             output = flex_attention_comp(xq, xk, xv, block_mask=mask)
-            assert type(output) == torch.Tensor
+            assert isinstance(output, torch.Tensor)
             output = output.transpose(1, 2).contiguous()  # B H S D -> B S H D
         else:
             raise NotImplementedError(
@@ -237,7 +241,6 @@ class Attention(nn.Module):
             )
 
         output = self.wo(output.reshape(output_shape))
-        assert type(output) == torch.Tensor
 
         return output
 

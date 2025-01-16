@@ -9,7 +9,7 @@ Proceedings of the AAAI Conference on Artificial Intelligence,
 38(20), 22096-22104. https://doi.org/10.1609/aaai.v38i20.30213
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 from omegaconf import DictConfig
 import torch
@@ -27,10 +27,13 @@ from transformers.models.vit.modeling_vit import ViTPooler
 
 from components.graph_fusion_layer import GraphFusionStack
 from components.v1.custom_attn import MultiheadAttention
-from components.v1.graph_encoder_layer import GraphEncoderStack
+from components.v2.graph_encoder_layer import BaseGraphTransformer
 from components.v2.feature_layers import GraphAttnBias
 from components.v2.feature_layers import GraphNodeFeature
+from components.v2.graph_attention_mask import generate_graph_attn_mask_mod
 from utils.pylogger import RankedLogger
+
+from data.types import TextFeatures
 
 logger = RankedLogger(rank_zero_only=True)
 
@@ -86,8 +89,7 @@ class DiscussionTransformer(nn.Module):
     def __init__(
         self,
         graph_node_feature: GraphNodeFeature,
-        graph_attn_bias: GraphAttnBias,
-        graph_stack_config: DictConfig,
+        graph_stack_factory: Callable[[int], BaseGraphTransformer],
         vit_model_config: DictConfig,
         text_model_config: DictConfig,
         num_bottle_neck: int,
@@ -187,7 +189,6 @@ class DiscussionTransformer(nn.Module):
 
         self.embedding_dim = embedding_dim
         self.graph_node_feature = graph_node_feature
-        self.graph_attn_bias = graph_attn_bias
 
         self.embed_scale = embed_scale
 
@@ -226,13 +227,10 @@ class DiscussionTransformer(nn.Module):
 
         num_fusion_layers = len(self.fusion_layers)
 
-        self.graphormer_layers = nn.ModuleList([])
-        self.graphormer_layers.extend(
+        self.graphormer_layers = nn.ModuleList(
             [
-                self.build_graphormer_graph_encoder_layer(
-                    **graph_stack_config  # type: ignore[misc]
-                )
-                for _ in range(num_fusion_layers + 1)
+                graph_stack_factory(depth=i)
+                for i in range(num_fusion_layers + 1)  # type: ignore
             ]
         )
 
@@ -441,79 +439,35 @@ class DiscussionTransformer(nn.Module):
 
         return bert, bert_other_layers, bert.pooler
 
-    def build_graphormer_graph_encoder_layer(
-        self,
-        embedding_dim: int,
-        ffn_embedding_dim: int,
-        num_attention_heads: int,
-        dropout: float,
-        attention_dropout: float,
-        activation_dropout: float,
-        activation_fn: nn.Module,
-        num_layers=1,
-    ) -> GraphEncoderStack:
-        """Builds a stack of consecutive Graphormer encoder layers.
-
-        This class is useful to make it easier to configure consecutive layers.
-        See GraphEncoderStack for more details.
-
-        Args:
-            embedding_dim (int): The dimension of the input embeddings.
-            ffn_embedding_dim (int): The dimension of the feedforward network
-                used in attention.
-            num_attention_heads (int): The number of attention heads. Must
-                divide embedding_dim.
-            dropout (float): The input dropout probability.
-            attention_dropout (float): The dropout probability for attention
-                weights.
-            activation_dropout (float): The dropout probability for the
-                activation function.
-            activation_fn (nn.Module): The activation function to use.
-            num_layers (int, optional): The number of consecutive graphormer
-                layers to stack. Defaults to 1.
-
-        Returns:
-            GraphEncoderStack: A network module that calls num_layers of
-                GraphEncoderLayer consecutively.
-        """
-        return GraphEncoderStack(
-            num_layers=num_layers,
-            embedding_dim=embedding_dim,
-            ffn_embedding_dim=ffn_embedding_dim,
-            num_attention_heads=num_attention_heads,
-            dropout=dropout,
-            attention_dropout=attention_dropout,
-            activation_dropout=activation_dropout,
-            activation_fn=activation_fn,
-        )
-
     def forward(
         self,
-        text_input_ids: torch.Tensor,
-        text_token_type_ids: torch.Tensor,
-        text_attention_mask: torch.Tensor,
-        image_inputs: torch.Tensor,
+        text_input: dict[str, torch.Tensor],
+        image_inputs: dict[str, torch.Tensor],
         image_padding_mask: torch.Tensor,
         graph_ids: torch.Tensor,
         spatial_pos: torch.Tensor,
         in_degree: torch.Tensor,
         out_degree: torch.Tensor,
+        num_total_graphs: int,
+        **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """The forward function of the Discussion Transformer model.
 
         Args:
             == Text inputs ==
-            text_input_ids (torch.Tensor): batched tokenized text ids, with shape
-                (batch_size * nodes, T)
-            text_token_type_ids (torch.Tensor): batched token type ids, with shape
-                (batch_size * nodes, T)
-            text_attention_mask (torch.Tensor): batched text attention mask, with
-                shape (batch_size * nodes, T), where 1 indicates a token that
-                should be attended to and 0 indicates padding.
+            text_input (dict[str, torch.Tensor]): The tokenized text inputs,
+                containing:
+                - text_input_ids (torch.Tensor): batched tokenized text ids, with
+                    shape (batch_size * nodes, T)
+                - text_token_type_ids (torch.Tensor): batched token type ids, with
+                    shape (batch_size * nodes, T)
+                - text_attention_mask (torch.Tensor): batched text attention mask,
+                    with shape (batch_size * nodes, T), where 1 indicates a token
+                    that should be attended to and 0 indicates padding.
 
             == Image inputs ==
-            image_inputs (torch.Tensor): batched and tokenized image features, with
-                shape (batch_size * nodes, D)
+            image_inputs (torch.Tensor): batched and tokenized image features,
+                with shape (batch_size * nodes, D)
             image_padding_mask (torch.Tensor): batched boolean tensor indicating
                 whether a node has an image. Shape (batch_size * nodes).
 
@@ -521,6 +475,7 @@ class DiscussionTransformer(nn.Module):
             graph_ids (torch.Tensor): Id of the graph each node belongs to,
                 where padding nodes are assigned the value PADDING_GRAPH_ID, with
                 shape (batch_size * nodes). This is used to mask out attention.
+                It is assumed that the graph_ids are contiguous and start from 0.
             spatial_pos (torch.Tensor): Matrix with shape
                 (batch_size * nodes, batch_size * nodes, 2) indicating the
                 number of up hops and down hops between each node in the graph.
@@ -530,6 +485,9 @@ class DiscussionTransformer(nn.Module):
             out_degree (torch.Tensor): batched out-degrees, corresponding to the
                 out-degree of each node in the graph. Padded with 0s and shifted
                 by 1. Shape (batch_size * nodes).
+            num_total_graphs (int): Total number of unique graphs in the batch,
+                shape (). Note that this is different then graph_ids, which is
+                node-wise.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: Returns
@@ -540,92 +498,89 @@ class DiscussionTransformer(nn.Module):
         """
         # Ideally, we keep a consistent shape and just flatten here, rather then
         # having to dynamically index here. Attention mask should handle this.
-        bert_output = self.text_model(
-            token_type_ids=text_token_type_ids,
-            attention_mask=text_attention_mask,
-            input_ids=text_input_ids,
-        ).last_hidden_state
+        bert_output = self.text_model(**text_input).last_hidden_state
+        text_attention_mask = text_input[TextFeatures.AttentionMask]
 
         flattened_batch, seq_len, hidden_dim = bert_output.size()
 
-        if image_inputs is not None:
-            # TODO(liamhebert): Add image padding mask
-            vit_output = self.vit_model(image_inputs).last_hidden_state
+        if image_inputs["pixel_values"].shape[0] > 0:
+            vit_output = self.vit_model(**image_inputs).last_hidden_state
         else:
             vit_output = None
 
         bottle_neck = self.bottle_neck.weight.repeat(flattened_batch, 1, 1)
 
         bert_output, vit_output, bottle_neck = self.fusion_layers[0](
-            bert_output,
-            vit_output,
-            bottle_neck,
-            text_attention_mask,
-            image_padding_mask,
+            bert_hidden_states=bert_output,
+            vit_hidden_states=vit_output,
+            bottle_neck=bottle_neck,
+            image_padding_mask=image_padding_mask,
+            bert_attention_mask=text_attention_mask,
+        )
+        graph_x = bottle_neck[:, 0, :]
+        assert graph_x.size() == (flattened_batch, hidden_dim)
+
+        graph_x, graph_ids = self.graph_node_feature(
+            graph_x, out_degree, graph_ids, num_total_graphs
         )
 
-        bottle_neck_nodes = bottle_neck[:, 0, :]
-        assert bottle_neck_nodes.size() == (flattened_batch, hidden_dim)
-
-        # compute padding mask. This is needed for multi-head attention
-        graph_x = bottle_neck_nodes
-        # Assumes that PADDING_GRAPH_ID is -1
-        unique_graph_ids = torch.count_nonzero(graph_ids) + 1
-
-        padding_mask_cls = torch.zeros(
-            unique_graph_ids,
-            1,
-            device=text_attention_mask.device,
-            dtype=text_attention_mask.dtype,
+        # add on the key dimension
+        virtual_distance = torch.zeros_like(spatial_pos[0, :]).expand(
+            (num_total_graphs, -1)
         )
+        spatial_pos = torch.cat((spatial_pos, virtual_distance), dim=0)
 
-        padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
-        mask = torch.cat((padding_mask_cls, node_mask), dim=1)
-        # B x (T+1) x 1
+        # add on the query dimension
+        virtual_distance = torch.zeros_like(spatial_pos[:, 0]).expand(
+            (num_total_graphs, -1)
+        )
+        spatial_pos = torch.cat((spatial_pos, virtual_distance.T), dim=1)
 
-        graph_x = self.graph_node_feature(graph_x, in_degree, out_degree)
+        # TODO(liamhebert): update spatial pos with new graph ids, distance for
+        # each of those nodes.
 
-        # x: B x T x C
-
-        attn_bias = self.graph_attn_bias(attn_bias, spatial_pos)
-
-        graph_x = graph_x * self.embed_scale
+        assert (
+            graph_ids.shape == graph_x.shape[:1]
+        ), f"Expected same shape, got {graph_ids.shape=} and {graph_x.shape[:1]=}"
 
         if self.emb_layer_norm is not None:
             graph_x = self.emb_layer_norm(graph_x)
+
+        flex_block_mask = generate_graph_attn_mask_mod(
+            graph_ids,
+            spatial_pos,
+            num_heads=self.graphormer_layers[0].num_heads,
+        )
 
         # account for padding while computing the representation
 
         for g_layer, f_layer in zip(
             self.graphormer_layers[:-1], self.fusion_layers[1:]
         ):
-            graph_x, _ = g_layer(
+
+            graph_x = g_layer(
                 graph_x,
-                self_attn_padding_mask=padding_mask,
-                self_attn_mask=graph_attention_mask,
-                self_attn_bias=attn_bias,
+                mask=flex_block_mask,
             )
 
             # extract bottle_neck tokens
-            bottle_neck[:, 0, :] = graph_x[mask, :]
+            bottle_neck[:, 0, :] = graph_x
 
             bert_output, vit_output, bottle_neck = f_layer(
-                bert_output,
-                vit_output,
-                bottle_neck,
-                padding_mask,
-                image_padding_mask,
+                bert_hidden_states=bert_output,
+                vit_hidden_states=vit_output,
+                bottle_neck=bottle_neck,
+                image_padding_mask=image_padding_mask,
+                bert_attention_mask=text_attention_mask,
             )
 
-            graph_x[mask, :] = bottle_neck[:, 0, :]
+            graph_x = bottle_neck[:, 0, :]
 
-        graph_x, _ = self.graphormer_layers[-1](
+        graph_x = self.graphormer_layers[-1](
             graph_x,
-            self_attn_padding_mask=padding_mask,
-            self_attn_mask=graph_attention_mask,
-            self_attn_bias=attn_bias,
+            mask=flex_block_mask,
         )
 
-        global_embedding = graph_x[:, 0, :]
-        node_embedding = graph_x[:, 1:, :]
+        global_embedding = graph_x[:num_total_graphs, :]
+        node_embedding = graph_x[num_total_graphs:, :]
         return node_embedding, global_embedding

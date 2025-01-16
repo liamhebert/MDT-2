@@ -30,6 +30,7 @@ from components.v1.custom_attn import MultiheadAttention
 from components.v1.feature_layers import GraphAttnBias
 from components.v1.feature_layers import GraphNodeFeature
 from components.v1.graph_encoder_layer import GraphEncoderStack
+
 # from src.components.v2.graph_encoder_layer import GraphEncoderStack
 from utils.pylogger import RankedLogger
 
@@ -488,6 +489,9 @@ class DiscussionTransformer(nn.Module):
     def forward(
         self,
         node_mask: torch.Tensor,
+        token_type_ids: torch.Tensor,
+        text_attention_mask: torch.Tensor,
+        input_ids: torch.Tensor,
         spatial_pos: torch.Tensor,
         attn_bias: torch.Tensor,
         images: torch.Tensor,

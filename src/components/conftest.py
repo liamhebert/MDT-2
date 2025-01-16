@@ -139,7 +139,7 @@ def graph_fusion_layer_input(
         "bert_attention_mask": torch.tile(
             torch.tensor([[1, 1, 1, 0, 0]]), (batch_size, 1)
         ),
-        "image_indices": torch.arange(0, batch_size),
+        "image_padding_mask": torch.ones(batch_size).bool(),
     }
 
 

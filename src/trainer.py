@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from datetime import datetime
 import getpass
 
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import wandb
+from lightning import Trainer
+from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.loggers import wandb
 
 
 @dataclass

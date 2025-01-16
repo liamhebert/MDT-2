@@ -24,7 +24,7 @@ def cfg_train_global() -> DictConfig:
         A DictConfig object containing a default Hydra configuration for
     training.
     """
-    with initialize(version_base="1.3", config_path="configs"):
+    with initialize(version_base=None, config_path="configs"):
         cfg = compose(
             config_name="train.yaml", return_hydra_config=True, overrides=[]
         )
@@ -40,8 +40,14 @@ def cfg_train_global() -> DictConfig:
             cfg.trainer.limit_test_batches = 0.1
             cfg.trainer.accelerator = "cpu"
             cfg.trainer.devices = 1
-            cfg.task.num_workers = 0
-            cfg.task.pin_memory = False
+
+            cfg.dataset.num_workers = 0
+            cfg.dataset.pin_memory = False
+            cfg.modality_encoder.text_model_name = "bert-base-uncased"
+            cfg.modality_encoder.vision_model_name = (
+                "google/vit-base-patch16-224"
+            )
+
             cfg.extras.print_config = False
             cfg.extras.enforce_tags = False
             cfg.logger = None
@@ -58,7 +64,7 @@ def cfg_eval_global() -> DictConfig:
         A DictConfig containing a default Hydra configuration for
     evaluation.
     """
-    with initialize(version_base="1.3", config_path="configs"):
+    with initialize(version_base=None, config_path="configs"):
         cfg = compose(
             config_name="eval.yaml",
             return_hydra_config=True,
@@ -74,8 +80,15 @@ def cfg_eval_global() -> DictConfig:
             cfg.trainer.limit_test_batches = 0.1
             cfg.trainer.accelerator = "cpu"
             cfg.trainer.devices = 1
-            cfg.task.num_workers = 0
-            cfg.task.pin_memory = False
+
+            cfg.dataset.num_workers = 0
+            cfg.dataset.pin_memory = False
+
+            cfg.modality_encoder.text_model_name = "bert-base-uncased"
+            cfg.modality_encoder.vision_model_name = (
+                "google/vit-base-patch16-224"
+            )
+
             cfg.extras.print_config = False
             cfg.extras.enforce_tags = False
             cfg.logger = None
@@ -151,13 +164,13 @@ def test_train_config(cfg_train: DictConfig) -> None:
         cfg_train: A DictConfig containing a valid training configuration.
     """
     assert cfg_train
-    assert cfg_train.task
+    assert cfg_train.dataset
     assert cfg_train.model
     assert cfg_train.trainer
 
     HydraConfig().set_config(cfg_train)
 
-    hydra.utils.instantiate(cfg_train.task)
+    hydra.utils.instantiate(cfg_train.dataset)
     hydra.utils.instantiate(cfg_train.model)
     hydra.utils.instantiate(cfg_train.trainer)
 
@@ -170,13 +183,13 @@ def test_eval_config(cfg_eval: DictConfig) -> None:
         cfg_train: A DictConfig containing a valid evaluation configuration.
     """
     assert cfg_eval
-    assert cfg_eval.task
+    assert cfg_eval.dataset
     assert cfg_eval.model
     assert cfg_eval.trainer
 
     HydraConfig().set_config(cfg_eval)
 
-    hydra.utils.instantiate(cfg_eval.task)
+    hydra.utils.instantiate(cfg_eval.dataset)
     hydra.utils.instantiate(cfg_eval.model)
     hydra.utils.instantiate(cfg_eval.trainer)
 
@@ -189,12 +202,12 @@ def test_test_config(cfg_test: DictConfig) -> None:
         cfg_train: A DictConfig containing a valid evaluation configuration.
     """
     assert cfg_test
-    assert cfg_test.task
+    assert cfg_test.dataset
     assert cfg_test.model
     assert cfg_test.trainer
 
     HydraConfig().set_config(cfg_test)
 
-    hydra.utils.instantiate(cfg_test.task)
+    hydra.utils.instantiate(cfg_test.dataset)
     hydra.utils.instantiate(cfg_test.model)
     hydra.utils.instantiate(cfg_test.trainer)

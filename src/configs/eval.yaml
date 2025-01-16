@@ -1,9 +1,8 @@
 # @package _global_
 
 defaults:
-  - _self_
   - modality_encoder: siglip
-  - task: pretrain # choose datamodule with `test_dataloader()` for evaluation
+  - dataset: pretrain # choose datamodule with `test_dataloader()` for evaluation
   - model: default
   - logger: null
   - trainer: default

@@ -29,8 +29,9 @@ class TaskDataset(Dataset, ABC):
     """Base class for all task-specific datasets.
 
     This class takes care of loading in and preparing raw data into a compatible
-    format for downstream models. Subclasses should implement the retrieve_label
-    function to extract the label from the raw data into the desired task label.
+    format for downstream models. Subclasses should implement the retrieve_label,
+    has_graph_label and has_node_label functions to extract the label from the raw
+    data into the desired task label.
     """
 
     split_graphs: bool = False
@@ -47,6 +48,8 @@ class TaskDataset(Dataset, ABC):
 
     spatial_pos_max: int = 100
 
+    max_text_length: int = 256
+
     _splits: dict[str, list[int]] | None
 
     def __init__(
@@ -62,9 +65,41 @@ class TaskDataset(Dataset, ABC):
         text_tokenizer_key: str = "bert-base-uncased",
         split_graphs: bool = False,
         strict: bool = False,
-        max_distance_length: int = 6,
+        max_distance_length: int = 10,
         force_reload: bool = False,
+        debug: bool = False,
+        max_text_length: int = 256,
     ):
+        """Initializes the TaskDataset.
+
+        Args:
+            root (str): Root data directory for the dataset.
+            raw_graph_path (str | list[str]): Path(s) to the raw graph data files.
+            output_graph_path (str): Path to save the processed graph data files.
+            train_size (int | float | None, optional): Proportion or number of
+                samples to use for training. Defaults to 0.8.
+            valid_size (int | float | None, optional): Proportion or number of
+                samples to use for validation. Defaults to 0.1.
+            test_size (int | float | None, optional): Proportion or number of
+                samples to use for testing. Defaults to 0.1.
+            split_seed (int, optional): Random seed for splitting the dataset.
+                Defaults to 42.
+            image_tokenizer_key (str, optional): Pretrained model key for image
+                tokenization. Defaults to "google/vit-base-patch16-224".
+            text_tokenizer_key (str, optional): Pretrained model key for text
+                tokenization. Defaults to "bert-base-uncased".
+            split_graphs (bool, optional): Whether to split graphs containing
+                multiple labels into multiple graphs. Defaults to False.
+            strict (bool, optional): Whether to raise an error if a graph has no
+                valid labels. Defaults to False.
+            max_distance_length (int, optional): Maximum distance length for
+                relative distance computation. Values beyond that will be clamped
+                to the maximum value. Defaults to 10.
+            force_reload (bool, optional): Whether to force reloading and
+                processing of raw data. Defaults to False.
+            debug (bool, optional): Whether to enable debug mode, which only loads
+                the first 10 graphs from each file. Defaults to False.
+        """
         super().__init__()
 
         self.raw_graph_path = raw_graph_path
@@ -86,8 +121,12 @@ class TaskDataset(Dataset, ABC):
         self.valid_size = valid_size
         self.test_size = test_size
         self.split_seed = split_seed
+        self._splits = None
 
         self.force_reload = force_reload
+        self.debug = debug
+
+        self.max_text_length = max_text_length
 
     def get_idx_mapping(self) -> dict[str, dict[int, list[int]]]:
         idx_mapping: dict[str, dict[int, list[int]]] = {}
@@ -120,6 +159,8 @@ class TaskDataset(Dataset, ABC):
         if self._splits is not None:
             return self._splits
 
+        assert self.raw_paths, "No raw paths found"
+
         dataset_splits: dict[str, dict[str, list[int]]] = {}
         dataset_mappings = self.get_idx_mapping()
 
@@ -135,7 +176,8 @@ class TaskDataset(Dataset, ABC):
 
             if os.path.exists(split_path):
                 log.info(
-                    f"Dataset {dataset_name}: Loading splits from split path {split_path=}"
+                    f"Dataset {dataset_name}: Loading splits from split "
+                    f"path {split_path=}"
                 )
 
                 # First we load in the original values
@@ -152,6 +194,10 @@ class TaskDataset(Dataset, ABC):
                         current_dataset_splits["valid_idx"] = loaded_splits[
                             "test_idx"
                         ]
+                    else:
+                        current_dataset_splits["valid_idx"] = loaded_splits[
+                            "valid_idx"
+                        ]
 
                 # Then we correct them to match the flattened structure of the
                 # dataset
@@ -160,6 +206,10 @@ class TaskDataset(Dataset, ABC):
                     for idx in val:
                         if idx in current_dataset_mapping:
                             corrected_paths += current_dataset_mapping[idx]
+                    assert corrected_paths, (
+                        f"No paths after correction found for {key=},"
+                        f"{corrected_paths=}, {val=}, {current_dataset_mapping=}"
+                    )
                     current_dataset_splits[key] = corrected_paths
             else:
                 # If we don't have a split path, we will generate the splits using
@@ -168,7 +218,8 @@ class TaskDataset(Dataset, ABC):
                     (
                         f"Dataset {dataset_name}: No split path provided,"
                         "generating splits using train_test_split of"
-                        f"{self.train_size=}, {self.valid_size=}, {self.test_size=}"
+                        f"{self.train_size=}, {self.valid_size=}, "
+                        f"{self.test_size=}"
                     )
                 )
 
@@ -184,7 +235,7 @@ class TaskDataset(Dataset, ABC):
                     train_size=self.train_size,
                     random_state=self.split_seed,
                 )
-                if self.valid_size != 0:
+                if self.valid_size is not None and self.valid_size != 0:
                     valid_idx, test_idx = train_test_split(
                         test_valid_idx,
                         test_size=self.test_size
@@ -213,8 +264,8 @@ class TaskDataset(Dataset, ABC):
         log.info("dataset sizes:")
         log.info(pprint.pformat(dataset_sizes))
 
-        # Now we need to flatten dataset_splits into a canonical train, valid, test
-        # split
+        # Now we need to flatten dataset_splits into a canonical train, valid,
+        # test split
         self._splits: dict[str, list[int]] = {
             "train_idx": [],
             "valid_idx": [],
@@ -250,6 +301,13 @@ class TaskDataset(Dataset, ABC):
 
     @property
     def raw_paths(self) -> list[str]:
+        """Returns the set of raw graph file paths in the dataset.
+
+        Notably, this function will expand any glob patterns in the
+        raw_graph_path. Each raw_graph_path should point to a single path such
+        as "test1", of which there exists a "test1-data.json" and
+        "test1-split.json" in the same folder.
+        """
         # a raw_graph_path can be a single path -- "data"
         # or it can be a glob pattern -- "data-*"
         # or it can be a list of paths -- ["data", "data2"]
@@ -264,35 +322,53 @@ class TaskDataset(Dataset, ABC):
         final_paths: list[str] = []
 
         for path in paths:
-            assert "-data.json" not in path
-            assert "-split.json" not in path
-            path = path.replace(".json", "-data.json")
             path = self.root + "/" + path
-            paths_found = list(glob(os.path.expandvars(path)))
-            assert len(paths_found) > 0, f"No files found for {path=}"
-            final_paths.extend(paths_found)
+            if not path.endswith("*.json") and ".json" not in path:
+                path += "*.json"
+            else:
+                raise ValueError(
+                    f"Raw path globs should end with *.json or not contain .json."
+                    f"Got {path=}"
+                )
+
+            # This will include -data.json and -split.json
+            found_paths = list(glob(os.path.expandvars(path)))
+
+            found_data_paths = [x for x in found_paths if "-data.json" in x]
+            for path in found_data_paths:
+                assert os.path.exists(
+                    path.removesuffix("-data.json") + "-split.json"
+                ), f"Missing split file for {path=}"
+
+            assert len(found_data_paths) > 0, f"No files found for {path=}"
+            final_paths.extend(found_data_paths)
 
         return final_paths
 
     @property
     def processed_file_names(self) -> list[str]:
+        """Computes the list of processed graph file names in the dataset."""
         path = os.path.expandvars(f"{self.output_graph_path}/processed")
         return list(glob(f"{path}/*/graph-*.pt"))
 
     def __len__(self) -> int:
+        """Returns the number of processed graphs in the dataset."""
         return len(self.processed_file_names)
 
     @property
     def text_tokenizer(self) -> AutoTokenizer:
+        """Returns the lazily initialized text tokenizer for the dataset."""
         if self._text_tokenizer is None:
             self._text_tokenizer = AutoTokenizer.from_pretrained(
-                self.text_tokenizer_key
+                self.text_tokenizer_key,
+                clean_up_tokenization_spaces=True,
             )
 
         return self._text_tokenizer
 
     @property
     def image_tokenizer(self) -> AutoImageProcessor:
+        """Returns the lazily initialized image tokenizer for the dataset."""
         if self._image_tokenizer is None:
             self._image_tokenizer = AutoImageProcessor.from_pretrained(
                 self.image_tokenizer_key
@@ -302,14 +378,43 @@ class TaskDataset(Dataset, ABC):
 
     @property
     def has_node_labels(self) -> bool:
+        """Indicates whether the dataset has node labels.
+
+        Unless overridden, False.
+        """
         return False
 
     @property
     def has_graph_labels(self) -> bool:
+        """Indicates whether the dataset has graph labels.
+
+        Unless overridden, False.
+        """
         return False
 
     @abstractmethod
-    def retrieve_label(self, data: dict) -> dict[str, bool | int]: ...
+    def retrieve_label(self, data: dict) -> dict[str, bool | int]:
+        """Retrieves the label for a given node using metadata information.
+
+        This function is called with the "data" field of the node, which contains
+        whatever auxiliary information is available for the node.
+
+        If has_node_labels is True, then this function is called on every node in
+        a graph. Otherwise, if has_graph_labels is True, then this function is
+        only called on the root node of the graph.
+
+        Labels are returned as a dictionary which must contain "Ys" and "YMask"
+        as keys, where Ys is the label and YMask is a boolean indicating whether
+        the label is valid or not.
+
+        Args:
+            data (dict[str, Any]): The metadata of the comment.
+
+        Returns:
+            dict[str, bool | int]: The label information for the node, which must
+                contain "Ys" and "YMask" as keys.
+        """
+        ...
 
     def process(self):
         """Processes all the raw graphs as pointed to by self.raw_paths into
@@ -321,8 +426,6 @@ class TaskDataset(Dataset, ABC):
         All output graphs are saved to the self.output_graph_path/processed
         directory.
         """
-        # TODO(liamhebert): Add support to process multiple files, and not just
-        # the first one.
 
         assert self.has_node_labels or self.has_graph_labels, (
             f"Either has_node_labels or has_graph_labels must be True - "
@@ -351,6 +454,10 @@ class TaskDataset(Dataset, ABC):
         for file in self.raw_paths:
             file_name = os.path.basename(file)
             log.info(f"Processing file {file_name}")
+            if self.debug:
+                log.warning(
+                    "Debug mode enabled, only processing first 10 graphs"
+                )
             file_name = file_name.removesuffix("-data.json")
             os.makedirs(
                 f"{self.output_graph_path}/processed/{file_name}", exist_ok=True
@@ -358,6 +465,8 @@ class TaskDataset(Dataset, ABC):
 
             with open(file, "r") as f:
                 for idx, line in tqdm(enumerate(f)):
+                    if self.debug and idx == 10:
+                        break
                     if (
                         file_name in corrected_files
                         and f"graph-{idx}" in corrected_files[file_name]
@@ -367,22 +476,27 @@ class TaskDataset(Dataset, ABC):
                     data = self.process_graph(json_data)
 
                     if self.split_graphs:
-                        assert isinstance(data.y_mask, torch.BoolTensor)
-                        for i in data.y_mask.nonzero(as_tuple=True)[0]:
+                        mask = data.y[Labels.Ys] != -100
+
+                        for i in mask.nonzero(as_tuple=True)[0]:
                             new_data = copy.deepcopy(data)
                             # We negate all other labels
-                            new_data.y_mask = torch.zeros_like(data.y_mask)
+                            ys = new_data.y[Labels.Ys]
+                            y_mask = torch.ones_like(ys).bool()
                             # But keep the one we want
-                            new_data.y_mask[i] = True
+                            y_mask[i] = False
+                            new_data.y[Labels.Ys][y_mask] = -100
 
                             torch.save(
                                 new_data,
-                                f"{self.output_graph_path}/processed/{file_name}/graph-{idx}-{i}.pt",
+                                f"{self.output_graph_path}/processed/{file_name}/"
+                                f"graph-{idx}-{i}.pt",
                             )
                     else:
                         torch.save(
                             data,
-                            f"{self.output_graph_path}/processed/{file_name}/graph-{idx}.pt",
+                            f"{self.output_graph_path}/processed/{file_name}/"
+                            f"graph-{idx}.pt",
                         )
 
     def flatten_graph(
@@ -409,7 +523,6 @@ class TaskDataset(Dataset, ABC):
                     each node.
                 - is_root (list[bool]): Whether each node is the root or not.
                 - y (list[int | str]): The label for each node.
-                - y_mask (list[bool]): Whether the label is valid or not.
                 - text (list[str]): The text for each node
         """
         result: dict[
@@ -421,7 +534,6 @@ class TaskDataset(Dataset, ABC):
             "parent_id": [],
             "is_root": [],
             "y": [],
-            "y_mask": [],
             "text": [],
         }
 
@@ -455,9 +567,7 @@ class TaskDataset(Dataset, ABC):
 
             if self.has_node_labels:
                 label = self.retrieve_label(node["data"])
-                assert Labels.YMask in label
                 result["y"].append(label)
-                result["y_mask"].append(label[Labels.YMask])
 
             if is_root:
                 text = (
@@ -474,9 +584,7 @@ class TaskDataset(Dataset, ABC):
         traverse(tree)
         if self.has_graph_labels:
             label = self.retrieve_label(tree["data"])
-            assert Labels.YMask in label
             result["y"].append(label)
-            result["y_mask"].append(label[Labels.YMask])
         return result
 
     def process_graph(self, json_data: dict[str, Any]) -> Data:
@@ -512,8 +620,6 @@ class TaskDataset(Dataset, ABC):
             [2, num_edges].
         - y (Tensor): The label for each node in the graph, with shape
             [num_nodes] or [] in the case of graph_level tasks.
-        - y_mask (Tensor): A mask indicating whether labels are valid or not,
-            with shape [num_nodes].
         - image_mask (Tensor): A mask indicating whether a node has an image or
             not, with shape [num_nodes].
         - images (dict[str, Tensor]): The tokenized images of the graph as
@@ -547,7 +653,7 @@ class TaskDataset(Dataset, ABC):
         """
         dut.compute_relative_distance(json_data)
         flattened_graph = self.flatten_graph(json_data)
-        if all([x == False for x in flattened_graph["y_mask"]]):
+        if all(x == -100 for x in flattened_graph["y"]):
             link_id = json_data["data"]["id"]
             if self.strict:
                 raise ValueError("No valid labels in graph with {link_id=}")
@@ -570,7 +676,7 @@ class TaskDataset(Dataset, ABC):
             padding="max_length",
             truncation=True,
             return_tensors="pt",
-            max_length=256,
+            max_length=self.max_text_length,
         )
 
         assert isinstance(flattened_graph["images"], list)
@@ -585,6 +691,7 @@ class TaskDataset(Dataset, ABC):
             for x in flattened_graph["images"]
             if x is not None
         ]
+
         if len(images) != 0:
             tokenized_images = self.image_tokenizer(images, return_tensors="pt")
         else:
@@ -604,23 +711,41 @@ class TaskDataset(Dataset, ABC):
         # Since each node only has one directional edge, we know that the number
         # of nodes is the same as the number of edges.
         num_nodes = edges.shape[1]
+
         # NOTE: Leaving the global token attn_bias to be added in the model code
+        # TODO(liamhebert): Technically this is no-op since we don't ever set
+        # dataset specific attn_biases. The only spot where we do is in the
+        # collator to mask out nodes according to distance. We should probably
+        # remove this.
         attn_bias = torch.zeros((num_nodes, num_nodes))
 
         assert all(isinstance(x, dict) for x in flattened_graph["y"])
         ys: list[dict[str, int | bool]] = flattened_graph["y"]  # type: ignore
         y = {key: torch.tensor([x[key] for x in ys]) for key in ys[0].keys()}
 
+        distance_clamped = torch.clamp(
+            distance_tensor,
+            min=0,
+            max=self.max_distance_length,
+        )
+
+        # Slightly faster then indexing a table, esp if we use a gpu.
+        distance_index = (
+            distance_clamped[..., 0] * self.max_distance_length
+            + distance_clamped[..., 1]
+        )
+
         data = Data(
             text=tokenized_text,
             edge_index=edges,
             y=y,
-            y_mask=torch.tensor(flattened_graph["y_mask"]),
             image_mask=image_mask,
             images=tokenized_images,
-            distance=distance_tensor,
+            distance=distance_tensor,  # NOTE: this distance is not clamped
+            distance_index=distance_index,
             attn_bias=attn_bias,
         )
+
         # We do [1:] to remove the self-loop from the root node because it is it's
         # own parent.
         degree_out = pyg_utils.degree(
@@ -629,21 +754,12 @@ class TaskDataset(Dataset, ABC):
         degree_in = pyg_utils.degree(
             data.edge_index[1][1:], num_nodes=num_nodes, dtype=torch.long
         )
+
         # We currently treat the graph as bidirectional
         degree = degree_out + degree_in
         data.in_degree = degree
         data.out_degree = degree
-        distance_clamped = torch.clamp(
-            distance_tensor,
-            min=0,
-            max=self.max_distance_length,
-        )
 
-        # Slightly faster then indexing a table, esp if we use a gpu.
-        data.distance_index = (
-            distance_clamped[..., 0] * self.max_distance_length
-            + distance_clamped[..., 1]
-        )
         assert data.distance_index.shape == (
             num_nodes,
             num_nodes,

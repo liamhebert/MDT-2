@@ -4,7 +4,7 @@ weights: [1.0, 1.0]
 
 output_head:
   _target_: components.output_head.SimpleOutputHead
-  input_dim: 784
+  input_dim: "${model.encoder.embedding_dim}"
   lin1_dim: 64
   lin2_dim: 128
   lin3_dim: 64

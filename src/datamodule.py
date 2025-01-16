@@ -2,11 +2,7 @@
 Dataset classes and utilities.
 """
 
-import os.path as osp
-
-import pandas as pd
-from pytorch_lightning import LightningDataModule
-import torch
+from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from torch.utils.data import Subset
@@ -44,8 +40,8 @@ class DataModule(LightningDataModule):
     _val_dataset: Dataset | None = None
     _test_dataset: Dataset | None = None
 
-    _train_device_batch_size: int = 1
-    _test_device_batch_size: int = 1
+    _train_device_batch_size: int | None = None
+    _test_device_batch_size: int | None = None
 
     master_dataset: CollatedDataset
 
@@ -89,44 +85,43 @@ class DataModule(LightningDataModule):
             self._train_device_batch_size is None
             or self._test_device_batch_size is None
         ):
+            train_batch_size: int = self.hparams.train_batch_size  # type: ignore
+            test_batch_size: int = self.hparams.test_batch_size  # type: ignore
+
             # We test both here to fail quickly if misconfigured
             if (
-                self.hparams.train_batch_size % self.trainer.world_size != 0
-                or self.hparams.test_batch_size % self.trainer.world_size != 0
+                train_batch_size % self.trainer.world_size != 0
+                or test_batch_size % self.trainer.world_size != 0
             ):
                 raise RuntimeError(
-                    f"Batch size ({self.hparams.batch_size}) is not divisible"
-                    f"by the number of devices ({self.trainer.world_size})."
+                    f"Batch size "
+                    f"({train_batch_size}, {test_batch_size})"
+                    " is not divisible by the number of devices "
+                    f"({self.trainer.world_size})."
                 )
 
             self._train_device_batch_size = (
-                self.hparams.train_batch_size // self.trainer.world_size
+                train_batch_size // self.trainer.world_size
             )
             self._test_device_batch_size = (
-                self.hparams.test_batch_size // self.trainer.world_size
+                test_batch_size // self.trainer.world_size
             )
 
-        # TODO(liamhebert): Implement dataset setup logic
-        # TODO(liamhebert): Implement debug mode
-        if stage == "fit" and self._train_dataset is None:
+        if self._train_dataset is None:
             # make training dataset
             self._train_dataset = Subset(
                 self.master_dataset, self.master_dataset.train_idx
             )
-        elif stage == "validate" and self._val_dataset is None:
+        if self._val_dataset is None:
             # make validation dataset
             self._val_dataset = Subset(
                 self.master_dataset, self.master_dataset.valid_idx
             )
-        elif (
-            stage == "test" or stage == "predict"
-        ) and self._test_dataset is None:
+        if self._test_dataset is None:
             # Make test dataset
             self._test_dataset = Subset(
                 self.master_dataset, self.master_dataset.test_idx
             )
-        else:
-            raise ValueError(f"Unexpected stage: {stage}")
 
     def train_dataloader(self) -> DataLoader:
         """
@@ -136,10 +131,11 @@ class DataModule(LightningDataModule):
 
         return DataLoader(
             self._train_dataset,
-            batch_size=self.hparams.train_batch_size,  # type: ignore
+            batch_size=self._train_device_batch_size,  # type: ignore
             shuffle=True,
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
+            collate_fn=self.master_dataset.collate_fn,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -150,10 +146,11 @@ class DataModule(LightningDataModule):
 
         return DataLoader(
             self._val_dataset,
-            batch_size=self.hparams.test_batch_size,  # type: ignore
+            batch_size=self._test_device_batch_size,  # type: ignore
             shuffle=False,
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
+            collate_fn=self.master_dataset.collate_fn,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -161,10 +158,12 @@ class DataModule(LightningDataModule):
         Return the test dataloader.
         """
         assert self._test_dataset is not None, "Test dataset not loaded"
+
         return DataLoader(
             self._test_dataset,
-            batch_size=self.hparams.test_batch_size,  # type: ignore
+            batch_size=self._test_device_batch_size,  # type: ignore
             shuffle=False,
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
+            collate_fn=self.master_dataset.collate_fn,
         )

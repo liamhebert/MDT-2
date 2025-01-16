@@ -2,6 +2,8 @@
 
 defaults:
   - train
-  - override model: debug
   - override debug: default
-  - override task: debug
+  - override modality_encoder: debug
+  - override model: debug
+  - override dataset: debug
+  - override trainer: cpu

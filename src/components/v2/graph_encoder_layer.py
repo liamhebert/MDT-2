@@ -1,19 +1,16 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-
-from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple, Union
+from typing import Callable
 
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.nn.attention.flex_attention import _mask_mod_signature
 from torch.nn.attention.flex_attention import BlockMask
 from torch.nn.attention.flex_attention import flex_attention
-from xformers.ops import AttentionBias
-from xformers.ops import fmha
 
-flex_attention_comp = torch.compile(flex_attention)
+if torch.cuda.is_available():
+    flex_attention_comp = torch.compile(flex_attention)
+else:
+    flex_attention_comp = flex_attention
 
 
 class InitStdFactor(Enum):
@@ -28,15 +25,15 @@ def repeat_kv(x: torch.Tensor, n_rep: int, dim: int) -> torch.Tensor:
     torch.repeat_interleave(x, dim=2, repeats=n_rep)
     """
     assert (
-        dim == 2
-    ), "Only dim=2 is supported. Check the implementation for other dims."
-    bs, slen, n_kv_heads, head_dim = x.shape
+        dim == 1
+    ), "Only dim=1 is supported. Check the implementation for other dims."
+    slen, n_kv_heads, head_dim = x.shape
     if n_rep == 1:
         return x
     return (
-        x[:, :, :, None, :]
-        .expand(bs, slen, n_kv_heads, n_rep, head_dim)
-        .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
+        x[:, :, None, :]
+        .expand(slen, n_kv_heads, n_rep, head_dim)
+        .reshape(slen, n_kv_heads * n_rep, head_dim)
     )
 
 
@@ -77,6 +74,7 @@ class Attention(nn.Module):
         head_dim: int,
         n_heads: int,
         n_kv_heads: int,
+        use_biased_attention: bool = False,
     ):
         super().__init__()
 
@@ -108,6 +106,7 @@ class Attention(nn.Module):
             dim,
             bias=False,
         )
+        self.use_biased_attention = use_biased_attention
 
     def forward(
         self,
@@ -115,33 +114,47 @@ class Attention(nn.Module):
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # B S D
-        bsz, seq_len, dim = x.shape
+        seq_len, dim = x.shape
         xq = self.wq(x.view_as(x))
         xk = self.wk(x.view_as(x))
         xv = self.wv(x.view_as(x))
 
         output_shape = xq.shape
-        # B S D -> B S H D
-        xq = xq.view(bsz, seq_len, self.n_heads, self.head_dim)
-        xk = xk.view(bsz, seq_len, self.n_kv_heads, self.head_dim)
-        xv = xv.view(bsz, seq_len, self.n_kv_heads, self.head_dim)
+        # S D -> S H D
+        xq = xq.view(seq_len, self.n_heads, self.head_dim)
+        xk = xk.view(seq_len, self.n_kv_heads, self.head_dim)
+        xv = xv.view(seq_len, self.n_kv_heads, self.head_dim)
 
-        xk = repeat_kv(xk, self.heads_per_group, dim=2)
-        xv = repeat_kv(xv, self.heads_per_group, dim=2)
+        xk = repeat_kv(xk, self.heads_per_group, dim=1)
+        xv = repeat_kv(xv, self.heads_per_group, dim=1)
 
-        # sdpa requires B H S D format
-        # B S H D -> B H S D
-        xq, xk, xv = map(lambda e: e.transpose(1, 2), (xq, xk, xv))
-        assert mask is None or isinstance(mask, torch.Tensor)
+        # sdpa requires H S D format
+        # S H D -> H S D
+        xq, xk, xv = map(lambda e: e.transpose(0, 1), (xq, xk, xv))
+        # Add a singleton dimension for the batch
+        # H S D -> 1 H S D
+        xq, xk, xv = xq.unsqueeze(0), xk.unsqueeze(0), xv.unsqueeze(0)
 
-        output = F.scaled_dot_product_attention(
-            xq,
-            xk,
-            xv,
-            is_causal=False,
-            attn_mask=mask,
-        )
-        output = output.transpose(1, 2).contiguous()  # B H S D -> B S H D
+        if self.use_biased_attention:
+            assert mask is None or isinstance(mask, torch.Tensor)
+
+            output = F.scaled_dot_product_attention(
+                xq,
+                xk,
+                xv,
+                is_causal=False,
+                attn_mask=mask,
+            )
+        else:
+            assert isinstance(mask, BlockMask)
+
+            output = flex_attention_comp(xq, xk, xv, block_mask=mask)
+
+        # 1 H S D -> H S D
+        xq, xk, xv = xq.squeeze(0), xk.squeeze(0), xv.squeeze(0)
+
+        # H S D -> S H D
+        output = output.transpose(0, 1).contiguous()
 
         output = self.wo(output.reshape(output_shape))
 
@@ -149,9 +162,8 @@ class Attention(nn.Module):
 
     def reset_parameters(self, init_std=None, factor=1.0):
         init_std = init_std or (self.dim ** (-0.5))
-        init_std = init_std / factor
 
-        for w in [self.wq, self.wk, self.wv, self.wo]:
+        for w in [self.wq, self.wk, self.wv]:
             nn.init.trunc_normal_(
                 w.weight,
                 mean=0.0,
@@ -160,25 +172,22 @@ class Attention(nn.Module):
                 b=3 * init_std,
             )
 
+        nn.init.trunc_normal_(
+            self.wo.weight,
+            mean=0.0,
+            std=init_std / factor,
+            a=-3 * init_std,
+            b=3 * init_std,
+        )
+
 
 class FeedForward(nn.Module):
     def __init__(
         self,
         dim: int,
         hidden_dim: int,
-        multiple_of: int,
-        ffn_dim_multiplier: Optional[float],
-        mp_size: int = 1,
     ):
         super().__init__()
-
-        hidden_dim = int(2 * hidden_dim / 3)
-        if ffn_dim_multiplier is not None:
-            hidden_dim = int(ffn_dim_multiplier * hidden_dim)
-        hidden_dim = multiple_of * (
-            (hidden_dim + multiple_of - 1) // multiple_of
-        )
-        assert hidden_dim % mp_size == 0
 
         self.dim = dim
         self.hidden_dim = hidden_dim
@@ -229,28 +238,35 @@ class FeedForward(nn.Module):
         )
 
 
-class TransformerBlock(nn.Module):
+class GraphTransformerBlock(nn.Module):
     def __init__(
         self,
-        head_dim,
-        n_heads,
-        n_kv_heads,
-        dim,
-        multiple_of,
-        ffn_dim_multiplier,
-        norm_eps,
+        n_heads: int,
+        n_kv_heads: int,
+        dim: int,
+        ffn_dim: int,
+        norm_eps: float = 1e-5,
     ):
         super().__init__()
 
-        assert (head_dim is not None) or (
-            n_heads is not None
-        ), "Should specify at least head_dim or n_heads"
-        self.head_dim = head_dim or dim // n_heads
-        self.n_heads = n_heads or dim // head_dim
-        self.n_kv_heads = n_kv_heads or self.n_heads
+        self.head_dim = dim // n_heads
+        self.n_heads = n_heads
+        self.n_kv_heads = n_kv_heads
 
         assert n_heads % self.n_kv_heads == 0
         assert dim % n_heads == 0
+        assert (
+            n_heads % 2 == 0
+        ), f"Number of heads must be divisible by 2. {self.n_heads=}"
+        assert (
+            n_kv_heads % 2 == 0
+        ), f"Number of heads must be divisible by 2. {self.n_kv_heads=}"
+        assert self.head_dim % 2 == 0, (
+            f"Head dim must be divisible by 2. "
+            f"{self.head_dim=}, {self.n_heads=}, {dim=}"
+        )
+
+        self.dim = dim
 
         self.attention = Attention(
             dim=dim,
@@ -260,9 +276,7 @@ class TransformerBlock(nn.Module):
         )
         self.feed_forward = FeedForward(
             dim=dim,
-            hidden_dim=4 * dim,
-            multiple_of=multiple_of,
-            ffn_dim_multiplier=ffn_dim_multiplier,
+            hidden_dim=ffn_dim,
         )
         self.attention_norm = RMSNorm(dim, eps=norm_eps)
         self.ffn_norm = RMSNorm(dim, eps=norm_eps)
@@ -270,12 +284,12 @@ class TransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        freq_cis: torch.Tensor,
-        mask: torch.Tensor | None = None,
+        # freq_cis: torch.Tensor,
+        mask: BlockMask | None = None,
     ) -> torch.Tensor:
         h = x + self.attention(
             self.attention_norm(x),
-            freq_cis,
+            # freq_cis,
             mask=mask,
         )
         out = h + self.feed_forward(self.ffn_norm(h))
@@ -289,36 +303,47 @@ class TransformerBlock(nn.Module):
         self.ffn_norm.reset_parameters()
 
 
-class BaseTransformer(nn.Module):
+class BaseGraphTransformer(nn.Module):
+
     def __init__(
-        self, dim, init_base_std, init_std_factor, max_seqlen, n_layers
+        self,
+        num_layers: int,
+        graph_tfmr_factory: Callable[[], GraphTransformerBlock],
+        depth: int = 0,
+        init_base_std: float | None = None,
+        init_std_factor: str | InitStdFactor = "disabled",
     ):
         super().__init__()
-        self.dim = dim
         self.init_base_std = init_base_std
         self.init_std_factor = InitStdFactor(init_std_factor)
-        self.max_seqlen = max_seqlen
+        self.starting_depth: int = depth * num_layers
 
         self.layers = nn.ModuleList()
-        for _ in range(n_layers):
-            self.layers.append(TransformerBlock(args))
+        for _ in range(num_layers):
+            self.layers.append(graph_tfmr_factory())
 
-    def forward(
-        self,
-        h,
-        mask: torch.Tensor | None = None,
-        attn_impl: str = "sdpa",
-    ):
-        for i, layer in enumerate(self.layers):
-            h = layer(h, freq_cis, mask=mask, attn_impl=attn_impl)
-        return h
+        self.dim = self.layers[0].dim
+        self.num_heads = self.layers[0].n_heads
+
+    def __len__(self) -> int:
+        return len(self.layers)
+
+    def forward(self, x: torch.Tensor, mask: BlockMask | None = None):
+        # TODO(liamhebert): Add rotary positional encoding frequency cis
+        for layer in self.layers:
+            x = layer(x, mask=mask)
+        return x
 
     def init_weights(self):
-        self.reset_parameters()
+        # self.reset_parameters()
         for depth, layer in enumerate(self.layers):
+            depth = self.starting_depth + depth
             factor = {
                 InitStdFactor.CURRENT_DEPTH: (2 * (depth + 1)) ** 0.5,
-                InitStdFactor.GLOBAL_DEPTH: (2 * (len(self.layers) + 1)) ** 0.5,
+                InitStdFactor.GLOBAL_DEPTH: (
+                    2 * (len(self.layers) + 1 + self.starting_depth)
+                )
+                ** 0.5,
                 InitStdFactor.DIM_RATIO: self.dim / 4096,
                 InitStdFactor.DISABLED: 1.0,
             }[self.init_std_factor]

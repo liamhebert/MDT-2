@@ -112,7 +112,14 @@ def test_selective_bottleneck_averaging(
     )
     # Only items 3 and 1 should have the full bottleneck, the rest should be
     # half.
-    graph_fusion_layer_input["image_indices"] = torch.tensor([3, 1])
+    padding_mask = graph_fusion_layer_input["image_padding_mask"]
+    padding_mask = torch.zeros_like(padding_mask)
+    padding_mask[1] = 1
+    padding_mask[3] = 1
+
+    graph_fusion_layer_input["image_padding_mask"] = padding_mask.bool()
+
+    # Ensuring we only have 2 images to process.
     graph_fusion_layer_input["vit_hidden_states"] = graph_fusion_layer_input[
         "vit_hidden_states"
     ][:2]
