@@ -7,7 +7,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-from components.custom_attn import MultiheadAttention
+from components.v1.custom_attn import MultiheadAttention
 
 
 class GraphormerGraphEncoderLayer(nn.Module):
@@ -79,17 +79,31 @@ class GraphormerGraphEncoderLayer(nn.Module):
         """Forward pass for the GraphormerGraphEncoderLayer.
 
         Args:
-            TODO(liamhebert): Add shapes for all of these tensors.
-            x (torch.Tensor): Input tensor.
-            self_attn_bias (Optional[torch.Tensor]): Bias tensor for
-                self-attention.
-            self_attn_mask (Optional[torch.Tensor]): Mask tensor for
-                self-attention.
-            self_attn_padding_mask (Optional[torch.Tensor]): Padding mask tensor
-                for self-attention.
+            x (torch.Tensor): Tensor with shape (batch, nodes, embed_dim),
+                representing the input node embeddings.
+            self_attn_bias (torch.Tensor, optional): Tensor with shape (batch,
+                heads, nodes, nodes) containing the bias to apply to the
+                attention scores between nodes.
+            self_attn_mask (torch.Tensor, optional): If specified, a 2D or 3D
+                mask preventing attention to certain positions. Must be of shape
+                (nodes, nodes) or (batch * num_heads, nodes, nodes). A 2D mask
+                will be broadcasted across the batch while a 3D mask allows for
+                a different mask for each entry in the batch. Binary and float
+                masks are supported. For a binary mask, a True value indicates
+                that the corresponding position is not allowed to attend. For a
+                float mask, the mask values will be added to the attention weight.
+                If both attn_mask and key_padding_mask are supplied, their types
+                should match.
+            self_attn_padding_mask (Optional[torch.Tensor]): If specified, a
+                binary mask of shape (batch, nodes) indicating which elements
+                within key to ignore for the purpose of attention (i.e. treat as
+                “padding”). A True value indicates that the corresponding key
+                value will be ignored for the purpose of attention. For a float
+                mask, it will be directly added to the corresponding key value.
 
         Returns:
-            torch.Tensor: Output tensor after applying the encoder layer.
+            torch.Tensor: Output tensor after applying the encoder layer, with
+                shape (batch, nodes, embed_dim).
         """
         residual = x
         if self.pre_layernorm:
@@ -189,14 +203,27 @@ class GraphEncoderStack(nn.Module):
         """Forward pass for the GraphEncoderStack.
 
         Args:
-            TODO(liamhebert): Add shapes for all of these tensors.
-            x (torch.Tensor): Input tensor.
-            self_attn_bias (Optional[torch.Tensor]): Bias tensor for
-                self-attention. Defaults to None.
-            self_attn_mask (Optional[torch.Tensor]): Mask tensor for
-                self-attention. Defaults to None.
-            self_attn_padding_mask (Optional[torch.Tensor]): Padding mask tensor
-                for self-attention. Defaults to None.
+            x (torch.Tensor): Tensor with shape (batch, nodes, embed_dim),
+                representing the input node embeddings.
+            self_attn_bias (torch.Tensor, optional): Tensor with shape (batch,
+                heads, nodes, nodes) containing the bias to apply to the
+                attention scores between nodes.
+            self_attn_mask (torch.Tensor, optional): If specified, a 2D or 3D
+                mask preventing attention to certain positions. Must be of shape
+                (nodes, nodes) or (batch * num_heads, nodes, nodes). A 2D mask
+                will be broadcasted across the batch while a 3D mask allows for
+                a different mask for each entry in the batch. Binary and float
+                masks are supported. For a binary mask, a True value indicates
+                that the corresponding position is not allowed to attend. For a
+                float mask, the mask values will be added to the attention weight.
+                If both attn_mask and key_padding_mask are supplied, their types
+                should match.
+            self_attn_padding_mask (Optional[torch.Tensor]): If specified, a
+                binary mask of shape (batch, nodes) indicating which elements
+                within key to ignore for the purpose of attention (i.e. treat as
+                “padding”). A True value indicates that the corresponding key
+                value will be ignored for the purpose of attention. For a float
+                mask, it will be directly added to the corresponding key value.
 
         Returns:
             torch.Tensor: Output tensor after applying the stack of encoder
@@ -205,3 +232,9 @@ class GraphEncoderStack(nn.Module):
         for layer in self.layers:
             x = layer(x, self_attn_bias, self_attn_mask, self_attn_padding_mask)
         return x
+
+    def __len__(self) -> int:
+        """
+        Returns the number of layers in the stack.
+        """
+        return len(self.layers)

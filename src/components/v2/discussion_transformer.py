@@ -9,24 +9,33 @@ Proceedings of the AAAI Conference on Artificial Intelligence,
 38(20), 22096-22104. https://doi.org/10.1609/aaai.v38i20.30213
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 from omegaconf import DictConfig
 import torch
 import torch.nn as nn
 from transformers import AutoModel
+from transformers import PretrainedConfig
+from transformers.models.bert.modeling_bert import BertConfig
 from transformers.models.bert.modeling_bert import BertLayer
 from transformers.models.bert.modeling_bert import BertModel
 from transformers.models.bert.modeling_bert import BertPooler
+from transformers.models.vit.modeling_vit import ViTConfig
 from transformers.models.vit.modeling_vit import ViTLayer
 from transformers.models.vit.modeling_vit import ViTModel
 from transformers.models.vit.modeling_vit import ViTPooler
 
-from components.custom_attn import MultiheadAttention
-from components.feature_layers import GraphAttnBias
-from components.feature_layers import GraphNodeFeature
-from components.graph_encoder_layer import GraphEncoderStack
 from components.graph_fusion_layer import GraphFusionStack
+from components.v1.custom_attn import MultiheadAttention
+from components.v2.graph_encoder_layer import BaseGraphTransformer
+from components.v2.feature_layers import GraphAttnBias
+from components.v2.feature_layers import GraphNodeFeature
+from components.v2.graph_attention_mask import generate_graph_attn_mask_mod
+from utils.pylogger import RankedLogger
+
+from data.types import TextFeatures
+
+logger = RankedLogger(rank_zero_only=True)
 
 
 def init_graphormer_params(module):
@@ -80,13 +89,12 @@ class DiscussionTransformer(nn.Module):
     def __init__(
         self,
         graph_node_feature: GraphNodeFeature,
-        graph_attn_bias: GraphAttnBias,
-        graph_stack_config: DictConfig,
+        graph_stack_factory: Callable[[int], BaseGraphTransformer],
         vit_model_config: DictConfig,
         text_model_config: DictConfig,
         num_bottle_neck: int,
-        num_total_fusion_layers: int,
         num_fusion_stack: int = 1,
+        fusion_stack_size: int = 1,
         embedding_dim: int = 768,
         encoder_normalize_before: bool = False,
         embed_scale: float = 1,
@@ -152,12 +160,12 @@ class DiscussionTransformer(nn.Module):
                 Text Transformer model. See build_bert_encoder for more details.
             num_bottle_neck (int): Number of learned bottleneck tokens to use
                 and append to the input of both models.
-            num_total_fusion_layers (int): The total number of fusion layers to
-                use, used for assertions. Both vit_model_config and
-                text_model_config *must* have this many fusion layers.
-            num_fusion_stack (int, optional): Number of consecutive fusion
-                layers before applying Graphormer layers. *Must* divide
-                num_total_fusion_layers. Defaults to 1.
+            num_fusion_stack (int): The number of fusion stack layers.
+                fusion_stack_size * num_fusion_stack must be less then the
+                number of ViT and Bert layers. Defaults to 1.
+            fusion_stack_size (int, optional): Number of consecutive fusion
+                layers in a stack. fusion_stack_size * num_fusion_stack must be
+                less then the number of ViT and Bert layers. Defaults to 1.
             embedding_dim (int, optional): Global embedding dimension used by
                 Graphromer and the modality models. Used to initialize the
                 LayerNorm layer and for asserts. Defaults to 768.
@@ -174,11 +182,13 @@ class DiscussionTransformer(nn.Module):
         """
         super().__init__()
 
-        assert num_total_fusion_layers % num_fusion_stack == 0
+        # TODO(liamhebert): It might be worth having a pass-through for
+        # no-fusion models, where we just use graph layers.
+        assert num_fusion_stack > 0, "num_fusion_stack must be greater than 0"
+        assert fusion_stack_size > 0, "fusion_stack_size must be greater than 0"
 
         self.embedding_dim = embedding_dim
         self.graph_node_feature = graph_node_feature
-        self.graph_attn_bias = graph_attn_bias
 
         self.embed_scale = embed_scale
 
@@ -186,47 +196,46 @@ class DiscussionTransformer(nn.Module):
         if encoder_normalize_before:
             self.emb_layer_norm = nn.LayerNorm(self.embedding_dim)
 
+        total_fusion_layers = fusion_stack_size * num_fusion_stack
         (
             self.vit_model,
             vit_fusion_layers,
             self.vit_pooler,
         ) = self.build_vit_encoder(
-            **vit_model_config
+            num_fusion_layers=total_fusion_layers,
+            **vit_model_config,
         )  # type: ignore[misc]
+
         (
             self.text_model,
             text_fusion_layers,
             self.text_pooler,
         ) = self.build_bert_encoder(
-            **text_model_config
+            num_fusion_layers=total_fusion_layers,
+            **text_model_config,
         )  # type: ignore[misc]
 
         assert len(text_fusion_layers) == len(vit_fusion_layers)
         assert (
-            len(text_fusion_layers) == num_total_fusion_layers
-        ), f"Expected {num_total_fusion_layers=}, got {len(text_fusion_layers)=}"
+            len(text_fusion_layers) == fusion_stack_size * num_fusion_stack
+        ), f"Expected {total_fusion_layers=}, got {len(text_fusion_layers)=}"
 
         self.fusion_layers = self.build_fusion_layers(
-            text_fusion_layers,
-            vit_fusion_layers,
-            num_fusion_stack,
-            num_bottle_neck,
+            text_fusion_layers, vit_fusion_layers, fusion_stack_size
         )
+        assert len(self.fusion_layers) == num_fusion_stack
 
         num_fusion_layers = len(self.fusion_layers)
 
-        self.graphormer_layers = nn.ModuleList([])
-        self.graphormer_layers.extend(
+        self.graphormer_layers = nn.ModuleList(
             [
-                self.build_graphormer_graph_encoder_layer(
-                    **graph_stack_config  # type: ignore[misc]
-                )
-                for _ in range(num_fusion_layers + 1)
+                graph_stack_factory(depth=i)
+                for i in range(num_fusion_layers + 1)  # type: ignore
             ]
         )
 
         self.num_bottle_neck = num_bottle_neck
-        self.bottle_neck = nn.Embedding(num_bottle_neck, 768)
+        self.bottle_neck = nn.Embedding(num_bottle_neck, self.embedding_dim)
 
         def freeze_module_params(m: nn.Module):
             """Given a module, freeze all of its parameters.
@@ -261,23 +270,22 @@ class DiscussionTransformer(nn.Module):
         self,
         text_fusion_layers: list[BertLayer],
         vit_fusion_layers: list[ViTLayer],
-        num_fusion_stack: int,
-        num_bottle_neck: int,
+        fusion_stack_size: int,
     ) -> nn.ModuleList:
         """Fuses the lists of modality layers into a list of fusion layers.
 
-        Here, we group the layers into groups of `num_fusion_stack` layers,
+        Here, we group the layers into groups of `fusion_stack_size` layers,
         where each layer will process the output of the previous layer. We use
         num_bottle_neck to assist the fusion layers to know where the bottleneck
         tokens are.
 
         NOTE: the number of text and vision layers must be equal and divisible
-        by `num_fusion_stack`.
+        by `fusion_stack_size`.
 
         Args:
             text_fusion_layers (list[BertLayer]): List of text layers to fuse.
             vit_fusion_layers (list[ViTLayer]): List of vision layers to fuse.
-            num_fusion_stack (int): Number of consecutive fusion layers to
+            fusion_stack_size (int): Number of consecutive fusion layers to
                 stack.
             num_bottle_neck (int): Number of bottleneck tokens we will be using.
 
@@ -289,18 +297,20 @@ class DiscussionTransformer(nn.Module):
         # uneven lengths
         text_fusion_layers = [
             text_fusion_layers[
-                i * num_fusion_stack : (i + 1) * num_fusion_stack
+                i * fusion_stack_size : (i + 1) * fusion_stack_size
             ]
             for i in range(
-                (len(text_fusion_layers) + num_fusion_stack - 1)
-                // num_fusion_stack
+                (len(text_fusion_layers) + fusion_stack_size - 1)
+                // fusion_stack_size
             )
         ]
         vit_fusion_layers = [
-            vit_fusion_layers[i * num_fusion_stack : (i + 1) * num_fusion_stack]
+            vit_fusion_layers[
+                i * fusion_stack_size : (i + 1) * fusion_stack_size
+            ]
             for i in range(
-                (len(vit_fusion_layers) + num_fusion_stack - 1)
-                // num_fusion_stack
+                (len(vit_fusion_layers) + fusion_stack_size - 1)
+                // fusion_stack_size
             )
         ]
 
@@ -320,6 +330,7 @@ class DiscussionTransformer(nn.Module):
         attention_dropout: float,
         activation_dropout: float,
         num_fusion_layers: int,
+        test_config: ViTConfig | None = None,
     ) -> Tuple[ViTModel, list[ViTLayer], ViTPooler]:
         """Constructs the Vision Transformer model, taking the last
         `num_fusion_layers` layers for fusion.
@@ -331,6 +342,8 @@ class DiscussionTransformer(nn.Module):
                 activations
             num_fusion_layers (int): The number of layers to leave out for
                 fusion, taking from the end of the model stack.
+            test_config (ViTConfig, optional): If set, manual test_config to use
+                for testing. Should not be used in production. Defaults to None.
 
         Returns:
             Tuple[ViTModel, list[ViTLayer], ViTPooler]: A tuple conisting of
@@ -339,11 +352,26 @@ class DiscussionTransformer(nn.Module):
                 - The removed layers, to be used for fusion.
                 - The pooler layer of the model, used to get the final output.
         """
-        vit_model: ViTModel = AutoModel.from_pretrained(
-            vit_model_name,
-            hidden_dropout_prob=activation_dropout,
-            attention_probs_dropout_prob=attention_dropout,
-        )
+        vit_model: ViTModel
+
+        if test_config is not None:
+            print(
+                type(test_config), not isinstance(test_config, PretrainedConfig)
+            )
+            print(type(test_config), isinstance(test_config, PretrainedConfig))
+
+            logger.warning(
+                "Using test config for ViT model."
+                "If this is production, please fix!"
+            )
+            vit_model = ViTModel(config=test_config)
+        else:
+            vit_model = AutoModel.from_pretrained(
+                vit_model_name,
+                hidden_dropout_prob=activation_dropout,
+                attention_probs_dropout_prob=attention_dropout,
+            )
+
         if num_fusion_layers == 0:
             vit_other_layers = []
         else:
@@ -361,6 +389,7 @@ class DiscussionTransformer(nn.Module):
         attention_dropout: float,
         activation_dropout: float,
         num_fusion_layers: int,
+        test_config: BertConfig | None = None,
     ) -> Tuple[BertModel, list[BertLayer], BertPooler]:
         """Constructs the Text Transformer model, taking the last
         `num_fusion_layers` layers for fusion.
@@ -372,6 +401,9 @@ class DiscussionTransformer(nn.Module):
                 activations
             num_fusion_layers (int): The number of layers to leave out for
                 fusion, taking from the end of the model stack.
+            test_config (BertConfig, optional): If set, manual test_config to
+                use for testing. Should not be used in production. Defaults to
+                None.
 
         Returns:
             Tuple[BertModel, list[BertLayer], BertPooler]: A tuple conisting of
@@ -383,12 +415,20 @@ class DiscussionTransformer(nn.Module):
         # TODO(liamhebert): Try to fuse the two build_(bert|vit) functions
         # together since they have the same logic, the only difference is the
         # bert_model call.
+        bert: BertModel
 
-        bert: BertModel = AutoModel.from_pretrained(
-            bert_model_name,
-            hidden_dropout_prob=activation_dropout,
-            attention_probs_dropout_prob=attention_dropout,
-        )
+        if test_config is not None:
+            logger.warning(
+                "Using test config for BERT model."
+                "If this is production, please fix!"
+            )
+            bert = BertModel(test_config)
+        else:
+            bert = AutoModel.from_pretrained(
+                bert_model_name,
+                hidden_dropout_prob=activation_dropout,
+                attention_probs_dropout_prob=attention_dropout,
+            )
 
         if num_fusion_layers == 0:
             bert_other_layers = []
@@ -399,213 +439,148 @@ class DiscussionTransformer(nn.Module):
 
         return bert, bert_other_layers, bert.pooler
 
-    def build_graphormer_graph_encoder_layer(
-        self,
-        embedding_dim: int,
-        ffn_embedding_dim: int,
-        num_attention_heads: int,
-        dropout: float,
-        attention_dropout: float,
-        activation_dropout: float,
-        activation_fn: nn.Module,
-        num_layers=1,
-    ) -> GraphEncoderStack:
-        """Builds a stack of consecutive Graphormer encoder layers.
-
-        This class is useful to make it easier to configure consecutive layers.
-        See GraphEncoderStack for more details.
-
-        Args:
-            embedding_dim (int): The dimension of the input embeddings.
-            ffn_embedding_dim (int): The dimension of the feedforward network
-                used in attention.
-            num_attention_heads (int): The number of attention heads. Must
-                divide embedding_dim.
-            dropout (float): The input dropout probability.
-            attention_dropout (float): The dropout probability for attention
-                weights.
-            activation_dropout (float): The dropout probability for the
-                activation function.
-            activation_fn (nn.Module): The activation function to use.
-            num_layers (int, optional): The number of consecutive graphormer
-                layers to stack. Defaults to 1.
-
-        Returns:
-            GraphEncoderStack: A network module that calls num_layers of
-                GraphEncoderLayer consecutively.
-        """
-        return GraphEncoderStack(
-            num_layers=num_layers,
-            embedding_dim=embedding_dim,
-            ffn_embedding_dim=ffn_embedding_dim,
-            num_attention_heads=num_attention_heads,
-            dropout=dropout,
-            attention_dropout=attention_dropout,
-            activation_dropout=activation_dropout,
-            activation_fn=activation_fn,
-        )
-
     def forward(
         self,
-        node_mask: torch.Tensor,
-        token_type_ids: torch.Tensor,
-        text_attention_mask: torch.Tensor,
+        text_input: dict[str, torch.Tensor],
+        image_inputs: dict[str, torch.Tensor],
+        image_padding_mask: torch.Tensor,
+        graph_ids: torch.Tensor,
         spatial_pos: torch.Tensor,
-        input_ids: torch.Tensor,
-        attn_bias: torch.Tensor,
-        images: torch.Tensor,
-        image_indices: torch.Tensor,
-        graph_attention_mask: torch.Tensor,
         in_degree: torch.Tensor,
         out_degree: torch.Tensor,
+        num_total_graphs: int,
+        **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """The forward function of the Discussion Transformer model.
 
         Args:
-            node_mask (torch.Tensor): A (batch_size, N) boolean mask to select
-                nodes from the graph that are not padding.
-            token_type_ids (torch.Tensor): batched token type ids, with shape
-                (batch_size, N, T)
-            attention_mask (torch.Tensor): batched text attention mask, with
-                shape (batch_size, N, T), where 1 indicates a token that should
-                be attended to and 0 indicates padding.
-            input_ids (torch.Tensor): batched tokenized text ids, with shape
-                (batch_size, N, T)
-            attn_bias (torch.Tensor): batched attention biases for each node.
-                We set the attn_bias for items with a distance larger than
-                spatial_pos_max to -inf, effectively masking them out during
-                attention. Shape (batch_size, N, N).
-            images (torch.Tensor): batched image features, with shape
-                (batch_size, num_images, D)
-            image_indices (torch.Tensor): batched boolean tensor indicating
-                which nodes have images, where the order of True values
-                corresponds to the order of images in the images tensor.
-                Shape (batch_size, N).
-            graph_attention_mask (torch.Tensor): _description_
-                TODO(liamhebert): add description once I figure out what this is
+            == Text inputs ==
+            text_input (dict[str, torch.Tensor]): The tokenized text inputs,
+                containing:
+                - text_input_ids (torch.Tensor): batched tokenized text ids, with
+                    shape (batch_size * nodes, T)
+                - text_token_type_ids (torch.Tensor): batched token type ids, with
+                    shape (batch_size * nodes, T)
+                - text_attention_mask (torch.Tensor): batched text attention mask,
+                    with shape (batch_size * nodes, T), where 1 indicates a token
+                    that should be attended to and 0 indicates padding.
+
+            == Image inputs ==
+            image_inputs (torch.Tensor): batched and tokenized image features,
+                with shape (batch_size * nodes, D)
+            image_padding_mask (torch.Tensor): batched boolean tensor indicating
+                whether a node has an image. Shape (batch_size * nodes).
+
+            == Graph inputs ==
+            graph_ids (torch.Tensor): Id of the graph each node belongs to,
+                where padding nodes are assigned the value PADDING_GRAPH_ID, with
+                shape (batch_size * nodes). This is used to mask out attention.
+                It is assumed that the graph_ids are contiguous and start from 0.
+            spatial_pos (torch.Tensor): Matrix with shape
+                (batch_size * nodes, batch_size * nodes, 2) indicating the
+                number of up hops and down hops between each node in the graph.
             in_degree (torch.Tensor): batched in-degrees, corresponding to the
                 in-degree of each node in the graph. Padded with 0s and shifted
-                by 1. Shape (batch_size, N).
-            out_degree (torch.Tensor): batched out-degrees, corresponding to
-                the out-degree of each node in the graph. Padded with 0s and
-                shifted by 1. Shape (batch_size, N).
+                by 1. Shape (batch_size * nodes).
+            out_degree (torch.Tensor): batched out-degrees, corresponding to the
+                out-degree of each node in the graph. Padded with 0s and shifted
+                by 1. Shape (batch_size * nodes).
+            num_total_graphs (int): Total number of unique graphs in the batch,
+                shape (). Note that this is different then graph_ids, which is
+                node-wise.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: Returns
                 - node_embedding: The final node embeddings for each node in the
-                    graph with shape (batch_size, N, C).
+                    graph with shape (batch_size * nodes, C).
                 - global_embedding: The final global embedding for the graph,
                     with shape (batch_size, C).
         """
         # Ideally, we keep a consistent shape and just flatten here, rather then
         # having to dynamically index here. Attention mask should handle this.
-        token_type_ids = token_type_ids[node_mask, :]
-        text_attention_mask = text_attention_mask[node_mask, :]
-        input_ids = input_ids[node_mask, :]
-        bert_output = self.text_model(
-            token_type_ids=token_type_ids,
-            attention_mask=text_attention_mask,
-            input_ids=input_ids,
-        ).last_hidden_state
+        bert_output = self.text_model(**text_input).last_hidden_state
+        text_attention_mask = text_input[TextFeatures.AttentionMask]
 
-        n_graph, n_node = bert_output.size()[:2]
+        flattened_batch, seq_len, hidden_dim = bert_output.size()
 
-        if images is not None:
-            vit_output = self.vit_model(images).last_hidden_state
+        if image_inputs["pixel_values"].shape[0] > 0:
+            vit_output = self.vit_model(**image_inputs).last_hidden_state
         else:
             vit_output = None
 
-        bottle_neck = self.bottle_neck.weight.unsqueeze(0).repeat(n_graph, 1, 1)
-
-        added_mask = (
-            torch.Tensor([1] * self.num_bottle_neck)
-            .unsqueeze(0)
-            .repeat(n_graph, 1)
-        )
-        text_attention_mask = torch.cat(
-            [added_mask, text_attention_mask], dim=1
-        )
-        extended_attention_mask = text_attention_mask[:, None, None, :]
-        extended_attention_mask = extended_attention_mask.to(dtype=torch.half)
-
-        # fp16 compatibility
-        extended_attention_mask = (1.0 - extended_attention_mask) * torch.finfo(
-            torch.half
-        ).min
+        bottle_neck = self.bottle_neck.weight.repeat(flattened_batch, 1, 1)
 
         bert_output, vit_output, bottle_neck = self.fusion_layers[0](
-            bert_output,
-            vit_output,
-            bottle_neck,
-            extended_attention_mask,
-            image_indices,
+            bert_hidden_states=bert_output,
+            vit_hidden_states=vit_output,
+            bottle_neck=bottle_neck,
+            image_padding_mask=image_padding_mask,
+            bert_attention_mask=text_attention_mask,
         )
-        bottle_neck_nodes = bottle_neck[:, 0, :]
-        # TODO(liamhebert): check if this works
-        shape = token_type_ids.shape
+        graph_x = bottle_neck[:, 0, :]
+        assert graph_x.size() == (flattened_batch, hidden_dim)
 
-        graph_data = torch.zeros((shape[0], shape[1], 768)).to(
-            bottle_neck_nodes.dtype
-        )
-        # TODO(liamhebert): check if this works
-        graph_data[text_attention_mask, :] = bottle_neck_nodes
-
-        # compute padding mask. This is needed for multi-head attention
-        x = graph_data
-
-        n_graph, n_node = x.size()[:2]
-        padding_mask = (x[:, :, 0]).eq(0)  # B x T x 1
-        padding_mask_cls = torch.zeros(
-            n_graph, 1, device=padding_mask.device, dtype=padding_mask.dtype
+        graph_x, graph_ids = self.graph_node_feature(
+            graph_x, out_degree, graph_ids, num_total_graphs
         )
 
-        padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
-        mask = torch.cat((padding_mask_cls, node_mask), dim=1)
-        # B x (T+1) x 1
+        # add on the key dimension
+        virtual_distance = torch.zeros_like(spatial_pos[0, :]).expand(
+            (num_total_graphs, -1)
+        )
+        spatial_pos = torch.cat((spatial_pos, virtual_distance), dim=0)
 
-        x = self.graph_node_feature(x, in_degree, out_degree)
+        # add on the query dimension
+        virtual_distance = torch.zeros_like(spatial_pos[:, 0]).expand(
+            (num_total_graphs, -1)
+        )
+        spatial_pos = torch.cat((spatial_pos, virtual_distance.T), dim=1)
 
-        # x: B x T x C
+        # TODO(liamhebert): update spatial pos with new graph ids, distance for
+        # each of those nodes.
 
-        attn_bias = self.graph_attn_bias(attn_bias, spatial_pos)
-
-        x = x * self.embed_scale
+        assert (
+            graph_ids.shape == graph_x.shape[:1]
+        ), f"Expected same shape, got {graph_ids.shape=} and {graph_x.shape[:1]=}"
 
         if self.emb_layer_norm is not None:
-            x = self.emb_layer_norm(x)
+            graph_x = self.emb_layer_norm(graph_x)
+
+        flex_block_mask = generate_graph_attn_mask_mod(
+            graph_ids,
+            spatial_pos,
+            num_heads=self.graphormer_layers[0].num_heads,
+        )
 
         # account for padding while computing the representation
 
         for g_layer, f_layer in zip(
             self.graphormer_layers[:-1], self.fusion_layers[1:]
         ):
-            x, _ = g_layer(
-                x,
-                self_attn_padding_mask=padding_mask,
-                self_attn_mask=graph_attention_mask,
-                self_attn_bias=attn_bias,
+
+            graph_x = g_layer(
+                graph_x,
+                mask=flex_block_mask,
             )
 
             # extract bottle_neck tokens
-            bottle_neck[:, 0, :] = x[mask, :]
+            bottle_neck[:, 0, :] = graph_x
 
             bert_output, vit_output, bottle_neck = f_layer(
-                bert_output,
-                vit_output,
-                bottle_neck,
-                extended_attention_mask,
-                image_indices,
+                bert_hidden_states=bert_output,
+                vit_hidden_states=vit_output,
+                bottle_neck=bottle_neck,
+                image_padding_mask=image_padding_mask,
+                bert_attention_mask=text_attention_mask,
             )
 
-            x[mask, :] = bottle_neck[:, 0, :]
+            graph_x = bottle_neck[:, 0, :]
 
-        x, _ = self.graphormer_layers[-1](
-            x,
-            self_attn_padding_mask=padding_mask,
-            self_attn_mask=graph_attention_mask,
-            self_attn_bias=attn_bias,
+        graph_x = self.graphormer_layers[-1](
+            graph_x,
+            mask=flex_block_mask,
         )
 
-        global_embedding = x[:, 0, :]
-        node_embedding = x[:, 1:, :]
+        global_embedding = graph_x[:num_total_graphs, :]
+        node_embedding = graph_x[num_total_graphs:, :]
         return node_embedding, global_embedding

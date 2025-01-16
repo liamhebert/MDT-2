@@ -1,0 +1,2 @@
+text_model_name: "bert-base-uncased"
+vision_model_name: "openai/clip-vit-base-patch16"

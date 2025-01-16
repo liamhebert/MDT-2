@@ -1,0 +1,44 @@
+_target_: components.v2.discussion_transformer.DiscussionTransformer
+
+embedding_dim: 768
+
+graph_node_feature:
+  _target_: components.v2.feature_layers.GraphNodeFeature
+  num_out_degree: 6
+  hidden_dim: "${model.encoder.embedding_dim}"
+
+graph_stack_factory:
+  _target_: components.v2.graph_encoder_layer.BaseGraphTransformer
+  _partial_: True
+  num_layers: 2
+  graph_tfmr_factory:
+    _target_: components.v2.graph_encoder_layer.GraphTransformerBlock
+    _partial_: True
+    dim: "${model.encoder.embedding_dim}"
+    n_heads: 4
+    n_kv_heads: 4
+    ffn_dim: 3072
+
+text_model_config:
+  bert_model_name: "${modality_encoder.text_model_name}"
+  attention_dropout: 0.3
+  activation_dropout: 0.3
+
+vit_model_config:
+  vit_model_name: "${modality_encoder.vision_model_name}"
+  attention_dropout: 0.3
+  activation_dropout: 0.3
+
+num_bottle_neck: 4
+
+# 4 fusion stacks with 2 layers each
+num_fusion_stack: 4
+fusion_stack_size: 2
+
+encoder_normalize_before: False
+
+embed_scale: None
+
+num_graph_layers_to_freeze: 0
+
+freeze_initial_encoders: False

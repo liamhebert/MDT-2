@@ -2,18 +2,16 @@
 Model classes and utilities.
 """
 
-from typing import Tuple
-
-import pytorch_lightning as pl
+import lightning as L
 import torch
 from torch import nn
 from torch import optim
 from torch.optim import lr_scheduler
-
+from torchmetrics import Metric, MetricCollection
 from losses.loss_abstract import Loss
 
 
-class Model(pl.LightningModule):
+class Model(L.LightningModule):
     """
     Base class for models, fitting the PyTorch Lightning interface.
     """
@@ -52,7 +50,7 @@ class Model(pl.LightningModule):
 
     # TODO(liamhebert): Implement model logic
 
-    def forward(self, x) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute the forward pass of the model.
 
         Args:
@@ -62,11 +60,13 @@ class Model(pl.LightningModule):
             The predicted values (y_hat).
         """
         # TODO(liamhebert): Implement forward pass with updated args
-        return self.net(x), self.net(x)
+        return self.encoder(**x)
 
     def model_step(
-        self, batch: dict[str, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self,
+        batch: dict[str, torch.Tensor],
+        metrics: dict[str, MetricCollection | Metric],
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor | int]]:
         """Compute the loss for a batch of data.
 
         Args:
@@ -78,12 +78,8 @@ class Model(pl.LightningModule):
         """
         x, y = batch["x"], batch["y"]
         node_embeddings, graph_embeddings = self.forward(x)
-        loss = self.loss(
-            node_embeddings,
-            graph_embeddings,
-            y,
-        )
-        return loss
+        loss, metrics = self.loss(node_embeddings, graph_embeddings, y, metrics)
+        return loss, metrics
 
     def on_train_start(self) -> None:
         """
@@ -92,8 +88,8 @@ class Model(pl.LightningModule):
         # by default lightning executes validation step sanity checks before
         # training starts, so it's worth to make sure validation metrics don't
         # store results from these checks
-        self.val_loss.reset()
-        self.val_loss_best.reset()
+        for metric in self.metrics["val"]["epoch"].values():
+            metric.reset()
 
     def training_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
@@ -108,20 +104,36 @@ class Model(pl.LightningModule):
         Returns:
             The loss value for that batch, using self.loss.
         """
-        loss, preds, targets = self.model_step(batch)
+        loss, metrics = self.model_step(batch, self.metrics["train"]["batch"])
 
-        # update and log metrics
-        self.train_loss(loss)
-        self.log(
-            "train/loss",
-            self.train_loss,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-        )
+        weight: int = metrics["weight"]
+        for key, metric in metrics.items():
+            self.log(
+                f"train/{key}",
+                metric,
+                on_step=True if "loss" in key else False,
+                on_epoch=True,
+                prog_bar=True if "loss" in key else False,
+                batch_size=weight,
+            )
 
         # return loss or backpropagation will fail
         return loss
+
+    def on_train_epoch_end(self):
+        """Lightning hook that is called when a training epoch ends."""
+        metrics = self.metrics["train"]
+        epoch_vals = self.loss.compute_epoch_metrics(
+            metrics["batch"], metrics["epoch"]
+        )
+
+        for key, val in epoch_vals.items():
+            self.log(
+                f"train/{key}",
+                val,
+                prog_bar=True,
+                sync_dist=True,
+            )
 
     def validation_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
@@ -133,32 +145,29 @@ class Model(pl.LightningModule):
                 Tensors are expected to have a shape of (batch_size, ...).
             batch_idx: The index of the batch.
         """
-        loss, preds, targets = self.model_step(batch)
+        loss, metrics = self.model_step(batch, self.metrics["val"]["batch"])
 
-        # update and log metrics
-        self.val_loss(loss)
-        self.log(
-            "val/loss",
-            self.val_loss,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-        )
+        weight: int = metrics["weight"]
+        for key, metric in metrics.items():
+            self.log(
+                f"val/{key}",
+                metric,
+                on_step=True if "loss" in key else False,
+                on_epoch=True,
+                prog_bar=True if "loss" in key else False,
+                batch_size=weight,
+            )
         return loss
 
     def on_validation_epoch_end(self) -> None:
-        "Lightning hook that is called when a validation epoch ends."
-        loss = self.val_loss.compute()  # get current val acc
-        self.val_loss_best(loss)  # update best so far val acc
-        # log `val_loss_best` as a value through `.compute()` method, instead of
-        # as a metric object otherwise metric would be reset by lightning after
-        # each epoch
-        self.log(
-            "val/loss_best",
-            self.val_loss_best.compute(),
-            sync_dist=True,
-            prog_bar=True,
+        """Lightning hook that is called when a validation epoch ends."""
+        metrics = self.metrics["val"]
+        epoch_vals = self.loss.compute_epoch_metrics(
+            metrics["batch"], metrics["epoch"]
         )
+
+        for key, val in epoch_vals.items():
+            self.log(f"val/{key}", val, prog_bar=True)
 
     def test_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
@@ -173,17 +182,28 @@ class Model(pl.LightningModule):
         Returns:
             The loss value for that batch, using self.loss.
         """
-        loss, preds, targets = self.model_step(batch)
-
-        self.test_loss(loss)
-        self.log(
-            "test/loss",
-            self.test_loss,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-        )
+        loss, metrics = self.model_step(batch, self.metrics["test"]["batch"])
+        batch_size: int = metrics["weight"]
+        for key, metric in metrics.items():
+            self.log(
+                f"test/{key}",
+                metric,
+                on_step=True if "loss" in key else False,
+                on_epoch=True,
+                prog_bar=True if "loss" in key else False,
+                batch_size=batch_size,
+            )
         return loss
+
+    def on_test_epoch_end(self):
+        """Lightning hook that is called when a test epoch ends."""
+        metrics = self.metrics["test"]
+        epoch_vals = self.loss.compute_epoch_metrics(
+            metrics["batch"], metrics["epoch"]
+        )
+
+        for key, val in epoch_vals.items():
+            self.log(f"test/{key}", val, prog_bar=True)
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train +

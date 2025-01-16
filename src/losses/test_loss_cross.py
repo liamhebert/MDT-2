@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.testing as test
 
 from components.output_head import SimpleOutputHead
-from losses.loss_abstract import Labels
+from data.types import Labels
 from losses.loss_cross import NodeCrossEntropyLoss
 
 
@@ -42,13 +42,14 @@ class TestCrossEntropyLoss:
 
         metric_agg = loss.build_batch_metric_aggregators()
 
-        logits = torch.tensor([[0.1, 0.9], [0.1, 0.9], [0.1, 0.9]])
-        targets = torch.tensor([1, 0, 1])
+        logits = torch.tensor([[0.1, 0.9], [0.1, 0.9], [0.1, 0.9], [0.5, 0.5]])
+        targets = torch.tensor([1, 0, 1, -100])
         loss_val = F.cross_entropy(
             logits,
             targets,
             weight=torch.Tensor([1.0, 1.0]),
             reduction="none",
+            ignore_index=-100,
         )
 
         returned_metrics = loss.compute_batch_metrics(
@@ -62,6 +63,7 @@ class TestCrossEntropyLoss:
 
         # Check that the metrics are updated correctly
         metrics = metric_agg["classification"].compute()
+        metrics["weight"] = 3
 
         test.assert_close(metrics["none_recall"], torch.Tensor([0.0, 1.0]))
         test.assert_close(
@@ -99,13 +101,14 @@ class TestCrossEntropyLoss:
         epoch_agg = loss.build_epoch_metric_aggregators()
 
         # Best performing batch
-        logits = torch.tensor([[0.1, 0.9], [0.1, 0.9], [0.1, 0.9]])
-        targets = torch.tensor([1, 0, 1])
+        logits = torch.tensor([[0.1, 0.9], [0.1, 0.9], [0.1, 0.9], [0.5, 0.5]])
+        targets = torch.tensor([1, 0, 1, -100])
         good_loss = F.cross_entropy(
             logits,
             targets,
             weight=torch.Tensor([1.0, 1.0]),
             reduction="none",
+            ignore_index=-100,
         )
 
         # Bad batch
@@ -119,12 +122,15 @@ class TestCrossEntropyLoss:
         )
 
         for _ in range(10):
-            loss.compute_batch_metrics(
-                logits_bad, targets_bad, bad_loss, batch_agg
-            )
+            # Simulating 3 batch epoch
+            for _ in range(3):
+                loss.compute_batch_metrics(
+                    logits_bad, targets_bad, bad_loss, batch_agg
+                )
             loss.compute_epoch_metrics(batch_agg, epoch_agg)
 
-        loss.compute_batch_metrics(logits, targets, good_loss, batch_agg)
+        for _ in range(3):
+            loss.compute_batch_metrics(logits, targets, good_loss, batch_agg)
         loss.compute_epoch_metrics(batch_agg, epoch_agg)
 
         test.assert_close(epoch_agg["best_loss"].compute(), good_loss.mean())
@@ -177,16 +183,14 @@ class TestCrossEntropyLoss:
         """
         loss = NodeCrossEntropyLoss(weights, IdentityOutputHead(2, 2))
 
-        logits = torch.tensor(
-            [[[0.1, 0.9], [0.1, 0.9]], [[0.1, 0.9], [0.5, 0.5]]]
-        )
-        targets = torch.tensor([[1, 0], [1, 0]])
+        logits = torch.tensor([[0.1, 0.9], [0.1, 0.9], [0.1, 0.9], [0.5, 0.5]])
+        targets = torch.tensor([1, 0, 1, -100])
 
-        formatted_targets = Labels(
-            y=targets, y_mask=torch.tensor([[1.0, 1.0], [1.0, 0.0]])
-        )
+        formatted_targets = {
+            Labels.Ys: targets,
+        }
 
-        loss_val = loss(logits, None, formatted_targets)
+        loss_val, metrics = loss(logits, None, formatted_targets)
 
         logits = logits.reshape((-1, 2))[:-1, :]
         targets = targets.flatten()[:-1]
@@ -196,4 +200,4 @@ class TestCrossEntropyLoss:
             weight=torch.tensor(weights, requires_grad=False),
             reduction="mean",
         )
-        test.assert_close(loss_val["loss"], expected_loss)
+        test.assert_close(loss_val, expected_loss)

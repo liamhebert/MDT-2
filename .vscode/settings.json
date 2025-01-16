@@ -1,8 +1,12 @@
 {
-    "python.testing.pytestArgs": [
-        "."
-    ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "python.testing.cwd": "./src"
+    "python.testing.cwd": "./src",
+    "yaml.schemas": {
+        "https://json.schemastore.org/yamllint.json": [
+            "file:///u2/l2hebert/MDT-2/src/configs/tasks/pretrain.yaml",
+            "file:///u2/l2hebert/MDT-2/src/configs/tasks/hateful_discussions.yaml",
+            "file:///u2/l2hebert/MDT-2/src/configs/tasks/debug.yaml"
+        ]
+    }
 }

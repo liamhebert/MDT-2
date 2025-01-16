@@ -1,6 +1,6 @@
 defaults:
   - loss: cross_entropy
-  - encoder: base
+  - encoder: base_v2
 
 _target_: model.Model
 

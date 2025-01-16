@@ -1,0 +1,2 @@
+text_model_name: "bert-base-uncased"
+vision_model_name: "google/vit-base-patch16-224"

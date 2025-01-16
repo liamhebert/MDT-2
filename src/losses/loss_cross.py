@@ -17,8 +17,8 @@ from torchmetrics import Precision
 from torchmetrics import Recall
 
 from components.output_head import SimpleOutputHead
-from losses.loss_abstract import Labels
 from losses.loss_abstract import Loss
+from data.types import Labels
 
 
 # TODO(liamhebert): create whatever loss set up we want here.
@@ -46,7 +46,7 @@ class NodeCrossEntropyLoss(Loss):
 
     def build_batch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | None]:
+    ) -> dict[str, MetricCollection | Metric]:
         """Build metric collectors for batch metrics.
 
         TODO(liamhebert): Write more docs here
@@ -62,12 +62,19 @@ class NodeCrossEntropyLoss(Loss):
                             task="multiclass",
                             num_classes=2,
                             average=average,
+                            ignore_index=-100,
                         ),
                         "precision": Precision(
-                            task="multiclass", num_classes=2, average=average
+                            task="multiclass",
+                            num_classes=2,
+                            average=average,
+                            ignore_index=-100,
                         ),
                         "f1": F1Score(
-                            task="multiclass", num_classes=2, average=average
+                            task="multiclass",
+                            num_classes=2,
+                            average=average,
+                            ignore_index=-100,
                         ),
                     }
                     | (
@@ -76,6 +83,7 @@ class NodeCrossEntropyLoss(Loss):
                                 task="multiclass",
                                 num_classes=2,
                                 average=average,
+                                ignore_index=-100,
                             )
                         }
                         if average != "none"
@@ -89,9 +97,9 @@ class NodeCrossEntropyLoss(Loss):
         return {
             "classification": MetricCollection(
                 [
-                    make_metric_group("macro"),
-                    make_metric_group("weighted"),
-                    make_metric_group("none"),
+                    make_metric_group("macro"),  # type: ignore
+                    make_metric_group("weighted"),  # type: ignore
+                    make_metric_group("none"),  # type: ignore
                 ]
             ),
             "loss": MeanMetric(),
@@ -103,7 +111,7 @@ class NodeCrossEntropyLoss(Loss):
         targets: torch.Tensor,
         loss: torch.Tensor,
         metrics: dict[str, Metric],
-    ) -> dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor | int]:
         """Update metric objects with new batch.
 
         Args:
@@ -121,9 +129,10 @@ class NodeCrossEntropyLoss(Loss):
                 metric. "none_(metric_name)_class_(i)"
         """
         batch_size, num_classes = logits.shape
-        assert targets.shape == (batch_size,)
+        assert targets.shape == (
+            batch_size,
+        ), f"Unexpected shape: {targets.shape=}, {batch_size=}"
         assert num_classes == 2
-        assert loss.shape == (batch_size,)
 
         return_metrics = {}
         classification_metrics: dict[str, torch.Tensor] = metrics[
@@ -142,6 +151,9 @@ class NodeCrossEntropyLoss(Loss):
 
         metrics["loss"].forward(loss)
         return_metrics["loss"] = loss
+
+        effective_batch_size = (targets != -100).sum()
+        return_metrics["weight"] = effective_batch_size.item()
 
         return return_metrics
 
@@ -216,9 +228,9 @@ class NodeCrossEntropyLoss(Loss):
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
-        ys: Labels,
+        ys: dict[str, torch.Tensor],
         batch_metrics: dict[str, Metric] | None = None,
-    ) -> dict[str, torch.Tensor]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the cross-entropy loss.
 
         Args:
@@ -227,13 +239,11 @@ class NodeCrossEntropyLoss(Loss):
                 discussion.
             graph_embeddings: The embedding for each graph in the batch. Shape
                 (B, D).
-            ys: Dataclass for the labels in the batch. Within that dataclass,
+            ys: Dictionary for the labels in the batch. Within that dictionary,
                 this loss uses
                 - y: The true label for each node. Note that each node will not
                     have a label, and therefore should be filtered using y_mask.
                     Shape (B, C).
-                - y_mask: Indicator whether a comment has a valid label and
-                    should be used in the loss. Shape (B, C).
             batch_metrics:
                 A dictionary of metric objects to update with the batch metrics.
                 This should be called with "compute_batch_metrics". If None, no
@@ -243,34 +253,32 @@ class NodeCrossEntropyLoss(Loss):
             A dictionary of metrics corresponding
         """
         del graph_embeddings
-        targets = ys.y
-        target_mask = ys.y_mask
-        assert ys.hard_y is None
+        assert ys.keys() == {Labels.Ys}
+        targets = ys[Labels.Ys]
 
-        batch_size, comments, _ = node_embeddings.shape
-        assert targets.shape == (batch_size, comments)
-        assert target_mask.shape == (batch_size, comments)
+        batch_size, _ = node_embeddings.shape
+        assert targets.shape == (
+            batch_size,
+        ), f"{targets.shape=}, {batch_size=}"
 
         logits = self.output_head(node_embeddings)
 
         logits = torch.reshape(logits, (-1, 2))
         targets = torch.flatten(targets)
-        target_mask = torch.flatten(target_mask)
-        # TODO(liamhebert): Check whether we can use "none" for a reduce
-        loss = F.cross_entropy(
-            logits, targets, weight=self.weight, reduction="none"
-        )
 
-        weights = torch.einsum("i,i -> ", self.weight[targets], target_mask)
-        loss = torch.einsum("i,i -> ", loss, target_mask) / weights
+        loss = F.cross_entropy(
+            logits,
+            targets,
+            weight=self.weight,
+            reduction="mean",
+            ignore_index=-100,
+        )
 
         if batch_metrics is not None:
             metrics = self.compute_batch_metrics(
                 logits, targets, loss, batch_metrics
             )
         else:
-            metrics = {"loss": loss}
+            metrics = {}
 
-        assert "loss" in metrics
-
-        return metrics
+        return loss, metrics

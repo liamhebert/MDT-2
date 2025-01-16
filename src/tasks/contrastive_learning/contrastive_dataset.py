@@ -1,0 +1,227 @@
+"""Contrastive pre-training dataset for the contrastive learning task."""
+
+import logging
+from typing import Any
+
+from data.types import ContrastiveLabels
+from data.collated_datasets import ContrastiveTaskDataset
+
+
+class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
+    """
+    Task dataset for Contrastive DisCo Pre-Training.
+    """
+
+    def __init__(self, **kwargs):
+        groups = {
+            "Partisan A": {
+                "a": [
+                    "democrats",
+                    "OpenChristian",
+                    "GamerGhazi",
+                    "excatholic",
+                    "EnoughLibertarianSpam",
+                    "AskAnAmerican",
+                    "lastweektonight",
+                ],
+                "b": [
+                    "Conservative",
+                    "progun",
+                    "TrueChristian",
+                    "Catholicism",
+                    "askaconservative",
+                    "AskTrumpSupporters",
+                    "CGPGrey",
+                ],
+            },
+            "Partisan B": {
+                "a": [
+                    "hillaryclinton",
+                    "SandersForPresident",
+                    "askhillarysupporters",
+                    "BlueMidterm2018",
+                    "badwomensanatomy",
+                    "PoliticalVideo",
+                    "liberalgunowners",
+                    "GrassrootsSelect",
+                    "GunsAreCool",
+                ],
+                "b": [
+                    "The_Donald",
+                    "KotakuInAction",
+                    "HillaryForPrison",
+                    "AskThe_Donald",
+                    "PoliticalHumor",
+                    "ChoosingBeggars",
+                    "uncensorednews",
+                    "Firearms",
+                    "DNCleaks",
+                    "dgu",
+                ],
+            },
+            "Affluence": {
+                "a": [
+                    "vagabond",
+                    "hitchhiking",
+                    "DumpsterDiving",
+                    "almosthomeless",
+                    "AskACountry",
+                    "KitchenConfidential",
+                    "Nightshift",
+                    "alaska",
+                    "fuckolly",
+                    "FolkPunk",
+                ],
+                "b": [
+                    "backpacking",
+                    "hiking",
+                    "Frugal",
+                    "personalfinance",
+                    "travel",
+                    "Cooking",
+                    "fitbit",
+                    "CampingandHiking",
+                    "gameofthrones",
+                    "IndieFolk",
+                ],
+            },
+            "Gender": {
+                "a": [
+                    "AskMen",
+                    "TrollYChromosome",
+                    "AskMenOver30",
+                    "OneY",
+                    "TallMeetTall",
+                    "daddit",
+                    "ROTC",
+                    "FierceFlow",
+                    "malelivingspace",
+                    "predaddit",
+                ],
+                "b": [
+                    "AskWomen",
+                    "CraftyTrolls",
+                    "AskWomenOver30",
+                    "women",
+                    "bigboobproblems",
+                    "Mommit",
+                    "USMilitarySO",
+                    "HaircareScience",
+                    "InteriorDesign",
+                    "BabyBumps",
+                ],
+            },
+            "Age": {
+                "a": [
+                    "teenagers",
+                    "youngatheists",
+                    "teenrelationships",
+                    "AskMen",
+                    "saplings",
+                    "hsxc",
+                    "trackandfield",
+                    "bapccanada",
+                    "RedHotChiliPeppers",
+                ],
+                "b": [
+                    "RedditForGrownups",
+                    "TrueAtheism",
+                    "relationship_advice",
+                    "AskMenOver30",
+                    "eldertrees",
+                    "running",
+                    "trailrunning",
+                    "MaleFashionMarket",
+                    "canadacordcutters",
+                    "pearljam",
+                ],
+            },
+            "Edgy": {
+                "a": [
+                    "memes",
+                    "watchpeoplesurvive",
+                    "MissingPersons",
+                    "twinpeaks",
+                    "pickuplines",
+                    "texts",
+                    "startrekgifs",
+                    "subredditoftheday",
+                    "peeling",
+                    "rapbattles",
+                ],
+                "b": [
+                    "ImGoingToHellForThis",
+                    "watchpeopledie",
+                    "MorbidReality",
+                    "TrueDetective",
+                    "MeanJokes",
+                    "FiftyFifty",
+                    "DaystromInstitute",
+                    "SRSsucks",
+                    "bestofworldstar",
+                ],
+            },
+        }
+
+        groups["Partisan A"]["a"].extend(groups["Partisan B"]["a"])
+        groups["Partisan A"]["b"].extend(groups["Partisan B"]["b"])
+        del groups["Partisan B"]
+
+        # Map to convert a subreddit name to a group
+        self.idx_map = {}
+        idx = 0
+        for _, value in groups.items():
+            a = idx
+            b = idx + 1
+            idx += 2
+            for side, subreddits in value.items():
+                if side == "a":
+                    pos, neg = a, b
+                else:
+                    pos, neg = b, a
+                for subreddit in subreddits:
+                    if subreddit in self.idx_map:
+                        logging.warning("Duplicate index found: %s", subreddit)
+                    self.idx_map[subreddit] = (pos, neg)
+
+        super().__init__(**kwargs)
+
+    def has_graph_labels(self) -> bool:
+        """Indicating that the dataset has graph labels."""
+        return True
+
+    def retrieve_label(self, data: dict[str, Any]) -> dict[str, bool | int]:
+        """Retrieves the graph label from the root node.
+
+        Since has_graph_labels is True, this function is only called on the root
+        node of the graph. This function is called with the "data" field of the
+        node, which contains whatever auxiliary information is available for the
+        node.
+
+        Args:
+            data (dict[str, Any]): The metadata of the comment.
+
+        Returns:
+            dict[str, bool | int]: The label information for the node, which must
+                contain "Ys" and "YMask" as keys.
+        """
+        assert "label" in data, (
+            '"label" key not found in data, please check that the data format ',
+            "is compatible with HatefulDiscussions.",
+        )
+
+        subreddit = data["subreddit"]
+        if subreddit not in self.idx_map:
+            # Ideally, this should never happen.
+            logging.error("Subreddit not found: %s", subreddit)
+            return {
+                ContrastiveLabels.Ys: -100,
+                ContrastiveLabels.HardYs: -100,
+            }
+
+        pos, neg = self.idx_map[subreddit]
+
+        return {
+            ContrastiveLabels.Ys: pos,
+            ContrastiveLabels.HardYs: neg,
+        }

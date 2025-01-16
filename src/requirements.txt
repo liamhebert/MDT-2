@@ -16,3 +16,7 @@ torchmetrics
 mypy
 torch_geometric
 transformers
+rich
+xformers
+scikit-learn
+emoji

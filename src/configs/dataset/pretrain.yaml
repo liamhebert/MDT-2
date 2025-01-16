@@ -1,0 +1,25 @@
+_target_: datamodule.DataModule
+train_batch_size: 8
+test_batch_size: 32
+num_workers: 8
+pin_memory: True
+
+dataset:
+  _target_: tasks.contrastive_learning.contrastive_dataset.ContrastivePreTrainingDataset
+  root: ${paths.data_dir}
+  raw_graph_path: raw_files/*/*.json
+  output_graph_path: ${paths.data_dir}/processed_files
+
+  train_size: 0.8
+  valid_size: 0.1
+  test_size: 0.1
+
+  split_seed: 42
+
+  image_tokenizer_key: ${modality_encoder.vision_model_name}
+  text_tokenizer_key: ${modality_encoder.text_model_name}
+
+  split_graphs: False
+  strict: True
+  max_distance_length: 6
+  force_reload: True

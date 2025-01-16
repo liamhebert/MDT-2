@@ -2,14 +2,13 @@
 Dataset classes and utilities.
 """
 
-import os.path as osp
-
-import pandas as pd
-from pytorch_lightning import LightningDataModule
-import torch
+from lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
+from torch.utils.data import Subset
 from tqdm import tqdm
+
+from data.collated_datasets import CollatedDataset
 
 tqdm.pandas()
 
@@ -41,25 +40,23 @@ class DataModule(LightningDataModule):
     _val_dataset: Dataset | None = None
     _test_dataset: Dataset | None = None
 
-    _train_device_batch_size: int = 1
-    _test_device_batch_size: int = 1
+    _train_device_batch_size: int | None = None
+    _test_device_batch_size: int | None = None
+
+    master_dataset: CollatedDataset
 
     def __init__(
         self,
-        data_dir: str,
+        dataset: CollatedDataset,
         train_batch_size: int,
         test_batch_size: int,
-        train_val_test_split: tuple[float, float, float],
         num_workers: int,
-        force_remake: bool,
         pin_memory: bool,
     ):
-        super()
-        assert (
-            sum(train_val_test_split) == 1.0
-        ), f"Train/val/test split must sum to 1.0. Got {train_val_test_split=}"
+        super().__init__()
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
+        self.master_dataset = dataset
         self.save_hyperparameters(logger=False)
 
     def prepare_data(self):
@@ -68,10 +65,7 @@ class DataModule(LightningDataModule):
         This is only called once on the rank 0 gpu per run, and results in
         memory are not replicated across gpus. This is useful for downloading.
         """
-        # TODO(liamhebert): Implement data preparation logic
-        if self.hparams.force_remake is False and osp.exists(self.tensor_dir):
-            return
-        pass
+        self.master_dataset.process()
 
     def setup(self, stage: str):
         """Load dataset for training/validation/testing.
@@ -91,38 +85,43 @@ class DataModule(LightningDataModule):
             self._train_device_batch_size is None
             or self._test_device_batch_size is None
         ):
+            train_batch_size: int = self.hparams.train_batch_size  # type: ignore
+            test_batch_size: int = self.hparams.test_batch_size  # type: ignore
+
             # We test both here to fail quickly if misconfigured
             if (
-                self.hparams.train_batch_size % self.trainer.world_size != 0
-                or self.hparams.test_batch_size % self.trainer.world_size != 0
+                train_batch_size % self.trainer.world_size != 0
+                or test_batch_size % self.trainer.world_size != 0
             ):
                 raise RuntimeError(
-                    f"Batch size ({self.hparams.batch_size}) is not divisible"
-                    f"by the number of devices ({self.trainer.world_size})."
+                    f"Batch size "
+                    f"({train_batch_size}, {test_batch_size})"
+                    " is not divisible by the number of devices "
+                    f"({self.trainer.world_size})."
                 )
 
             self._train_device_batch_size = (
-                self.hparams.train_batch_size // self.trainer.world_size
+                train_batch_size // self.trainer.world_size
             )
             self._test_device_batch_size = (
-                self.hparams.test_batch_size // self.trainer.world_size
+                test_batch_size // self.trainer.world_size
             )
 
-        # TODO(liamhebert): Implement dataset setup logic
-        # TODO(liamhebert): Implement debug mode
-        if stage == "fit" and self._train_dataset is None:
+        if self._train_dataset is None:
             # make training dataset
-            self._train_dataset = Dataset()
-        elif stage == "validate" and self._val_dataset is None:
+            self._train_dataset = Subset(
+                self.master_dataset, self.master_dataset.train_idx
+            )
+        if self._val_dataset is None:
             # make validation dataset
-            self._val_dataset = Dataset()
-        elif (
-            stage == "test" or stage == "predict"
-        ) and self._test_dataset is None:
+            self._val_dataset = Subset(
+                self.master_dataset, self.master_dataset.valid_idx
+            )
+        if self._test_dataset is None:
             # Make test dataset
-            self._test_dataset = Dataset()
-        else:
-            raise ValueError(f"Unexpected stage: {stage}")
+            self._test_dataset = Subset(
+                self.master_dataset, self.master_dataset.test_idx
+            )
 
     def train_dataloader(self) -> DataLoader:
         """
@@ -132,9 +131,11 @@ class DataModule(LightningDataModule):
 
         return DataLoader(
             self._train_dataset,
-            batch_size=self.hparams.train_batch_size,  # type: ignore
+            batch_size=self._train_device_batch_size,  # type: ignore
             shuffle=True,
             num_workers=self.hparams.num_workers,  # type: ignore
+            pin_memory=self.hparams.pin_memory,  # type: ignore
+            collate_fn=self.master_dataset.collate_fn,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -145,9 +146,11 @@ class DataModule(LightningDataModule):
 
         return DataLoader(
             self._val_dataset,
-            batch_size=self.hparams.test_batch_size,  # type: ignore
+            batch_size=self._test_device_batch_size,  # type: ignore
             shuffle=False,
             num_workers=self.hparams.num_workers,  # type: ignore
+            pin_memory=self.hparams.pin_memory,  # type: ignore
+            collate_fn=self.master_dataset.collate_fn,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -155,41 +158,12 @@ class DataModule(LightningDataModule):
         Return the test dataloader.
         """
         assert self._test_dataset is not None, "Test dataset not loaded"
+
         return DataLoader(
             self._test_dataset,
-            batch_size=self.hparams.test_batch_size,  # type: ignore
+            batch_size=self._test_device_batch_size,  # type: ignore
             shuffle=False,
             num_workers=self.hparams.num_workers,  # type: ignore
+            pin_memory=self.hparams.pin_memory,  # type: ignore
+            collate_fn=self.master_dataset.collate_fn,
         )
-
-
-class Dataset(Dataset):
-    """Dataset instance for a dataloader.
-
-    Params:
-        df: The dataframe containing the dataset, used for tracking sizes.
-        tensor_dir: The directory containing processed tensors.
-    """
-
-    # NOTE: If things are bigger then what can be held in memory, we will need
-    # to offload some to disk. This is particularly relevant with distributed
-    # training, where each gpu will have a copy of df.
-    df: pd.DataFrame
-
-    def __getitem__(self, idx) -> dict[str, torch.Tensor]:
-        """Fetch a single item from the dataset indexed by idx.
-
-        Params:
-            idx: The index of the item to fetch.
-
-        Returns:
-            A dictionary mapping keys to torch tensors. It is expected that the
-            tensors have a shape of (batch_size, ...).
-        """
-        pass
-
-    def __len__(self) -> int:
-        """
-        Return the size of the dataset.
-        """
-        return len(self.df)

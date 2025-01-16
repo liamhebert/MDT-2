@@ -3,22 +3,11 @@ Loss classes.
 """
 
 import abc
-from dataclasses import dataclass
 
 import torch
 from torchmetrics import Metric
 from torchmetrics import SumMetric
-
-
-@dataclass
-class Labels:
-    """
-    Dataclass to format possible label formats.
-    """
-
-    y: torch.Tensor
-    y_mask: torch.Tensor | None = None
-    hard_y: torch.Tensor | None = None
+from torchmetrics import MetricCollection
 
 
 class LastValueMetric(SumMetric):
@@ -44,7 +33,7 @@ class Loss(abc.ABC, torch.nn.Module):
     @abc.abstractmethod
     def build_batch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | None]:
+    ) -> dict[str, Metric | MetricCollection]:
         """Build metric collectors for batch metrics.
 
         TODO(liamhebert): Write more docs here
@@ -54,7 +43,7 @@ class Loss(abc.ABC, torch.nn.Module):
     @abc.abstractmethod
     def build_epoch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | None]:
+    ) -> dict[str, Metric | MetricCollection]:
         """
         Build run-level metric aggregators for each metric.
         """
@@ -67,7 +56,7 @@ class Loss(abc.ABC, torch.nn.Module):
         logits: torch.Tensor,
         targets: torch.Tensor,
         loss: torch.Tensor,
-        metrics: dict[str, Metric],
+        metrics: dict[str, Metric | MetricCollection],
     ) -> dict[str, torch.Tensor]:
         """Update metric objects with new batch.
 
@@ -87,8 +76,8 @@ class Loss(abc.ABC, torch.nn.Module):
     @abc.abstractmethod
     def compute_epoch_metrics(
         self,
-        batch_metrics: dict[str, Metric],
-        epoch_metrics: dict[str, Metric],
+        batch_metrics: dict[str, Metric | MetricCollection],
+        epoch_metrics: dict[str, Metric | MetricCollection],
     ) -> dict[str, torch.Tensor]:
         """Update run-level metric aggregator with epoch metrics.
 
@@ -110,9 +99,9 @@ class Loss(abc.ABC, torch.nn.Module):
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
-        ys: Labels,
-        batch_metrics: dict[str, Metric] | None = None,
-    ) -> torch.Tensor:
+        ys: dict[str, torch.Tensor],
+        batch_metrics: dict[str, Metric | MetricCollection] | None = None,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the cross-entropy loss.
 
         Args:

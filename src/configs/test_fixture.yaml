@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - train
+  - override debug: default
+  - override modality_encoder: debug
+  - override model: debug
+  - override dataset: debug
+  - override trainer: cpu

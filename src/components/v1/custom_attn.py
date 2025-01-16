@@ -87,15 +87,27 @@ class MultiheadAttention(nn.Module):
             attn_bias (Tensor): Tensor with shape (batch, heads, nodes, nodes)
                 containing the bias to apply to the attention scores between
                 nodes.
-            key_padding_mask (ByteTensor, optional): mask to exclude
-                keys that are pads, of shape `(batch, src_len)`, where padding
-                elements are indicated by 1s.
-            attn_mask (ByteTensor, optional): typically used to
-                implement causal attention, where the mask prevents the
-                attention from attending to those positions.
+            key_padding_mask (Tensor, optional): If specified, a binary mask of
+                shape (batch, nodes) indicating which elements within key to
+                ignore for the purpose of attention (i.e. treat as “padding”).
+                A True value indicates that the corresponding key value will be
+                ignored for the purpose of attention. For a float mask, it will
+                be directly added to the corresponding key value.
+            attn_mask (Tensor, optional): If specified, a 2D or 3D mask
+                preventing attention to certain positions. Must be of shape
+                (nodes, nodes) or (batch * num_heads, nodes, nodes). A 2D mask
+                will be broadcasted across the batch while a 3D mask allows for
+                a different mask for each entry in the batch. Binary and float
+                masks are supported. For a binary mask, a True value indicates
+                that the corresponding position is not allowed to attend. For a
+                float mask, the mask values will be added to the attention weight.
+                If both attn_mask and key_padding_mask are supplied, their types
+                should match.
+
 
         Returns:
-            Tensor: The new hidden state after processed by the MHA layer.
+            Tensor: The new hidden state after processed by the MHA layer, with
+                shape (batch, nodes, embed_dim).
         """
 
         bsz, tgt_len, embed_dim = query.size()
@@ -155,7 +167,8 @@ class MultiheadAttention(nn.Module):
             )
 
         if attn_mask is not None:
-            attn_mask = attn_mask.unsqueeze(0)
+            if attn_mask.dim() == 2:
+                attn_mask = attn_mask.unsqueeze(0)
             attn_weights += attn_mask
 
         if key_padding_mask is not None:
@@ -176,6 +189,7 @@ class MultiheadAttention(nn.Module):
         attn_probs = self.dropout_module(attn_weights)
 
         assert v is not None
+
         attn = torch.bmm(attn_probs, v)
         assert list(attn.size()) == [
             bsz * self.num_heads,
@@ -183,10 +197,8 @@ class MultiheadAttention(nn.Module):
             self.head_dim,
         ]
 
-        attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
+        # Flatten the heads into a single embedding.
+        attn = attn.transpose(0, 1).contiguous().view(bsz, tgt_len, embed_dim)
         attn = self.out_proj(attn)
-
-        # We then restore the original shape of the tensor
-        attn = attn.transpose(1, 0)
 
         return attn

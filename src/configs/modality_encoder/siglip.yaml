@@ -1,0 +1,2 @@
+text_model_name: "google/siglip-so400m-patch14-384"
+vision_model_name: "google/siglip-so400m-patch14-384"
