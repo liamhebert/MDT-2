@@ -38,7 +38,7 @@ class TestCrossEntropyLoss:
         """
         Test to check if we can compute.
         """
-        loss = NodeCrossEntropyLoss([1, 1], IdentityOutputHead(2, 2))
+        loss = NodeCrossEntropyLoss([0.8, 0.3], IdentityOutputHead(2, 2))
 
         metric_agg = loss.build_batch_metric_aggregators()
 
@@ -47,8 +47,8 @@ class TestCrossEntropyLoss:
         loss_val = F.cross_entropy(
             logits,
             targets,
-            weight=torch.Tensor([1.0, 1.0]),
-            reduction="none",
+            weight=torch.Tensor([0.8, 0.3]),
+            reduction="mean",
             ignore_index=-100,
         )
 
@@ -59,7 +59,7 @@ class TestCrossEntropyLoss:
         test.assert_close(returned_metrics["loss"], loss_val)
         del returned_metrics["loss"]
 
-        test.assert_close(metric_agg["loss"].compute(), loss_val.mean())
+        test.assert_close(metric_agg["loss"].compute(), loss_val)
 
         # Check that the metrics are updated correctly
         metrics = metric_agg["classification"].compute()

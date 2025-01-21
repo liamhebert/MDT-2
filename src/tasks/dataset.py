@@ -476,6 +476,10 @@ class TaskDataset(Dataset, ABC):
                     data = self.process_graph(json_data)
 
                     if self.split_graphs:
+                        assert not self.has_graph_labels, (
+                            "Trying to split graphs with graph labels,"
+                            "this is pointless you silly goose!"
+                        )
                         mask = data.y[Labels.Ys] != -100
 
                         for i in mask.nonzero(as_tuple=True)[0]:

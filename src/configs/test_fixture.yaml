@@ -5,5 +5,6 @@ defaults:
   - override debug: default
   - override modality_encoder: debug
   - override model: debug
-  - override dataset: debug
+  - override dataset: debug_node
   - override trainer: cpu
+  - _self_

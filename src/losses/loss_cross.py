@@ -149,8 +149,7 @@ class NodeCrossEntropyLoss(Loss):
                 assert value.shape == (), f"Unexpected shape: {value.shape}"
                 return_metrics[key] = value
 
-        metrics["loss"].forward(loss)
-        return_metrics["loss"] = loss
+        return_metrics["loss"] = metrics["loss"].forward(loss)
 
         effective_batch_size = (targets != -100).sum()
         return_metrics["weight"] = effective_batch_size.item()
@@ -217,7 +216,9 @@ class NodeCrossEntropyLoss(Loss):
                 metrics["none_" + metric][1]
             )
 
-        epoch_metrics["best_loss"].forward(batch_metrics["loss"].compute())
+        epoch_vals["best_loss"] = epoch_metrics["best_loss"].forward(
+            batch_metrics["loss"].compute()
+        )
 
         for metric in batch_metrics.values():
             metric.reset()

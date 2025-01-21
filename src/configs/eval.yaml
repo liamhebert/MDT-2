@@ -9,6 +9,7 @@ defaults:
   - paths: default
   - extras: default
   - hydra: default
+  - _self_
 
 task_name: "eval"
 

@@ -3,6 +3,7 @@
 defaults:
   - test_fixture
   - override model: debug
+  - _self_
 
 trainer:
   fast_dev_run: True

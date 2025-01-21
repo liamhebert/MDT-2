@@ -1,15 +1,14 @@
 # @package _global_
 
 defaults:
-  - test_fixture
-  - override model: debug
+  - test_fixture_e2e_node
+  - override model/loss: contrastive_loss
+  - override dataset: debug_contrastive
+  - _self_
 
 trainer:
   fast_dev_run: True
 
 model:
-  encoder:
-    text_model_config:
-      test_config:
-        vocab_size: 32000
-        max_position_embeddings: 128
+  loss:
+    num_classes: 2

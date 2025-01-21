@@ -17,7 +17,7 @@ import rootutils
 
 
 @pytest.fixture(scope="session")
-def cfg_test_e2e_global() -> DictConfig:
+def cfg_test_e2e_node_global() -> DictConfig:
     """A pytest fixture for setting up a default Hydra DictConfig for running
     test functions.
 
@@ -48,8 +48,8 @@ def cfg_test_e2e_global() -> DictConfig:
 
 
 @pytest.fixture(scope="function")
-def cfg_test_e2e(
-    cfg_test_e2e_global: DictConfig, tmp_path: Path
+def cfg_test_e2e_node(
+    cfg_test_e2e_node_global: DictConfig, tmp_path: Path
 ) -> Generator[DictConfig, None, None]:
     """A pytest fixture built on top of the `cfg_test_e2e_global()` fixture, which
     accepts a temporary logging path `tmp_path` for generating a temporary
@@ -66,23 +66,97 @@ def cfg_test_e2e(
         A DictConfig with updated output and log directories corresponding to
         `tmp_path`.
     """
-    cfg = cfg_test_e2e_global.copy()
+    cfg = cfg_test_e2e_node_global.copy()
 
     with open_dict(cfg):
         cfg.paths.output_dir = str(tmp_path)
         cfg.paths.log_dir = str(tmp_path)
+        cfg.paths.data_dir = str(tmp_path)
 
     yield cfg
 
     GlobalHydra.instance().clear()
 
 
-def test_end_to_end(cfg_test_e2e: DictConfig) -> None:
+def test_end_to_end_node(cfg_test_e2e_node: DictConfig) -> None:
 
-    HydraConfig().set_config(cfg_test_e2e)
+    HydraConfig().set_config(cfg_test_e2e_node)
 
-    data = hydra.utils.instantiate(cfg_test_e2e.dataset)
-    model = hydra.utils.instantiate(cfg_test_e2e.model)
-    trainer = hydra.utils.instantiate(cfg_test_e2e.trainer)
+    data = hydra.utils.instantiate(cfg_test_e2e_node.dataset)
+    model = hydra.utils.instantiate(cfg_test_e2e_node.model)
+    trainer = hydra.utils.instantiate(cfg_test_e2e_node.trainer)
+
+    trainer.fit(model=model, datamodule=data, ckpt_path=None)
+
+
+@pytest.fixture(scope="session")
+def cfg_test_e2e_pre_train_global() -> DictConfig:
+    """A pytest fixture for setting up a default Hydra DictConfig for running
+    test functions.
+
+    This differs from other fixtures in that the model is dramatically smaller
+    and designed for quick testing.
+
+    Returns:
+        A DictConfig containing a default Hydra configuration for
+    testing.
+    """
+    with initialize(version_base=None, config_path="configs"):
+        cfg = compose(
+            config_name="test_fixture_e2e_contrast.yaml",
+            return_hydra_config=True,
+            overrides=["ckpt_path=."],
+        )
+
+        # set defaults for all tests
+        with open_dict(cfg):
+            cfg.paths.root_dir = str(
+                rootutils.find_root(indicator=".project-root")
+            )
+            cfg.extras.print_config = False
+            cfg.extras.enforce_tags = False
+            cfg.logger = None
+
+    return cfg
+
+
+@pytest.fixture(scope="function")
+def cfg_test_e2e_pre_train(
+    cfg_test_e2e_pre_train_global: DictConfig, tmp_path: Path
+) -> Generator[DictConfig, None, None]:
+    """A pytest fixture built on top of the `cfg_test_e2e_global()` fixture, which
+    accepts a temporary logging path `tmp_path` for generating a temporary
+    logging path.
+
+    This is called by each test which uses the `cfg_test` arg. Each test
+    generates its own temporary logging path.
+
+    Args:
+        cfg_test_global: The input DictConfig object to be modified.
+        tmp_path: The temporary logging path.
+
+    Returns:
+        A DictConfig with updated output and log directories corresponding to
+        `tmp_path`.
+    """
+    cfg = cfg_test_e2e_pre_train_global.copy()
+
+    with open_dict(cfg):
+        cfg.paths.output_dir = str(tmp_path)
+        cfg.paths.log_dir = str(tmp_path)
+        cfg.paths.data_dir = str(tmp_path)
+
+    yield cfg
+
+    GlobalHydra.instance().clear()
+
+
+def test_end_to_end(cfg_test_e2e_pre_train: DictConfig) -> None:
+
+    HydraConfig().set_config(cfg_test_e2e_pre_train)
+
+    data = hydra.utils.instantiate(cfg_test_e2e_pre_train.dataset)
+    model = hydra.utils.instantiate(cfg_test_e2e_pre_train.model)
+    trainer = hydra.utils.instantiate(cfg_test_e2e_pre_train.trainer)
 
     trainer.fit(model=model, datamodule=data, ckpt_path=None)
