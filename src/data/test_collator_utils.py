@@ -13,6 +13,7 @@ from components.v2.graph_attention_mask import PADDING_GRAPH_ID
 
 
 def test_pad_1d_unsqueeze():
+    """Testing the pad_1d_unsqueeze function."""
     # Test case 1: pad with shift
     x = torch.tensor([1, 2, 3])
     padlen = 5
@@ -56,6 +57,7 @@ def test_pad_1d_unsqueeze():
 
 
 def test_pad_2d_unsqueeze():
+    """Testing the pad_2d_unsqueeze function."""
     # Test case 1: pad with shift
     x = torch.tensor([[1, 2], [3, 4]])
     padlen = 4
@@ -99,6 +101,7 @@ def test_pad_2d_unsqueeze():
 
 
 def test_pad_attn_bias_unsqueeze():
+    """Testing the pad_attn_bias_unsqueeze function."""
     # Test case: pad attention bias
     x = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
     padlen = 4
@@ -121,6 +124,7 @@ def test_pad_attn_bias_unsqueeze():
 
 
 def test_pad_edge_type_unsqueeze():
+    """Testing the pad_edge_type_unsqueeze function."""
     # Test case: pad edge type
     x = torch.tensor([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
     padlen = 4
@@ -143,6 +147,7 @@ def test_pad_edge_type_unsqueeze():
 
 
 def test_pad_spatial_pos_unsqueeze():
+    """Testing the pad_spatial_pos function."""
     # Test case: pad spatial position
     x = torch.tensor([[1, 2], [3, 4]])
     padlen = 4
@@ -158,6 +163,8 @@ def test_pad_spatial_pos_unsqueeze():
 
 
 class DummyValues(IntEnum):
+    """Unique values for each feature in the sample input."""
+
     ATTN_BIAS = auto()
     DISTANCE = auto()
     DISTANCE_INDEX = auto()
@@ -173,6 +180,7 @@ class DummyValues(IntEnum):
 def create_sample_input(
     num_nodes: int, text_length: int, num_images: int, image_length: int
 ) -> Data:
+    """Utility function to create a sample input for testing the collator."""
 
     data = Data(
         attn_bias=torch.full(
@@ -216,6 +224,12 @@ def create_sample_input(
 
 
 def test_collator_v1():
+    """Testing the extract_and_merge and generic_collator functions.
+
+    This is effectively an end-to-end test for the v1 collator, which uses
+    (batch, nodes, features) format for the input data, rather then flattened as
+    is in the v2 collator.
+    """
     items = [
         create_sample_input(
             num_nodes=3, text_length=5, num_images=2, image_length=3
@@ -389,6 +403,11 @@ def test_collator_v1():
 
 
 def test_collator_v2():
+    """Testing the extract_and_merge and generic_collator functions.
+
+    This is effectively an end-to-end test for the v2 collator, which uses
+    (batch * nodes, features) flattened format for the input data.
+    """
     items = [
         create_sample_input(
             num_nodes=3, text_length=5, num_images=2, image_length=3
