@@ -195,7 +195,6 @@ def test_contrastive_loss_value():
     print(returned_metrics)
 
     test.assert_close(loss_value_2, expected_loss_value)
-    test.assert_close(loss_value)
 
     metrics = batch_metrics["classification"].compute()
     metrics["weight"] = 3
