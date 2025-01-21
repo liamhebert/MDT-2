@@ -20,4 +20,4 @@ rich
 xformers
 scikit-learn
 emoji
-pillow
+Pillow
