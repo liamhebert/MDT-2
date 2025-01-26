@@ -24,7 +24,7 @@ graph_stack_config:
     _target_: torch.nn.GELU
 
 text_model_config:
-  bert_model_name: "${modality_encoder.text_model_name}"
+  bert_model_name: "${modality_encoder.text_config.text_model_name}"
   attention_dropout: 0.3
   activation_dropout: 0.3
 

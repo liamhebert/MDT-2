@@ -21,3 +21,4 @@ xformers
 scikit-learn
 emoji
 Pillow
+sentencepiece

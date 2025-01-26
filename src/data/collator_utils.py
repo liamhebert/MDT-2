@@ -204,6 +204,7 @@ def extract_and_merge_features(
         TextFeatures.InputIds: [],
         TextFeatures.AttentionMask: [],
         TextFeatures.TokenTypeIds: [],
+        TextFeatures.PositionIds: [],
     }
 
     image_features: InputFeatures = {
@@ -222,14 +223,30 @@ def extract_and_merge_features(
         graph_features[GraphFeatures.DistanceIndex].append(graph.distance_index)
 
         text: BatchEncoding = graph.text
+        for feature in [
+            TextFeatures.AttentionMask,
+            TextFeatures.InputIds,
+        ]:
+            assert feature in text, f"Missing {feature} in text, {text.keys()}"
         text_features[TextFeatures.InputIds].append(text.input_ids)
         text_features[TextFeatures.AttentionMask].append(text.attention_mask)
-        text_features[TextFeatures.TokenTypeIds].append(text.token_type_ids)
+        if TextFeatures.TokenTypeIds in text:
+            text_features[TextFeatures.TokenTypeIds].append(text.token_type_ids)
+        if TextFeatures.PositionIds in text:
+            text_features[TextFeatures.PositionIds].append(text.position_ids)
 
         if hasattr(graph, "image"):
             image_features[ImageFeatures.PixelValues].append(
                 graph.image.pixel_values
             )
+
+    for extra_feat in [TextFeatures.TokenTypeIds, TextFeatures.PositionIds]:
+        if text_features[extra_feat]:
+            assert len(text_features[TextFeatures.InputIds]) == len(
+                text_features[extra_feat]
+            )
+        else:
+            del text_features[extra_feat]
 
     return graph_features, text_features, image_features
 

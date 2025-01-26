@@ -9,6 +9,7 @@ from data.collated_datasets import ContrastiveTaskDataset
 from data.collated_datasets import NodeBatchedDataDataset
 from data.types import ContrastiveLabels
 from data.types import Labels
+from datamodule import DataModule
 
 
 class DummyNodeTaskDataset(NodeBatchedDataDataset):
@@ -45,7 +46,7 @@ class DummyGraphTaskDataset(ContrastiveTaskDataset):
 @pytest.fixture(scope="function")
 def dataset(tmp_path: pathlib.Path):
     """Generate a dummy node dataset without graph splitting."""
-    (tmp_path / "processed").mkdir()
+    (tmp_path / "processed").mkdir(exist_ok=True)
     return DummyNodeTaskDataset(
         raw_graph_path="test10",
         root="tasks/sample_test_data",
@@ -58,7 +59,7 @@ def dataset(tmp_path: pathlib.Path):
 @pytest.fixture(scope="function")
 def split_dataset(tmp_path: pathlib.Path):
     """Generate a dummy node dataset with graph splitting."""
-    (tmp_path / "processed").mkdir()
+    (tmp_path / "processed").mkdir(exist_ok=True)
     return DummyNodeTaskDataset(
         raw_graph_path="test10",
         root="tasks/sample_test_data",
@@ -70,7 +71,7 @@ def split_dataset(tmp_path: pathlib.Path):
 @pytest.fixture(scope="function")
 def graph_dataset(tmp_path: pathlib.Path):
     """Generate a dummy graph constrastive dataset without graph splitting."""
-    (tmp_path / "processed").mkdir()
+    (tmp_path / "processed").mkdir(exist_ok=True)
     return DummyGraphTaskDataset(
         raw_graph_path="test10",
         root="tasks/sample_test_data",
@@ -211,8 +212,8 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
     assert data.in_degree.tolist() == [2, 1, 1]
     assert data.out_degree.tolist() == [2, 1, 1]
 
-    assert data.text["input_ids"].shape == (3, 256)
-    assert data.text["attention_mask"].shape == (3, 256)
+    assert data.text["input_ids"].shape == (3, 512)
+    assert data.text["attention_mask"].shape == (3, 512)
 
 
 def test_truncated_distance(dataset: DummyNodeTaskDataset):
@@ -265,3 +266,44 @@ def test_truncated_distance(dataset: DummyNodeTaskDataset):
 
     # Since we clamp the distance to 2, the distance 0 -> 2 == 0 -> 3
     assert distance_indices[0][2] == distance_indices[0][3]
+
+
+@pytest.mark.parametrize("case", ["node", "graph"])
+def test_wrapped_datamodule(
+    case: str,
+    dataset: DummyNodeTaskDataset,
+    graph_dataset: DummyGraphTaskDataset,
+):
+    if case == "node":
+        data = dataset
+    else:
+        data = graph_dataset
+
+    dm = DataModule(
+        dataset=data,
+        train_batch_size=2,
+        test_batch_size=1,
+        num_workers=1,
+        pin_memory=False,
+    )
+
+    dm.prepare_data()
+    dm.setup("fit")
+    train_dl = dm.train_dataloader()
+    val_dl = dm.val_dataloader()
+    test_dl = dm.test_dataloader()
+
+    assert len(train_dl) == 4  # 7 / 2 = 3.5 -> 4
+    assert len(val_dl) == 2
+    assert len(test_dl) == 2
+
+    for dl in [val_dl, test_dl]:
+        for x in dl:
+            assert x["x"]["num_total_graphs"] == 1
+
+    sizes = []
+    for x in train_dl:
+        sizes += [x["x"]["num_total_graphs"]]
+
+    assert all(x == 2 for x in sizes[:-1])
+    assert sizes[-1] == 1

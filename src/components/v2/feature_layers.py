@@ -88,7 +88,9 @@ class GraphNodeFeature(nn.Module):
         graph_token_feature = self.graph_token.weight.repeat(
             num_total_graphs, 1
         )
-        graph_token_graph_ids = torch.arange(0, num_total_graphs)
+        graph_token_graph_ids = torch.arange(
+            0, num_total_graphs, device=x.device
+        )
 
         # TODO(limahebert): Should we concat graph token to the end or
         # to the start? Keep in mind how we sample bottleneck tokens.

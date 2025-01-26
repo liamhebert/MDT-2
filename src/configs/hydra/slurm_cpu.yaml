@@ -1,0 +1,9 @@
+defaults:
+- slurm
+- _self_
+
+launcher:
+  gres: null
+  cpus_per_task: 6
+  cpus_per_gpu: null
+  mem_gb: 32

@@ -2,7 +2,7 @@
 scratch.ipynb
 src/tasks/*/raw_files/
 src/data/processed_files/
-
+src/logs/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

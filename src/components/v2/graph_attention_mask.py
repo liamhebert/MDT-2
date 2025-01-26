@@ -1,3 +1,5 @@
+"""Utilities to generate mask mods for flex attention that operate on graphs."""
+
 from typing import Callable
 
 import torch
@@ -39,7 +41,7 @@ def generate_graph_attn_mask_mod(
 
     return create_block_mask(
         mask_mod=mask_mod,
-        B=None,
+        B=num_nodes,
         H=num_heads,
         Q_LEN=query_len,
         KV_LEN=key_value_len,
@@ -105,11 +107,11 @@ def generate_attn_mask_mod(
             Tensor: A boolean tensor indicating whether there should be
                 attention between the query and key-value pair.
         """
-        if not num_heads.is_cuda:
-            # This is a stupid workaround to get this to run
-            # in eager mode and not crash. This is not a good solution.
-            # print("q", q_idx)
-            ...
+        # if not num_heads.is_cuda:
+        #     # This is a stupid workaround to get this to run
+        #     # in eager mode and not crash. This is not a good solution.
+        #     # print("q", q_idx)
+        #     print("kv", kv_idx)
 
         same_doc = document_ids[q_idx] == document_ids[kv_idx]
         valid_doc = (document_ids[q_idx] != PADDING_GRAPH_ID) & (
@@ -128,6 +130,7 @@ def generate_attn_mask_mod(
         )
 
         return same_doc & inner_mask & valid_doc
+        # return same_doc & valid_doc
 
     return doc_mask_wrapper
 

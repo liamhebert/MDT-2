@@ -140,6 +140,7 @@ def generic_collator(
         TextFeatures.InputIds,
         TextFeatures.TokenTypeIds,
         TextFeatures.AttentionMask,
+        TextFeatures.PositionIds,
     ]
     text_size = text_features[TextFeatures.InputIds][0].size(1)
     padding = torch.zeros((num_padding, text_size), dtype=torch.long)
@@ -150,6 +151,9 @@ def generic_collator(
                 "may not be correct."
             )
         # All tensors should already be padded to the same sequence length
+        # NOTE: Not that it matters, but some models have EOS at the end of the
+        # sequence, so padding with 0s is not always correct.
+        # We should be fine here.
         collated_text_features[key] = torch.cat(value, dim=0)
         collated_text_features[key] = torch.cat(
             [collated_text_features[key], padding]

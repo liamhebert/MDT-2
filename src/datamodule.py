@@ -79,15 +79,15 @@ class DataModule(LightningDataModule):
             stage: either 'fit' (train), 'validate', 'test', or 'predict'
         """
 
+        train_batch_size: int = self.hparams.train_batch_size  # type: ignore
+        test_batch_size: int = self.hparams.test_batch_size  # type: ignore
+
         # We only have access to trainer in setup, so we need to calculate
         # these parameters here.
         if self.trainer is not None and (
             self._train_device_batch_size is None
             or self._test_device_batch_size is None
         ):
-            train_batch_size: int = self.hparams.train_batch_size  # type: ignore
-            test_batch_size: int = self.hparams.test_batch_size  # type: ignore
-
             # We test both here to fail quickly if misconfigured
             if (
                 train_batch_size % self.trainer.world_size != 0
@@ -106,6 +106,9 @@ class DataModule(LightningDataModule):
             self._test_device_batch_size = (
                 test_batch_size // self.trainer.world_size
             )
+        else:
+            self._train_device_batch_size = train_batch_size
+            self._test_device_batch_size = test_batch_size
 
         if self._train_dataset is None:
             # make training dataset

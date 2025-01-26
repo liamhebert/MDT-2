@@ -10,6 +10,7 @@ from data import collator_utils_v2 as cut_v2
 from data.types import ImageFeatures
 from data.types import TextFeatures
 from components.v2.graph_attention_mask import PADDING_GRAPH_ID
+from pytest import mark
 
 
 def test_pad_1d_unsqueeze():
@@ -402,7 +403,8 @@ def test_collator_v1():
                 )
 
 
-def test_collator_v2():
+@mark.parametrize("with_token_type_ids", [True, False])
+def test_collator_v2(with_token_type_ids: bool):
     """Testing the extract_and_merge and generic_collator functions.
 
     This is effectively an end-to-end test for the v2 collator, which uses
@@ -416,6 +418,10 @@ def test_collator_v2():
             num_nodes=2, text_length=5, num_images=1, image_length=3
         ),
     ]
+
+    if not with_token_type_ids:
+        for item in items:
+            item.text.pop(TextFeatures.TokenTypeIds)
 
     graph_features, text_features, image_features = (
         cut.extract_and_merge_features(items)
@@ -525,6 +531,9 @@ def test_collator_v2():
             ]
         ),
     }
+
+    if not with_token_type_ids:
+        expected["text_input"].pop("token_type_ids")
 
     for key, value in expected.items():
         if isinstance(value, torch.Tensor):

@@ -197,20 +197,12 @@ class DiscussionTransformer(nn.Module):
             self.emb_layer_norm = nn.LayerNorm(self.embedding_dim)
 
         total_fusion_layers = fusion_stack_size * num_fusion_stack
-        (
-            self.vit_model,
-            vit_fusion_layers,
-            self.vit_pooler,
-        ) = self.build_vit_encoder(
+        self.vit_model, vit_fusion_layers = self.build_vit_encoder(
             num_fusion_layers=total_fusion_layers,
             **vit_model_config,
         )  # type: ignore[misc]
 
-        (
-            self.text_model,
-            text_fusion_layers,
-            self.text_pooler,
-        ) = self.build_bert_encoder(
+        self.text_model, text_fusion_layers = self.build_bert_encoder(
             num_fusion_layers=total_fusion_layers,
             **text_model_config,
         )  # type: ignore[misc]
@@ -260,8 +252,8 @@ class DiscussionTransformer(nn.Module):
         if freeze_initial_encoders:
             freeze_module_params(self.text_model)
             freeze_module_params(self.vit_model)
-            unfreeze_module_params(self.text_pooler)
-            unfreeze_module_params(self.vit_pooler)
+            # unfreeze_module_params(self.text_pooler)
+            # unfreeze_module_params(self.vit_pooler)
 
         for layer in range(num_graph_layers_to_freeze):
             freeze_module_params(self.graphormer_layers[layer])
@@ -331,7 +323,7 @@ class DiscussionTransformer(nn.Module):
         activation_dropout: float,
         num_fusion_layers: int,
         test_config: ViTConfig | None = None,
-    ) -> Tuple[ViTModel, list[ViTLayer], ViTPooler]:
+    ) -> Tuple[ViTModel, list[ViTLayer]]:
         """Constructs the Vision Transformer model, taking the last
         `num_fusion_layers` layers for fusion.
 
@@ -346,11 +338,10 @@ class DiscussionTransformer(nn.Module):
                 for testing. Should not be used in production. Defaults to None.
 
         Returns:
-            Tuple[ViTModel, list[ViTLayer], ViTPooler]: A tuple conisting of
+            Tuple[ViTModel, list[ViTLayer]]: A tuple conisting of
                 - The Vision Transformer model with the last `num_fusion_layers`
                     layers removed.
                 - The removed layers, to be used for fusion.
-                - The pooler layer of the model, used to get the final output.
         """
         vit_model: ViTModel
 
@@ -368,20 +359,27 @@ class DiscussionTransformer(nn.Module):
         else:
             vit_model = AutoModel.from_pretrained(
                 vit_model_name,
-                hidden_dropout_prob=activation_dropout,
-                attention_probs_dropout_prob=attention_dropout,
+                # hidden_dropout_prob=activation_dropout,
+                # attention_probs_dropout_prob=attention_dropout,
             )
+            if hasattr(vit_model, "vision_model"):
+                vit_model = vit_model.vision_model
 
         if num_fusion_layers == 0:
             vit_other_layers = []
         else:
             num_fusion_layers = num_fusion_layers
-            vit_other_layers = vit_model.encoder.layer[-num_fusion_layers:]
-            vit_model.encoder.layer = vit_model.encoder.layer[
-                :-num_fusion_layers
-            ]
+            encoder = vit_model.encoder
+            if hasattr(encoder, "layer"):
+                vit_other_layers = encoder.layer[-num_fusion_layers:]
+                encoder.layer = encoder.layer[:-num_fusion_layers]
+            elif hasattr(encoder, "layers"):
+                vit_other_layers = encoder.layers[-num_fusion_layers:]
+                encoder.layers = vit_model.encoder.layers[:-num_fusion_layers]
+            else:
+                raise ValueError("Unknown encoder type for ViT model.")
 
-        return vit_model, vit_other_layers, vit_model.pooler
+        return vit_model, vit_other_layers
 
     def build_bert_encoder(
         self,
@@ -390,7 +388,7 @@ class DiscussionTransformer(nn.Module):
         activation_dropout: float,
         num_fusion_layers: int,
         test_config: BertConfig | None = None,
-    ) -> Tuple[BertModel, list[BertLayer], BertPooler]:
+    ) -> Tuple[BertModel, list[BertLayer]]:
         """Constructs the Text Transformer model, taking the last
         `num_fusion_layers` layers for fusion.
 
@@ -410,7 +408,6 @@ class DiscussionTransformer(nn.Module):
                 - The Bert Transformer model with the last `num_fusion_layers`
                     layers removed.
                 - The removed layers, to be used for fusion.
-                - The pooler layer of the model, used to get the final output.
         """
         # TODO(liamhebert): Try to fuse the two build_(bert|vit) functions
         # together since they have the same logic, the only difference is the
@@ -426,18 +423,27 @@ class DiscussionTransformer(nn.Module):
         else:
             bert = AutoModel.from_pretrained(
                 bert_model_name,
-                hidden_dropout_prob=activation_dropout,
-                attention_probs_dropout_prob=attention_dropout,
+                # hidden_dropout_prob=activation_dropout,
+                # attention_probs_dropout_prob=attention_dropout,
             )
+            if hasattr(bert, "text_model"):
+                bert = bert.text_model
 
         if num_fusion_layers == 0:
             bert_other_layers = []
         else:
             num_fusion_layers = num_fusion_layers
-            bert_other_layers = bert.encoder.layer[-num_fusion_layers:]
-            bert.encoder.layer = bert.encoder.layer[:-num_fusion_layers]
+            encoder = bert.encoder
+            if hasattr(encoder, "layer"):
+                bert_other_layers = encoder.layer[-num_fusion_layers:]
+                encoder.layer = encoder.layer[:-num_fusion_layers]
+            elif hasattr(encoder, "layers"):
+                bert_other_layers = encoder.layers[-num_fusion_layers:]
+                encoder.layers = bert.encoder.layers[:-num_fusion_layers]
+            else:
+                raise ValueError("Unknown encoder type for BERT model.")
 
-        return bert, bert_other_layers, bert.pooler
+        return bert, bert_other_layers
 
     def forward(
         self,
@@ -517,9 +523,11 @@ class DiscussionTransformer(nn.Module):
             image_padding_mask=image_padding_mask,
             bert_attention_mask=text_attention_mask,
         )
+        # This does not have the graph ids in them
         graph_x = bottle_neck[:, 0, :]
         assert graph_x.size() == (flattened_batch, hidden_dim)
 
+        # This does
         graph_x, graph_ids = self.graph_node_feature(
             graph_x, out_degree, graph_ids, num_total_graphs
         )
@@ -549,14 +557,20 @@ class DiscussionTransformer(nn.Module):
         flex_block_mask = generate_graph_attn_mask_mod(
             graph_ids,
             spatial_pos,
+            max_spatial_distance=10,
             num_heads=self.graphormer_layers[0].num_heads,
         )
 
         # account for padding while computing the representation
 
+        graph_tokens = graph_x[:num_total_graphs, :]
+        node_tokens = graph_x[num_total_graphs:, :]
+
         for g_layer, f_layer in zip(
             self.graphormer_layers[:-1], self.fusion_layers[1:]
         ):
+
+            graph_x = torch.cat((graph_tokens, node_tokens), dim=0)
 
             graph_x = g_layer(
                 graph_x,
@@ -564,7 +578,10 @@ class DiscussionTransformer(nn.Module):
             )
 
             # extract bottle_neck tokens
-            bottle_neck[:, 0, :] = graph_x
+            graph_tokens = graph_x[:num_total_graphs, :]
+            node_tokens = graph_x[num_total_graphs:, :]
+            # TODO(liamhebert): Experiment adding graph tokens here too
+            bottle_neck[:, 0, :] = node_tokens
 
             bert_output, vit_output, bottle_neck = f_layer(
                 bert_hidden_states=bert_output,

@@ -217,7 +217,7 @@ class Model(L.LightningModule):
             stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         if self.hparams.compile and stage == "fit":
-            self.net = torch.compile(self.net)
+            self.net = torch.compile(self.encoder, mode="max-autotune")
 
     def configure_optimizers(self):
         """Choose what optimizers and learning-rate schedulers to use in your

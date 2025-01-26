@@ -17,8 +17,8 @@ from tqdm import tqdm
 from transformers import AutoImageProcessor
 from transformers import AutoTokenizer
 from transformers import BatchEncoding
-
-from data.types import Labels
+from joblib import Parallel, delayed
+from data.types import Labels, TextFeatures
 import tasks.dataset_utils as dut
 from utils.pylogger import RankedLogger
 
@@ -62,7 +62,7 @@ class TaskDataset(Dataset, ABC):
         test_size: int | float | None = 0.1,
         split_seed: int = 42,
         image_tokenizer_key: str = "google/vit-base-patch16-224",
-        text_tokenizer_key: str = "bert-base-uncased",
+        text_config: dict[str, str | bool] | None = None,
         split_graphs: bool = False,
         strict: bool = False,
         max_distance_length: int = 10,
@@ -107,7 +107,17 @@ class TaskDataset(Dataset, ABC):
         self.root = root
 
         self.image_tokenizer_key = image_tokenizer_key
-        self.text_tokenizer_key = text_tokenizer_key
+        if text_config is None:
+            log.warning(
+                "No text config provided, using default bert-base-uncased. "
+                "If this is prod, you should fix this!!"
+            )
+            text_config = {
+                "text_model_name": "bert-base-uncased",
+                "has_token_type_ids": True,
+                "add_position_ids": False,
+            }
+        self.text_config = text_config
 
         self._image_tokenizer = None
         self._text_tokenizer = None
@@ -174,7 +184,7 @@ class TaskDataset(Dataset, ABC):
             current_dataset_mapping = dataset_mappings[dataset_name]
             split_path = path.removesuffix("-data.json") + "-split.json"
 
-            if os.path.exists(split_path):
+            if os.path.exists(split_path) and not self.debug:
                 log.info(
                     f"Dataset {dataset_name}: Loading splits from split "
                     f"path {split_path=}"
@@ -206,7 +216,9 @@ class TaskDataset(Dataset, ABC):
                     for idx in val:
                         if idx in current_dataset_mapping:
                             corrected_paths += current_dataset_mapping[idx]
-                    assert corrected_paths, (
+                    # If we have valid paths, we should have a list of corrected
+                    # paths.
+                    assert (not val) or corrected_paths, (
                         f"No paths after correction found for {key=},"
                         f"{corrected_paths=}, {val=}, {current_dataset_mapping=}"
                     )
@@ -214,6 +226,8 @@ class TaskDataset(Dataset, ABC):
             else:
                 # If we don't have a split path, we will generate the splits using
                 # a train_test_split
+                if self.debug:
+                    log.warning("Forcing auto split for debug mode")
                 log.info(
                     (
                         f"Dataset {dataset_name}: No split path provided,"
@@ -235,20 +249,24 @@ class TaskDataset(Dataset, ABC):
                     train_size=self.train_size,
                     random_state=self.split_seed,
                 )
-                if self.valid_size is not None and self.valid_size != 0:
-                    valid_idx, test_idx = train_test_split(
-                        test_valid_idx,
-                        test_size=self.test_size
-                        / (self.test_size + self.valid_size),
-                        random_state=self.split_seed,
-                    )
-                else:
+                if (
+                    self.valid_size is None
+                    or self.valid_size == 0
+                    or len(test_valid_idx) < 2
+                ):
                     log.warning(
                         f"Dataset {dataset_name}: Since {self.valid_size=}, "
                         "using test set for validation"
                     )
                     valid_idx = test_valid_idx
                     test_idx = test_valid_idx
+                else:
+                    valid_idx, test_idx = train_test_split(
+                        test_valid_idx,
+                        test_size=self.test_size
+                        / (self.test_size + self.valid_size),
+                        random_state=self.split_seed,
+                    )
 
                 current_dataset_splits["train_idx"] = train_idx
                 current_dataset_splits["valid_idx"] = valid_idx
@@ -323,7 +341,7 @@ class TaskDataset(Dataset, ABC):
 
         for path in paths:
             path = self.root + "/" + path
-            if not path.endswith("*.json") and ".json" not in path:
+            if (not path.endswith("*.json")) or ".json" not in path:
                 path += "*.json"
             else:
                 raise ValueError(
@@ -360,7 +378,7 @@ class TaskDataset(Dataset, ABC):
         """Returns the lazily initialized text tokenizer for the dataset."""
         if self._text_tokenizer is None:
             self._text_tokenizer = AutoTokenizer.from_pretrained(
-                self.text_tokenizer_key,
+                self.text_config["text_model_name"],
                 clean_up_tokenization_spaces=True,
             )
 
@@ -435,8 +453,12 @@ class TaskDataset(Dataset, ABC):
             self.has_node_labels and self.has_graph_labels
         ), "Only one of has_node_labels or has_graph_labels can be True"
 
+        if self.force_reload:
+            log.warning("Force reloading data, deleting all processed data")
+            os.system(f"rm -rf {self.output_graph_path}/processed")
+
         processed_folders = (
-            list(glob(f"{self.output_graph_path}/processed/"))
+            list(glob(f"{self.output_graph_path}/processed/*"))
             if not self.force_reload
             else []
         )
@@ -448,10 +470,11 @@ class TaskDataset(Dataset, ABC):
                 file_name = os.path.basename(file)
                 file_name = file_name.removesuffix(".pt")
                 # keep only the -{idx} part
-                file_name = "-".join(file_name.split("-")[:1])
+                if len(file_name.split("-")) > 2:
+                    file_name = "-".join(file_name.split("-")[:1])
                 corrected_files[folder].append(file_name)
 
-        for file in self.raw_paths:
+        def process_file(file):
             file_name = os.path.basename(file)
             log.info(f"Processing file {file_name}")
             if self.debug:
@@ -460,13 +483,15 @@ class TaskDataset(Dataset, ABC):
                 )
             file_name = file_name.removesuffix("-data.json")
             os.makedirs(
-                f"{self.output_graph_path}/processed/{file_name}", exist_ok=True
+                f"{self.output_graph_path}/processed/{file_name}",
+                exist_ok=True,
             )
 
             with open(file, "r") as f:
                 for idx, line in tqdm(enumerate(f)):
                     if self.debug and idx == 10:
                         break
+
                     if (
                         file_name in corrected_files
                         and f"graph-{idx}" in corrected_files[file_name]
@@ -502,6 +527,11 @@ class TaskDataset(Dataset, ABC):
                             f"{self.output_graph_path}/processed/{file_name}/"
                             f"graph-{idx}.pt",
                         )
+
+        Parallel(n_jobs=8)(
+            delayed(process_file)(file)
+            for file in tqdm(self.raw_paths, desc="Files")
+        )
 
     def flatten_graph(
         self, tree: dict[Any, Any]
@@ -556,36 +586,47 @@ class TaskDataset(Dataset, ABC):
             if is_root:
                 parent_id = node["id"]
 
-            assert parent_id is not None
+            if node["id"] not in result["id"]:
+                assert parent_id is not None
 
-            if len(node["images"]) != 0:
-                node["images"] = node["images"][0]
+                if len(node["images"]) != 0:
+                    node["images"] = node["images"][0]
+                else:
+                    node["images"] = None
+
+                result["images"].append(node["images"])
+                result["distances"].append(node["distances"])
+                if node["id"] in result["id"]:
+                    raise ValueError(
+                        f"Duplicate id found {node['id']} \n {result=} \n new node \n {node=}"
+                    )
+                result["id"].append(node["id"])
+                result["parent_id"].append(parent_id)
+                result["is_root"].append(is_root)
+
+                if self.has_node_labels:
+                    label = self.retrieve_label(node["data"])
+                    result["y"].append(label)
+
+                if is_root:
+                    text = (
+                        f"Title: {node['data']['title']}\n"
+                        f"Body: {node['data']['body']}"
+                    )
+                else:
+                    text = f"Comment: {node['data']['body']}"
+                result["text"].append(dut.clean_text(text))
             else:
-                node["images"] = None
-
-            result["images"].append(node["images"])
-            result["distances"].append(node["distances"])
-            result["id"].append(node["id"])
-            result["parent_id"].append(parent_id)
-            result["is_root"].append(is_root)
-
-            if self.has_node_labels:
-                label = self.retrieve_label(node["data"])
-                result["y"].append(label)
-
-            if is_root:
-                text = (
-                    f"Title: {node['data']['title']}\n"
-                    f"Body: {node['data']['body']}"
-                )
-            else:
-                text = f"Comment: {node['data']['body']}"
-            result["text"].append(dut.clean_text(text))
+                print("Duplicate id found, skipping ", node["id"])
 
             for child in node["tree"]:
                 traverse(child, node["id"])
 
         traverse(tree)
+        assert len(result["id"]) == len(
+            result["distances"][0]
+        ), f"Distance mismatch, {result=}, \n {set(result['id']) - set(result['distances'][0].keys())=}"
+
         if self.has_graph_labels:
             label = self.retrieve_label(tree["data"])
             result["y"].append(label)
@@ -680,8 +721,24 @@ class TaskDataset(Dataset, ABC):
             padding="max_length",
             truncation=True,
             return_tensors="pt",
-            max_length=self.max_text_length,
+            # max_length=self.max_text_length,
+            return_attention_mask=True,
+            return_token_type_ids=self.text_config["has_token_type_ids"],
         )
+        for feature in [TextFeatures.InputIds, TextFeatures.AttentionMask] + (
+            [TextFeatures.TokenTypeIds]
+            if self.text_config["has_token_type_ids"]
+            else []
+        ):
+            assert (
+                feature in tokenized_text
+            ), f"Missing {feature=}, {tokenized_text.keys()=}"
+
+        if self.text_config["add_position_ids"]:
+            tokenized_text[TextFeatures.PositionIds] = torch.tile(
+                torch.arange(tokenized_text[TextFeatures.InputIds].shape[1]),
+                (tokenized_text[TextFeatures.InputIds].shape[0], 1),
+            )
 
         assert isinstance(flattened_graph["images"], list)
         assert all(
@@ -715,6 +772,12 @@ class TaskDataset(Dataset, ABC):
         # Since each node only has one directional edge, we know that the number
         # of nodes is the same as the number of edges.
         num_nodes = edges.shape[1]
+
+        assert distance_tensor.shape == (
+            num_nodes,
+            num_nodes,
+            2,
+        ), distance_tensor.shape
 
         # NOTE: Leaving the global token attn_bias to be added in the model code
         # TODO(liamhebert): Technically this is no-op since we don't ever set
@@ -764,10 +827,6 @@ class TaskDataset(Dataset, ABC):
         data.in_degree = degree
         data.out_degree = degree
 
-        assert data.distance_index.shape == (
-            num_nodes,
-            num_nodes,
-        ), data.distance_index.shape
         return data
 
     def __getitem__(self, idx: int) -> Data:

@@ -1,3 +1,9 @@
+"""Tests the feature layers of the discussion transformer.
+
+In particular, this module tests the GraphNodeFeature and GraphAttnBias
+layers.
+"""
+
 from omegaconf import DictConfig
 import pytest
 import torch

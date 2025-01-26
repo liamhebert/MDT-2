@@ -1,0 +1,11 @@
+defaults:
+- base_v2
+
+embedding_dim: 1152
+
+graph_stack_factory:
+  graph_tfmr_factory:
+    proj_dim: 1024
+    ffn_dim: 4096
+    n_heads: 8
+    n_kv_heads: 8

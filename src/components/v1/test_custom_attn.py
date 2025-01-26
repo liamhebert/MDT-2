@@ -1,3 +1,5 @@
+"""Tests the legacy multi-head attention layer."""
+
 from omegaconf import DictConfig
 import pytest
 import torch

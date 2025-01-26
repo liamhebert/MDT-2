@@ -127,11 +127,13 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
             num_bottleneck_tokens,
             bottleneck_dim,
         ) = bottle_neck.shape
-        assert text_dim == bottleneck_dim
+        assert text_dim == bottleneck_dim, f"{text_dim=}, {bottleneck_dim=}"
         assert text_batch == bottleneck_batch
         if vit_hidden_states is not None:
             _, _, vision_dim = vit_hidden_states.shape
-            assert vision_dim == bottleneck_dim
+            assert (
+                vision_dim == bottleneck_dim
+            ), f"{vision_dim=}, {bottleneck_dim=}"
 
         # TODO(liamhebert): Eventually, we will want to uncomment this line
         # once we have static sizes for vision and text inputs.
@@ -152,7 +154,7 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
             bert_attention_mask_in = None
 
         bert_hidden_output_out = self.bert_forward(
-            bert_hidden_states_in, bert_attention_mask_in, None, None, None
+            bert_hidden_states_in, bert_attention_mask_in
         )
 
         bert_hidden_output = bert_hidden_output_out[:, num_bottleneck_tokens:]
@@ -205,23 +207,7 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
 
         layer_head_mask = None
 
-        if self.gradient_checkpointing and self.training:
-
-            def create_custom_forward(module):
-                def custom_forward(*inputs):
-                    return module(*inputs, False)
-
-                return custom_forward
-
-            layer_outputs = torch.utils.checkpoint.checkpoint(
-                create_custom_forward(self.vit_encoder),
-                hidden_states,
-                layer_head_mask,
-            )
-        else:
-            layer_outputs = self.vit_encoder(
-                hidden_states, layer_head_mask, False
-            )
+        layer_outputs = self.vit_encoder(hidden_states, layer_head_mask, False)
 
         hidden_states = layer_outputs[0]
 
@@ -231,9 +217,6 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Computes the BERT layer for the current hidden_state.
 
@@ -244,22 +227,12 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
             attention_mask (torch.Tensor, optional): Tensor of shape
                 (batch_size, sequence_length) representing the attention mask to
                 avoid attending to padding. Defaults to None.
-            head_mask (torch.Tensor, optional): Tensor of shape (num_heads,)
-                representing the head mask to nullify selected heads of the
-                self-attention modules. Defaults to None.
-            encoder_hidden_states (torch.Tensor, optional): Tensor of shape
-                (batch_size, sequence_length, hidden_size) representing the
-                encoder hidden states for cross-attention. Defaults to None.
-            encoder_attention_mask (torch.Tensor, optional): Tensor of shape
-                (batch_size, sequence_length) representing the attention mask
-                for the cross-attention encoder hidden states. Defaults to None.
 
         Returns:
             torch.Tensor: Tensor of shape (batch_size, sequence_length,
                 hidden_size) representing the output hidden states from the BERT
                 layer.
         """
-        layer_head_mask = head_mask if head_mask is not None else None
         past_key_value = None
 
         attention_mask_in = (
@@ -270,32 +243,10 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
             else None
         )
 
-        if self.gradient_checkpointing and self.training:
-
-            def create_custom_forward(module):
-                def custom_forward(*inputs):
-                    return module(*inputs, past_key_value, False)
-
-                return custom_forward
-
-            layer_outputs = torch.utils.checkpoint.checkpoint(
-                create_custom_forward(self.bert_encoder),
-                hidden_states,
-                attention_mask_in,
-                layer_head_mask,
-                encoder_hidden_states,
-                encoder_attention_mask,
-            )
-        else:
-            layer_outputs = self.bert_encoder(
-                hidden_states,
-                attention_mask_in,
-                layer_head_mask,
-                encoder_hidden_states,
-                encoder_attention_mask,
-                past_key_value,
-                False,
-            )
+        layer_outputs = self.bert_encoder(
+            hidden_states,
+            attention_mask_in,
+        )
 
         hidden_states = layer_outputs[0]
         return hidden_states

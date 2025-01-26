@@ -48,9 +48,9 @@ class ContrastiveLoss(Loss):
         num_classes: int,
         soft_negative_weight: float = 0.0,
         adaptive_soft_negative_weight: bool = False,
-        temperature: float = 20,
-        bias: float = 0.0,
-        learnable_temperature: bool = False,
+        temperature: float = 10.0,
+        bias: float = -10.0,
+        learnable_temperature: bool = True,
     ):
         """Initializes the contrastive loss.
 
@@ -66,7 +66,8 @@ class ContrastiveLoss(Loss):
             temperature (float, optional): The temperature to use for the softmax
                 function. A higher value will make the distribution more uniform,
                 while a lower value will make the distribution more peaky.
-                Defaults to 20.
+                Defaults to -10.
+            bias (float): The bias to add to the similarity matrix. Defaults to -10.
             learnable_temperature (bool, optional): Whether to learn the
                 temperature parameter. The initial value of the temperature will
                 be `temperature`. Defaults to False.
@@ -77,11 +78,11 @@ class ContrastiveLoss(Loss):
         self.soft_negative_weight = torch.Tensor([soft_negative_weight])
         self.adaptive_soft_negative_weight = adaptive_soft_negative_weight
         self.temperature = nn.Parameter(
-            torch.tensor(temperature).log(),
+            torch.tensor([temperature]).log(),
             requires_grad=learnable_temperature,
         )
         self.bias = nn.Parameter(
-            torch.tensor(bias), requires_grad=learnable_temperature
+            torch.tensor([bias]).float(), requires_grad=learnable_temperature
         )
         self.num_classes = num_classes
 
@@ -234,7 +235,10 @@ class ContrastiveLoss(Loss):
         epoch_vals = {}
         metrics = batch_metrics["classification"].compute()
         for metric_type in ["macro", "weighted"]:
-            for metric in ["f1", "recall", "precision", "accuracy"]:
+            metric_ids = ["f1", "recall", "precision"]
+            if metric_type == "weighted":
+                metric_ids.append("accuracy")
+            for metric in metric_ids:
                 key = f"best_{metric_type}_{metric}"
                 epoch_vals[key] = epoch_metrics[key].forward(
                     metrics[f"{metric_type}_{metric}"]
@@ -252,8 +256,8 @@ class ContrastiveLoss(Loss):
             batch_metrics["loss"].compute()
         )
 
-        for metric in batch_metrics.values():
-            metric.reset()
+        for metric_obj in batch_metrics.values():
+            metric_obj.reset()
 
         return epoch_vals
 
@@ -263,7 +267,7 @@ class ContrastiveLoss(Loss):
         graph_embeddings: torch.Tensor,
         ys: dict[str, torch.Tensor],
         batch_metrics: dict[str, Metric] | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the contrastive pretraining loss.
 
         Args:
@@ -290,14 +294,10 @@ class ContrastiveLoss(Loss):
         # compute similarity matrix for contrastive loss
         normalized_A = F.normalize(graph_embeddings, p=2, dim=1)
 
-        print("NORMALIZED A", normalized_A)
-        print("NORMALIZED B", normalized_A)
         sim = (
             torch.mm(normalized_A, normalized_A.transpose(0, 1))
             * self.temperature
         ) + self.bias  # scaling factor
-        print("BIAS", self.bias)
-        print("TEMP", self.temperature)
 
         # Targets is an array of int labels, discussions sharing the same label
         # are from the same community/topic
@@ -339,10 +339,6 @@ class ContrastiveLoss(Loss):
         # Set the weight for padding entries to 0
         soft_matrix[padding_mask] = 0
         soft_matrix[:, padding_mask] = 0
-
-        print("SOFT MATRIX", soft_matrix)
-        print("SIM", sim)
-        print("TARGET", target_matrix)
 
         # compute loss
         loss = F.binary_cross_entropy_with_logits(

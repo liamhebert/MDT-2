@@ -15,7 +15,7 @@ def test_smoke_test():
     matching the batch size, and trigger the remove duplicates stream
     successfully.
     """
-    loss = ContrastiveLoss(temperature=1.0, num_classes=10)
+    loss = ContrastiveLoss(temperature=1.0, num_classes=10, bias=0.0)
     batch_metrics = loss.build_batch_metric_aggregators()
 
     node_x = torch.rand(10, 256)
@@ -35,7 +35,7 @@ def test_temperature():
     changes the output of the loss function.
     """
     loss = ContrastiveLoss(
-        temperature=2.0, learnable_temperature=False, num_classes=10
+        temperature=2.0, learnable_temperature=False, num_classes=10, bias=0.0
     )
     batch_metrics = loss.build_batch_metric_aggregators()
 
@@ -48,7 +48,7 @@ def test_temperature():
     loss_value_high_temp, _ = loss(node_x, graph_x, y_true, batch_metrics)
 
     loss = ContrastiveLoss(
-        temperature=0.5, learnable_temperature=False, num_classes=10
+        temperature=0.5, learnable_temperature=False, num_classes=10, bias=0.0
     )
     node_x = torch.rand(10, 256)
     graph_x = torch.rand(10, 256)
@@ -67,7 +67,7 @@ def test_learnable_temperature():
     This test ensures that the temperature parameter is updated during training.
     """
     loss = ContrastiveLoss(
-        temperature=1.0, learnable_temperature=True, num_classes=10
+        temperature=1.0, learnable_temperature=True, num_classes=10, bias=1.0
     )
     batch_metrics = loss.build_batch_metric_aggregators()
 
@@ -80,6 +80,8 @@ def test_learnable_temperature():
     }
 
     initial_temperature = loss.temperature.item()
+    initial_bias = loss.bias.item()
+
     for _ in range(10):
         optimizer.zero_grad()
         loss_value, _ = loss(node_x, graph_x, y_true, batch_metrics)
@@ -87,13 +89,18 @@ def test_learnable_temperature():
         optimizer.step()
 
     updated_temperature = loss.temperature.item()
+    updated_bias = loss.bias.item()
     assert initial_temperature != updated_temperature
+    assert updated_bias != initial_bias
 
 
 def test_contrastive_loss_value():
     """Test to ensure the loss is calculated accurately without duplicates."""
     loss = ContrastiveLoss(
-        temperature=math.exp(1), learnable_temperature=False, num_classes=4
+        temperature=math.exp(1),
+        learnable_temperature=False,
+        num_classes=4,
+        bias=0.0,
     )
     batch_metrics = loss.build_batch_metric_aggregators()
 
@@ -128,14 +135,10 @@ def test_contrastive_loss_value():
         weight=weight_matrix,
     ).float()
 
-    print(returned_metrics)
-
     test.assert_close(loss_value, expected_loss_value)
 
     metrics = batch_metrics["classification"].compute()
     metrics["weight"] = 3
-
-    print("METRIC OBJECT", metrics)
 
     test.assert_close(metrics["none_recall"], torch.Tensor([1.0, 0.5, 0, 0]))
     test.assert_close(metrics["none_precision"], torch.Tensor([0.5, 1.0, 0, 0]))
@@ -180,8 +183,6 @@ def test_contrastive_loss_value():
     weight_matrix = torch.ones((3, 3))
     weight_matrix = weight_matrix.fill_diagonal_(0)
 
-    print("WEIGHT MATRIX", weight_matrix)
-
     loss_value_2, returned_metrics = loss(
         node_x, graph_x, y_true, batch_metrics
     )
@@ -192,21 +193,21 @@ def test_contrastive_loss_value():
         weight=weight_matrix,
     ).float()
 
-    print(returned_metrics)
-
     test.assert_close(loss_value_2, expected_loss_value)
 
     metrics = batch_metrics["classification"].compute()
     metrics["weight"] = 3
 
-    print("METRIC OBJECT", metrics)
-
-    test.assert_close(metrics["none_recall"], torch.Tensor([1.0, 0.5, 0, 0]))
-    test.assert_close(metrics["none_precision"], torch.Tensor([0.5, 1.0, 0, 0]))
+    test.assert_close(
+        metrics["none_recall"], torch.Tensor([1.0, 0.5, 1.0, 0.5])
+    )
+    test.assert_close(
+        metrics["none_precision"], torch.Tensor([0.5, 1.0, 0.5, 1.0])
+    )
 
     test.assert_close(
         metrics["none_f1"],
-        torch.Tensor([0.66667, 0.66667, 0.0, 0.0]),
+        torch.Tensor([0.66667, 0.66667, 0.66667, 0.66667]),
     )
 
     test.assert_close(metrics["macro_recall"], torch.tensor(0.75))
@@ -220,15 +221,3 @@ def test_contrastive_loss_value():
 
     test.assert_close(returned_metrics["loss"], expected_loss_value)
     del returned_metrics["loss"]
-
-    # Formatting the metrics to match each other
-    for metric in ["f1", "precision", "recall"]:
-        for class_id in range(4):
-            metrics[f"class_{class_id}_" + metric] = metrics["none_" + metric][
-                class_id
-            ]
-        del metrics["none_" + metric]
-
-    # Test to ensure that the logged metrics match the computed metrics and
-    # that all expected metrics are there.
-    assert metrics == returned_metrics

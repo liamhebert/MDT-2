@@ -1,2 +1,6 @@
-text_model_name: "google/siglip-so400m-patch14-384"
+text_config:
+  text_model_name: "google/siglip-so400m-patch14-384"
+  has_token_type_ids: False
+  add_position_ids: True
+
 vision_model_name: "google/siglip-so400m-patch14-384"

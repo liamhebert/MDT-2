@@ -59,7 +59,7 @@ def test_build_bert_encoder(
     # Because we build text config objects for testing, we have to build it here.
     text_model_config = instantiate(config.text_model_config)
     test_config: BertConfig = text_model_config.test_config
-    bert_model, text_fusion_layers, text_pooler = model.build_bert_encoder(
+    bert_model, text_fusion_layers = model.build_bert_encoder(
         num_fusion_layers=total_fusion_layers, **text_model_config
     )
 
@@ -96,7 +96,7 @@ def test_build_vit_encoder(
 
     # Because we build ViT config objects for testing, we have to build it here.
     vit_model_config = instantiate(config.vit_model_config)
-    vit_model, vit_fusion_layers, vit_pooler = model.build_vit_encoder(
+    vit_model, vit_fusion_layers = model.build_vit_encoder(
         num_fusion_layers=total_fusion_layers, **vit_model_config
     )
     test_config: ViTConfig = vit_model_config.test_config

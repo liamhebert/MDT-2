@@ -23,6 +23,7 @@ class TextFeatures(StrEnum):
     InputIds = "input_ids"
     AttentionMask = "attention_mask"
     TokenTypeIds = "token_type_ids"
+    PositionIds = "position_ids"
 
 
 class ImageFeatures(StrEnum):

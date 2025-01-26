@@ -14,7 +14,7 @@ from torch import nn
 from torch.nn.attention.flex_attention import BlockMask
 from torch.nn.attention.flex_attention import flex_attention
 
-flex_attention_comp = torch.compile(flex_attention)
+flex_attention_comp = torch.compile(flex_attention, mode="max-autotune")
 
 
 def reshape_for_broadcast(
@@ -232,7 +232,17 @@ class Attention(nn.Module):
         if attn_impl == "flex_attention":
             assert mask is None or isinstance(mask, BlockMask)
             xq, xk, xv = map(lambda e: e.transpose(1, 2), (xq, xk, xv))
-            output = flex_attention_comp(xq, xk, xv, block_mask=mask)
+            kernel_options = kernel_options = {
+                "BLOCK_M": 64,
+                "BLOCK_N": 64,
+                "BLOCK_M1": 32,
+                "BLOCK_N1": 64,
+                "BLOCK_M2": 64,
+                "BLOCK_N2": 32,
+            }
+            output = flex_attention_comp(
+                xq, xk, xv, block_mask=mask, kernel_options=kernel_options
+            )
             assert isinstance(output, torch.Tensor)
             output = output.transpose(1, 2).contiguous()  # B H S D -> B S H D
         else:

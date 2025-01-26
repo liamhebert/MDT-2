@@ -6,9 +6,12 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn.attention.flex_attention import BlockMask
 from torch.nn.attention.flex_attention import flex_attention
+from utils import RankedLogger
+
+log = RankedLogger(__name__, rank_zero_only=True)
 
 if torch.cuda.is_available():
-    flex_attention_comp = torch.compile(flex_attention)
+    flex_attention_comp = torch.compile(flex_attention, mode="max-autotune")
 else:
     flex_attention_comp = flex_attention
 
@@ -148,6 +151,15 @@ class Attention(nn.Module):
         else:
             assert isinstance(mask, BlockMask)
 
+            # kernel_options = {
+            #     "BLOCK_M": 64,
+            #     "BLOCK_N": 64,
+            #     "BLOCK_M1": 32,
+            #     "BLOCK_N1": 64,
+            #     "BLOCK_M2": 64,
+            #     "BLOCK_N2": 32,
+            # }
+
             output = flex_attention_comp(xq, xk, xv, block_mask=mask)
 
         # 1 H S D -> H S D
@@ -245,11 +257,24 @@ class GraphTransformerBlock(nn.Module):
         n_kv_heads: int,
         dim: int,
         ffn_dim: int,
+        proj_dim: int,
         norm_eps: float = 1e-5,
     ):
         super().__init__()
 
-        self.head_dim = dim // n_heads
+        self.up_proj: nn.Module
+        self.down_proj: nn.Module
+        effective_dim = proj_dim if proj_dim != dim else dim
+
+        if proj_dim != dim:
+            log.info("Using projection layers in the transformer block.")
+            self.up_proj = nn.Linear(dim, proj_dim)
+            self.down_proj = nn.Linear(proj_dim, dim)
+        else:
+            self.up_proj = nn.Identity()
+            self.down_proj = nn.Identity()
+
+        self.head_dim = effective_dim // n_heads
         self.n_heads = n_heads
         self.n_kv_heads = n_kv_heads
 
@@ -261,25 +286,25 @@ class GraphTransformerBlock(nn.Module):
         assert (
             n_kv_heads % 2 == 0
         ), f"Number of heads must be divisible by 2. {self.n_kv_heads=}"
-        assert self.head_dim % 2 == 0, (
-            f"Head dim must be divisible by 2. "
-            f"{self.head_dim=}, {self.n_heads=}, {dim=}"
+        assert (self.head_dim & (self.head_dim - 1)) == 0, (
+            f"Head dim must be a power of 2. "
+            f"{self.head_dim=}, {self.n_heads=}, {effective_dim=}"
         )
 
         self.dim = dim
 
         self.attention = Attention(
-            dim=dim,
+            dim=effective_dim,
             head_dim=self.head_dim,
             n_heads=self.n_heads,
             n_kv_heads=self.n_kv_heads,
         )
         self.feed_forward = FeedForward(
-            dim=dim,
+            dim=effective_dim,
             hidden_dim=ffn_dim,
         )
-        self.attention_norm = RMSNorm(dim, eps=norm_eps)
-        self.ffn_norm = RMSNorm(dim, eps=norm_eps)
+        self.attention_norm = RMSNorm(effective_dim, eps=norm_eps)
+        self.ffn_norm = RMSNorm(effective_dim, eps=norm_eps)
 
     def forward(
         self,
@@ -287,12 +312,14 @@ class GraphTransformerBlock(nn.Module):
         # freq_cis: torch.Tensor,
         mask: BlockMask | None = None,
     ) -> torch.Tensor:
+        x = self.up_proj(x)
         h = x + self.attention(
             self.attention_norm(x),
             # freq_cis,
             mask=mask,
         )
         out = h + self.feed_forward(self.ffn_norm(h))
+        out = self.down_proj(out)
         return out
 
     def init_weights(self, init_std=None, factor=1.0):
@@ -330,6 +357,7 @@ class BaseGraphTransformer(nn.Module):
 
     def forward(self, x: torch.Tensor, mask: BlockMask | None = None):
         # TODO(liamhebert): Add rotary positional encoding frequency cis
+        # TODO(liamhebert): Consider projecting up before layers and down after
         for layer in self.layers:
             x = layer(x, mask=mask)
         return x
