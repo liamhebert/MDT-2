@@ -48,6 +48,8 @@ class TaskDataset(Dataset, ABC):
 
     spatial_pos_max: int = 100
 
+    _graph_cache: dict[int, Data] | None = None
+
     _splits: dict[str, list[int]] | None
 
     def __init__(
@@ -137,6 +139,16 @@ class TaskDataset(Dataset, ABC):
         self._processed_file_names = None
 
     def get_idx_mapping(self) -> dict[str, dict[int, list[int]]]:
+        """Creates a mapping for each graph index to a list of processed graphs.
+
+        This is useful for when we have multiple labels for a single graph and
+        self.split is True, as this would result in multiple graphs for the same
+        instance.
+
+        Returns:
+            dict[str, dict[int, list[int]]]: A dictionary mapping dataset specific
+                indices to a list of processed graph indices.
+        """
         idx_mapping: dict[str, dict[int, list[int]]] = {}
         # Assume that dataset does not have ".json" in it.
         graphs = self.processed_file_names
@@ -834,6 +846,16 @@ class TaskDataset(Dataset, ABC):
 
         return data
 
+    def populate_cache(self):
+        """Populates the graph cache with all processed graphs."""
+        indices = self.train_idx + self.valid_idx + self.test_idx
+        self._graph_cache = {}
+        for idx in tqdm(indices, desc="Populating cache"):
+            data = torch.load(
+                self.processed_file_names[idx], weights_only=False
+            )
+            self._graph_cache[idx] = data
+
     def __getitem__(self, idx: int) -> Data:
         """Loads the processed graph from disk at the given index.
 
@@ -846,7 +868,12 @@ class TaskDataset(Dataset, ABC):
         Returns:
             Data: The processed torch_geometric Data object at the given index.
         """
-        data = torch.load(self.processed_file_names[idx], weights_only=False)
+        if self._graph_cache is None:
+            data = torch.load(
+                self.processed_file_names[idx], weights_only=False
+            )
+        else:
+            data = self._graph_cache[idx]
         if data is None:
             raise FileNotFoundError("Loaded in None graph")
         return data

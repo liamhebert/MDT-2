@@ -34,6 +34,8 @@ class DataModule(LightningDataModule):
         pin_memory: Whether to pin batches in GPU memory in the dataloader. This
             helps with performance on GPU, but can cause issues with large
             datasets.
+        cache_dataset: Whether to cache the dataset to memory. This can help
+            speed up training, but can cause memory issues with large datasets.
     """
 
     # Datasets are loaded in lazily during "setup" to assist with DDP
@@ -53,6 +55,7 @@ class DataModule(LightningDataModule):
         test_batch_size: int,
         num_workers: int,
         pin_memory: bool,
+        cache_dataset: bool,
     ):
         super().__init__()
         # this line allows to access init params with 'self.hparams' attribute
@@ -112,6 +115,8 @@ class DataModule(LightningDataModule):
             self._test_device_batch_size = test_batch_size
 
         if self._train_dataset is None:
+            if self.hparams.cache_dataset:  # type: ignore
+                self.master_dataset.populate_cache()
             # make training dataset
             self._train_dataset = Subset(
                 self.master_dataset, self.master_dataset.train_idx
