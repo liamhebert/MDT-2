@@ -8,6 +8,7 @@ import torch
 from torchmetrics import Metric
 from torchmetrics import SumMetric
 from torchmetrics import MetricCollection
+from typing import Callable
 
 
 class LastValueMetric(SumMetric):
@@ -29,6 +30,16 @@ class Loss(abc.ABC, torch.nn.Module):
     """
     Abstract class for loss functions.
     """
+
+    def _dummy_all_gather(
+        self, data: tuple[torch.Tensor] | torch.Tensor, sync_grads: bool = False
+    ) -> tuple[torch.Tensor] | torch.Tensor:
+        """Dummy all-gather function that does nothing. Useful for testing."""
+        return data
+
+    all_gather_fn: Callable[..., tuple[torch.Tensor, ...] | torch.Tensor] = (
+        _dummy_all_gather
+    )
 
     @abc.abstractmethod
     def build_batch_metric_aggregators(

@@ -1,7 +1,9 @@
+"""Contrastive loss function for pretraining with contrastive learning."""
+
 import torch.nn as nn
 import torch
 from losses.loss_abstract import Loss
-from torchmetrics import Metric
+from torchmetrics.metric import Metric
 from data.types import ContrastiveLabels
 import torch.nn.functional as F
 from torchmetrics import MetricCollection
@@ -46,7 +48,7 @@ class ContrastiveLoss(Loss):
     def __init__(
         self,
         num_classes: int,
-        soft_negative_weight: float = 0.0,
+        soft_negative_weight: float = -1e9,
         adaptive_soft_negative_weight: bool = False,
         temperature: float = 10.0,
         bias: float = -10.0,
@@ -55,7 +57,7 @@ class ContrastiveLoss(Loss):
         """Initializes the contrastive loss.
 
         Args:
-            num_classes (int, optional): The number of classes in the dataset,
+            num_classes (int): The number of classes in the dataset,
                 used for the classification metrics.
             soft_negative_weight (float, optional): Weight to associate to soft
                 negative pairs in the contrastive loss. Flag is exclusive against
@@ -66,8 +68,9 @@ class ContrastiveLoss(Loss):
             temperature (float, optional): The temperature to use for the softmax
                 function. A higher value will make the distribution more uniform,
                 while a lower value will make the distribution more peaky.
-                Defaults to -10.
-            bias (float): The bias to add to the similarity matrix. Defaults to -10.
+                Defaults to 10.
+            bias (float): The bias to add to the similarity matrix. Defaults to
+                -10.
             learnable_temperature (bool, optional): Whether to learn the
                 temperature parameter. The initial value of the temperature will
                 be `temperature`. Defaults to False.
@@ -85,6 +88,154 @@ class ContrastiveLoss(Loss):
             torch.tensor([bias]).float(), requires_grad=learnable_temperature
         )
         self.num_classes = num_classes
+
+    def __call__(
+        self,
+        node_embeddings: torch.Tensor,
+        graph_embeddings: torch.Tensor,
+        ys: dict[str, torch.Tensor],
+        batch_metrics: dict[str, Metric] | None = None,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        """Compute the contrastive pretraining loss.
+
+        Args:
+            node_embeddings: The embedding for each node in the batch. Shape
+                (B, C, D), where C is the maximum number of comments in a
+                discussion. Unused.
+            graph_embeddings: The embedding for each graph in the batch. Shape
+                (B, D).
+            ys: Dictionary for the labels in the batch. Within that dictionary,
+                this loss uses
+                - y: The true positive label for each graph. Shape (B,). Nodes
+                    with a label of -100 are ignored in the loss.
+                - hard_y: The true hard negative label for each graph. Shape (B,).
+            batch_metrics:
+                A dictionary of metric objects to update with the batch metrics.
+                This should be called with "compute_batch_metrics". If None, no
+                metrics will be computed and only the loss will be returned.
+
+        Returns:
+            The cross-entropy loss value.
+        """
+        del node_embeddings
+
+        # compute similarity matrix for contrastive loss
+        normalized_A = F.normalize(graph_embeddings, p=2, dim=-1)
+
+        device_targets = ys[ContrastiveLabels.Ys]
+        device_hard_targets = ys[ContrastiveLabels.HardYs]
+
+        all_targets, all_hard_targets = self.all_gather_fn(
+            (device_targets, device_hard_targets)
+        )
+
+        graph_shape = graph_embeddings.shape
+        all_graph_embeddings = self.all_gather_fn(normalized_A, sync_grads=True)
+        assert isinstance(all_graph_embeddings, torch.Tensor)
+
+        targets, hard_targets, graph_embeddings = (
+            all_targets.reshape(-1),
+            all_hard_targets.reshape(-1),
+            all_graph_embeddings.reshape(-1, graph_shape[-1]),
+        )
+
+        # scaling factor
+        sim = torch.matmul(graph_embeddings, graph_embeddings.t())
+        sim = sim * self.temperature.exp() + self.bias
+
+        # Targets is an array of int labels, discussions sharing the same label
+        # are from the same community/topic
+
+        padding = targets == -100
+        num_valid_labels = torch.clamp((~padding).sum(), min=1)
+        padding_mask = padding.repeat(targets.shape[0], 1)
+        padding_mask = padding_mask | padding_mask.t()
+        # Format y into a n x n matrix where n is the number of graphs and each
+        # row has 1 for the correct label and 0 for the rest
+
+        target_matrix = targets.unsqueeze(1).eq(targets).float()
+
+        # Remove padding from the loss, and any reweighting
+        target_matrix[padding_mask] = -100
+
+        # Same as targets, but for hard negatives
+        hard_target_metrix = hard_targets.unsqueeze(1).eq(targets).float()
+        hard_target_metrix[padding_mask] = -100
+
+        soft_labels = torch.logical_and(
+            target_matrix.eq(0), hard_target_metrix.eq(0)
+        )
+
+        if self.adaptive_soft_negative_weight:
+            # soft_negs are proportionally weighted to the number of hard_negs
+            # and hard_pos
+            num_hard_labels = (
+                torch.logical_or(target_matrix.eq(1), hard_target_metrix.eq(1))
+            ).sum(dim=1)
+            num_hard_labels = torch.clamp(num_hard_labels, min=1)
+            extra_weight = num_hard_labels / torch.clamp(
+                soft_labels.sum(dim=1), min=1
+            )
+        else:
+            extra_weight = self.soft_negative_weight
+
+        # compute loss weights. Hard labels are given 1 weight, soft labels
+        # are given extra_weight
+
+        soft_matrix = torch.where(soft_labels, extra_weight, 1)
+        # Since we do intra-modality contrastive loss, remove diagonal from
+        # loss matrix. We don't want to include itself in the loss
+
+        soft_matrix = soft_matrix.fill_diagonal_(0)
+        # Set the weight for padding entries to 0
+        soft_matrix[padding_mask] = 0
+
+        # Normalize the weights to sum to the number of valid labels
+        soft_matrix = (
+            soft_matrix / (soft_matrix.sum(dim=1) + 1e-9)
+        ) * num_valid_labels
+
+        # compute loss
+        # Map 0, 1 labels to -1, 1
+        target_matrix = (target_matrix * 2) - 1
+
+        loss = torch.einsum(
+            "ij, ij -> ", -F.logsigmoid(sim * target_matrix), soft_matrix
+        )
+        loss = loss / num_valid_labels
+
+        # loss = F.binary_cross_entropy_with_logits(
+        #     sim,
+        #     target_matrix,
+        #     weight=soft_matrix,
+        #     reduction="sum",
+        # ) / ((~padding_mask).sum())
+
+        if batch_metrics is not None:
+            with torch.no_grad():
+                metric_sim = sim.detach().clone()
+                pred_sim = metric_sim.fill_diagonal_(-1e9)
+
+                pred_sim[padding_mask] = -1e9
+
+                metrics = self.compute_batch_metrics(
+                    metric_sim,
+                    targets.detach(),
+                    loss.detach().clone(),
+                    batch_metrics,
+                )
+            # metrics = {"weight": 2}
+        else:
+            metrics = {}
+
+        return loss, metrics
+
+
+class ContrastiveLossWithMetrics(ContrastiveLoss):
+    """
+    Contrastive loss function augmented with metrics. Trainers should use this
+    class to be compatible with the Loss abstract class.
+    """
 
     def build_batch_metric_aggregators(
         self,
@@ -149,7 +300,7 @@ class ContrastiveLoss(Loss):
 
     def build_epoch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | None]:
+    ) -> dict[str, Metric]:
         """
         Build run-level metric aggregators for each metric.
         """
@@ -190,27 +341,29 @@ class ContrastiveLoss(Loss):
             batch_size,
         ), f"Unexpected shape: {targets.shape=}, {batch_size=}"
 
+        # Don't allow self similarity
         preds = targets[logits.argmax(dim=1)]
 
         return_metrics = {}
-        classification_metrics: dict[str, torch.Tensor] = metrics[
-            "classification"
-        ].forward(preds, targets)
 
-        for key, value in classification_metrics.items():
-            if value.shape == (self.num_classes,):
-                # Unpack class-wise metrics into separate keys
-                for i, v in enumerate(value):
-                    class_key = key.replace("none", f"class_{i}")
-                    return_metrics[class_key] = v
-            else:
-                assert value.shape == (), f"Unexpected shape: {value.shape}"
-                return_metrics[key] = value
+        metrics["classification"].to(preds.device).update(preds, targets)
 
-        return_metrics["loss"] = metrics["loss"].forward(loss)
+        # for key, value in classification_metrics.items():
+        #     if value.shape == (self.num_classes,):
+        #         # Unpack class-wise metrics into separate keys
+        #         for i, v in enumerate(value):
+        #             class_key = key.replace("none", f"class_{i}")
+        #             return_metrics[class_key] = v
+        #     else:
+        #         assert value.shape == (), f"Unexpected shape: {value.shape}"
+        #         return_metrics[key] = value
+
+        return_metrics["loss"] = metrics["loss"].to(loss.device).forward(loss)
 
         effective_batch_size = (targets != -100).sum()
         return_metrics["weight"] = effective_batch_size.item()
+        return_metrics["bias"] = self.bias.item()
+        return_metrics["temperature"] = self.temperature.exp().item()
 
         return return_metrics
 
@@ -260,99 +413,3 @@ class ContrastiveLoss(Loss):
             metric_obj.reset()
 
         return epoch_vals
-
-    def __call__(
-        self,
-        node_embeddings: torch.Tensor,
-        graph_embeddings: torch.Tensor,
-        ys: dict[str, torch.Tensor],
-        batch_metrics: dict[str, Metric] | None = None,
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Compute the contrastive pretraining loss.
-
-        Args:
-            node_embeddings: The embedding for each node in the batch. Shape
-                (B, C, D), where C is the maximum number of comments in a
-                discussion. Unused.
-            graph_embeddings: The embedding for each graph in the batch. Shape
-                (B, D).
-            ys: Dictionary for the labels in the batch. Within that dictionary,
-                this loss uses
-                - y: The true positive label for each graph. Shape (B,). Nodes
-                    with a label of -100 are ignored in the loss.
-                - hard_y: The true hard negative label for each graph. Shape (B,).
-            batch_metrics:
-                A dictionary of metric objects to update with the batch metrics.
-                This should be called with "compute_batch_metrics". If None, no
-                metrics will be computed and only the loss will be returned.
-
-        Returns:
-            The cross-entropy loss value.
-        """
-        del node_embeddings
-
-        # compute similarity matrix for contrastive loss
-        normalized_A = F.normalize(graph_embeddings, p=2, dim=1)
-
-        sim = (
-            torch.mm(normalized_A, normalized_A.transpose(0, 1))
-            * self.temperature
-        ) + self.bias  # scaling factor
-
-        # Targets is an array of int labels, discussions sharing the same label
-        # are from the same community/topic
-        targets = ys[ContrastiveLabels.Ys]
-
-        padding_mask = targets == -100
-        # Format y into a n x n matrix where n is the number of graphs and each
-        # row has 1 for the correct label and 0 for the rest
-        target_matrix = targets.unsqueeze(1).eq(targets).float()
-        # Remove padding from the loss, and any reweighting
-        target_matrix[padding_mask] = -100
-        target_matrix[:, padding_mask] = -100
-
-        # Same as targets, but for hard negatives
-        hard_targets = ys[ContrastiveLabels.HardYs]
-        hard_target_metrix = hard_targets.unsqueeze(1).eq(targets).float()
-
-        soft_labels = torch.logical_and(
-            target_matrix.eq(0), hard_target_metrix.eq(0)
-        )
-
-        if self.adaptive_soft_negative_weight:
-            # soft_negs are proportionally weighted to the number of hard_negs
-            # and hard_pos
-            num_hard_labels = (
-                torch.logical_or(target_matrix.eq(1), hard_target_metrix.eq(1))
-            ).sum(dim=1)
-            extra_weight = (num_hard_labels / soft_labels.sum(dim=1)) * 2
-        else:
-            extra_weight = self.soft_negative_weight
-
-        # compute loss weights. Hard labels are given 1 weight, soft labels
-        # are given extra_weight
-        soft_matrix = torch.where(soft_labels, extra_weight, 1)
-        # Since we do intra-modality contrastive loss, remove diagonal from
-        # loss matrix. We don't want to include itself in the loss
-        soft_matrix = soft_matrix.fill_diagonal_(0)
-
-        # Set the weight for padding entries to 0
-        soft_matrix[padding_mask] = 0
-        soft_matrix[:, padding_mask] = 0
-
-        # compute loss
-        loss = F.binary_cross_entropy_with_logits(
-            sim,
-            target_matrix,
-            weight=soft_matrix,
-            reduction="sum",
-        )
-
-        if batch_metrics is not None:
-            metrics = self.compute_batch_metrics(
-                sim, targets, loss, batch_metrics
-            )
-        else:
-            metrics = {}
-
-        return loss, metrics

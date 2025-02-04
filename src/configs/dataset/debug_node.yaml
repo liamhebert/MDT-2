@@ -11,4 +11,3 @@ dataset:
   strict: False
   force_reload: True
   debug: True
-  max_text_length: 10

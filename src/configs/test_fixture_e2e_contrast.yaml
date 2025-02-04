@@ -8,6 +8,7 @@ defaults:
 
 trainer:
   fast_dev_run: True
+  detect_anomaly: true
 
 model:
   loss:

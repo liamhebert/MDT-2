@@ -1,0 +1,3 @@
+{
+    "exclude": ["src/data/processed_files", "src/tasks/*/raw_files"]
+}

@@ -9,19 +9,21 @@ mode: MULTIRUN
 
 launcher:
   submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-  timeout_min: 60
-  tasks_per_node: 1
-  mem_gb: null
+  timeout_min: 270
+  tasks_per_node: 2
   nodes: 1
   name: ${hydra.job.name}
   _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
   partition: RCOHEN
-  gres: gpu:rcohengpu:1
-  cpus_per_gpu: 6
-  gpus_per_task: 1
-  mem_per_gpu: 32GB
+  cpus_per_task: 4
+  gres: gpu:rcohengpu:2
+  mem_gb: 64
   account: rcohen_group
   signal_delay_s: 120
   max_num_timeout: 0
-  additional_parameters: {}
+  additional_parameters: {
+    "mail-user": "l2hebert@uwaterloo.ca",
+    "mail-type": "ALL",
+    "signal": "SIGUSR1@90"
+  }
   array_parallelism: 256

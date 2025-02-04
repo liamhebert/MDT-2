@@ -6,6 +6,7 @@ from data.types import ContrastiveLabels
 import torch.nn.functional as F
 import math
 import torch.testing as test
+import pytest
 
 
 def test_smoke_test():
@@ -131,7 +132,7 @@ def test_contrastive_loss_value():
     expected_loss_value = F.binary_cross_entropy_with_logits(
         torch.tensor([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 1.0]]),
         torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]]),
-        reduction="sum",
+        reduction="mean",
         weight=weight_matrix,
     ).float()
 
@@ -189,7 +190,7 @@ def test_contrastive_loss_value():
     expected_loss_value = F.binary_cross_entropy_with_logits(
         torch.tensor([[1.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 1.0]]),
         torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]]),
-        reduction="sum",
+        reduction="mean",
         weight=weight_matrix,
     ).float()
 
@@ -221,3 +222,78 @@ def test_contrastive_loss_value():
 
     test.assert_close(returned_metrics["loss"], expected_loss_value)
     del returned_metrics["loss"]
+
+
+@pytest.mark.parametrize("num_gpus", [2, 4])
+def test_distributed_contrastive_loss_value(num_gpus: int):
+    """Test to ensure the loss is calculated accurately without duplicates."""
+
+    def fun_all_gather(
+        x: tuple[torch.Tensor] | torch.Tensor, sync_grads=False
+    ) -> tuple[torch.Tensor] | torch.Tensor:
+        if num_gpus == 1:
+            return x
+        if isinstance(x, torch.Tensor):
+            return x.unsqueeze(0).repeat_interleave(num_gpus, dim=0)
+        else:
+            return tuple(
+                y.unsqueeze(0).repeat_interleave(num_gpus, dim=0) for y in x
+            )
+
+    loss = ContrastiveLoss(
+        temperature=math.exp(1),
+        learnable_temperature=False,
+        num_classes=4,
+        bias=0.0,
+    )
+    loss.all_gather_fn = fun_all_gather
+
+    batch_metrics = loss.build_batch_metric_aggregators()
+
+    # Here, the cosine similarity between the positive pair is perfect and the
+    # negative pair is perpendicular ([0, 1] and [1, 0]).
+    # We have 2 perfect matches, and one mismatch for class 0
+    # Pred: [0, 1, 0]
+    # True: [0, 1, 1]
+    # Expected metrics:
+    # Class 0: tp: 1, fp: 1, fn: 0, tn: 1
+    # Precision: 1/2, Recall: 1, F1: 0.66667, Accuracy: 1.0
+    # Class 1: tp: 1, fp: 0, fn: 1, tn: 1
+    # Precision: 1, Recall: 0.5, F1: 0.66667, Accuracy: 0.5
+
+    node_x = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.5, 0.5]])
+    graph_x = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.5, 0.5]])
+    y_true = {
+        ContrastiveLabels.Ys: torch.tensor([0, 1, 1.0, -100]),
+        ContrastiveLabels.HardYs: torch.tensor([1, 0, 0, -100]),
+    }
+
+    weight_matrix = torch.ones((3 * num_gpus, 3 * num_gpus))
+    weight_matrix = weight_matrix.fill_diagonal_(0)
+
+    print("WEIGHT MATRIX", weight_matrix)
+
+    expected_logits = torch.tensor(
+        [
+            [1.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 1.0],
+        ]
+    ).tile((num_gpus, num_gpus))
+    expected_labels = torch.tensor(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ]
+    ).tile((num_gpus, num_gpus))
+
+    loss_value, returned_metrics = loss(node_x, graph_x, y_true, batch_metrics)
+    expected_loss_value = F.binary_cross_entropy_with_logits(
+        expected_logits,
+        expected_labels,
+        reduction="mean",
+        weight=weight_matrix,
+    ).float()
+
+    test.assert_close(loss_value, expected_loss_value)

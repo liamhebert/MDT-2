@@ -1,7 +1,7 @@
 defaults:
   - default
 
-optimized_metric: "val/loss_best"
+optimized_metric: "val/best_loss_epoch"
 
 hydra:
   sweeper:

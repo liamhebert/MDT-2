@@ -208,8 +208,9 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
                 contain "Ys" and "YMask" as keys.
         """
         assert "subreddit" in data, (
-            '"subreddit" key not found in data, please check that the data format ',
-            "is compatible with HatefulDiscussions.",
+            '"subreddit" key not found in data, please check that the data ',
+            "format is compatible with ContrastiveLearning.",
+            f"{data.keys()=}",
         )
 
         subreddit = data["subreddit"]

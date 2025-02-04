@@ -1,0 +1,6 @@
+defaults:
+- slurm
+
+launcher:
+  partition: ALL
+  gres: gpu:2

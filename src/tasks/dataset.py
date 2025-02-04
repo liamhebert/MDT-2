@@ -48,8 +48,6 @@ class TaskDataset(Dataset, ABC):
 
     spatial_pos_max: int = 100
 
-    max_text_length: int = 256
-
     _splits: dict[str, list[int]] | None
 
     def __init__(
@@ -68,7 +66,6 @@ class TaskDataset(Dataset, ABC):
         max_distance_length: int = 10,
         force_reload: bool = False,
         debug: bool = False,
-        max_text_length: int = 256,
     ):
         """Initializes the TaskDataset.
 
@@ -116,6 +113,7 @@ class TaskDataset(Dataset, ABC):
                 "text_model_name": "bert-base-uncased",
                 "has_token_type_ids": True,
                 "add_position_ids": False,
+                "max_length": None,
             }
         self.text_config = text_config
 
@@ -136,7 +134,7 @@ class TaskDataset(Dataset, ABC):
         self.force_reload = force_reload
         self.debug = debug
 
-        self.max_text_length = max_text_length
+        self._processed_file_names = None
 
     def get_idx_mapping(self) -> dict[str, dict[int, list[int]]]:
         idx_mapping: dict[str, dict[int, list[int]]] = {}
@@ -366,8 +364,11 @@ class TaskDataset(Dataset, ABC):
     @property
     def processed_file_names(self) -> list[str]:
         """Computes the list of processed graph file names in the dataset."""
-        path = os.path.expandvars(f"{self.output_graph_path}/processed")
-        return list(glob(f"{path}/*/graph-*.pt"))
+        if self._processed_file_names is None:
+            path = os.path.expandvars(f"{self.output_graph_path}/processed")
+            self._processed_file_names = list(glob(f"{path}/*/graph-*.pt"))
+
+        return self._processed_file_names
 
     def __len__(self) -> int:
         """Returns the number of processed graphs in the dataset."""
@@ -598,7 +599,8 @@ class TaskDataset(Dataset, ABC):
                 result["distances"].append(node["distances"])
                 if node["id"] in result["id"]:
                     raise ValueError(
-                        f"Duplicate id found {node['id']} \n {result=} \n new node \n {node=}"
+                        f"Duplicate id found {node['id']} \n {result=} \n"
+                        f"new node \n {node=}"
                     )
                 result["id"].append(node["id"])
                 result["parent_id"].append(parent_id)
@@ -623,9 +625,10 @@ class TaskDataset(Dataset, ABC):
                 traverse(child, node["id"])
 
         traverse(tree)
-        assert len(result["id"]) == len(
-            result["distances"][0]
-        ), f"Distance mismatch, {result=}, \n {set(result['id']) - set(result['distances'][0].keys())=}"
+        assert len(result["id"]) == len(result["distances"][0]), (
+            f"Distance mismatch, {result=}, \n ",
+            f"{set(result['id']) - set(result['distances'][0].keys())=}",
+        )
 
         if self.has_graph_labels:
             label = self.retrieve_label(tree["data"])
@@ -721,9 +724,11 @@ class TaskDataset(Dataset, ABC):
             padding="max_length",
             truncation=True,
             return_tensors="pt",
-            # max_length=self.max_text_length,
+            max_length=self.text_config.get("max_length", None),
             return_attention_mask=True,
-            return_token_type_ids=self.text_config["has_token_type_ids"],
+            return_token_type_ids=self.text_config.get(
+                "has_token_type_ids", False
+            ),
         )
         for feature in [TextFeatures.InputIds, TextFeatures.AttentionMask] + (
             [TextFeatures.TokenTypeIds]

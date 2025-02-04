@@ -16,8 +16,8 @@ graph_stack_factory:
     _partial_: True
     dim: "${model.encoder.embedding_dim}"
     proj_dim: "${model.encoder.embedding_dim}"
-    n_heads: 4
-    n_kv_heads: 4
+    n_heads: 12
+    n_kv_heads: 12
     ffn_dim: 3072
 
 text_model_config:

@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from torch.utils.data import Subset
 from tqdm import tqdm
+from torchdata.stateful_dataloader import StatefulDataLoader
 
 from data.collated_datasets import CollatedDataset
 
@@ -132,7 +133,7 @@ class DataModule(LightningDataModule):
         """
         assert self._train_dataset is not None, "Train dataset not loaded"
 
-        return DataLoader(
+        return StatefulDataLoader(
             self._train_dataset,
             batch_size=self._train_device_batch_size,  # type: ignore
             shuffle=True,
@@ -147,7 +148,7 @@ class DataModule(LightningDataModule):
         """
         assert self._val_dataset is not None, "Val dataset not loaded"
 
-        return DataLoader(
+        return StatefulDataLoader(
             self._val_dataset,
             batch_size=self._test_device_batch_size,  # type: ignore
             shuffle=False,
@@ -162,7 +163,7 @@ class DataModule(LightningDataModule):
         """
         assert self._test_dataset is not None, "Test dataset not loaded"
 
-        return DataLoader(
+        return StatefulDataLoader(
             self._test_dataset,
             batch_size=self._test_device_batch_size,  # type: ignore
             shuffle=False,

@@ -591,8 +591,9 @@ class DiscussionTransformer(nn.Module):
                 bert_attention_mask=text_attention_mask,
             )
 
-            graph_x = bottle_neck[:, 0, :]
+            node_tokens = bottle_neck[:, 0, :]
 
+        graph_x = torch.cat((graph_tokens, node_tokens), dim=0)
         graph_x = self.graphormer_layers[-1](
             graph_x,
             mask=flex_block_mask,

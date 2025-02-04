@@ -23,7 +23,7 @@ def generic_collator(
     graph_features: InputFeatures,
     text_features: InputFeatures,
     image_features: InputFeatures,
-    block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
+    block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE * 2,
 ) -> dict[str, torch.Tensor | dict[str, torch.Tensor] | int]:
     """Collate function to merge data samples of various sizes into a batch.
 
@@ -104,6 +104,8 @@ def generic_collator(
             which nodes have images, where the order of True values corresponds
             to the order of images in the images tensor. Shape (batch_size * N).
     """
+
+    # block_size = 32
 
     in_degrees: list[torch.Tensor] = graph_features[GraphFeatures.InDegree]
     image_masks: list[torch.Tensor] = graph_features[GraphFeatures.ImageMask]

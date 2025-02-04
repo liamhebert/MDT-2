@@ -45,7 +45,8 @@ def generate_graph_attn_mask_mod(
         H=num_heads,
         Q_LEN=query_len,
         KV_LEN=key_value_len,
-        device=spatial_distance_matrix.device,  # type: ignore
+        device="cuda" if spatial_distance_matrix.is_cuda else "cpu",
+        # BLOCK_SIZE=32,
     )
 
 
@@ -107,19 +108,20 @@ def generate_attn_mask_mod(
             Tensor: A boolean tensor indicating whether there should be
                 attention between the query and key-value pair.
         """
-        # if not num_heads.is_cuda:
-        #     # This is a stupid workaround to get this to run
-        #     # in eager mode and not crash. This is not a good solution.
-        #     # print("q", q_idx)
-        #     print("kv", kv_idx)
+        if not num_heads.is_cuda:
+            # This is a stupid workaround to get this to run
+            # in eager mode and not crash. This is not a good solution.
+            # print("q", q_idx)
+            print("kv", kv_idx)
 
-        same_doc = document_ids[q_idx] == document_ids[kv_idx]
-        valid_doc = (document_ids[q_idx] != PADDING_GRAPH_ID) & (
-            document_ids[kv_idx] != PADDING_GRAPH_ID
-        )
+        doc_q = document_ids[q_idx]
+        doc_kv = document_ids[kv_idx]
 
-        q_logical = q_idx - offsets[document_ids[q_idx]]
-        kv_logical = kv_idx - offsets[document_ids[kv_idx]]
+        same_doc = doc_q == doc_kv
+        valid_doc = (doc_q != PADDING_GRAPH_ID) & (doc_kv != PADDING_GRAPH_ID)
+
+        q_logical = q_idx - offsets[doc_q]
+        kv_logical = kv_idx - offsets[doc_kv]
         distance = (
             spatial_distance_matrix[q_idx, kv_idx]
             if spatial_distance_matrix is not None

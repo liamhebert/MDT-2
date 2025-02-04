@@ -12,6 +12,7 @@ from lightning import Trainer
 import lightning as L
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+import torch
 
 from utils import extras
 from utils import get_metric_value
@@ -21,9 +22,8 @@ from utils import log_hyperparameters
 from utils import RankedLogger
 from utils import task_wrapper
 
-log = RankedLogger(__name__, rank_zero_only=True)
 
-import torch
+log = RankedLogger(__name__, rank_zero_only=True)
 
 torch.set_float32_matmul_precision("medium")
 

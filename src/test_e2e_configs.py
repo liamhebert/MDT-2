@@ -3,12 +3,10 @@ These tests validate whether components can be loaded in using Hydra.
 """
 
 from pathlib import Path
-from typing import Generator
 
 import hydra
 from hydra import compose
 from hydra import initialize
-from hydra.core.global_hydra import GlobalHydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from omegaconf import open_dict
@@ -16,16 +14,15 @@ import pytest
 import rootutils
 
 
-def process_global(path: str):
-    """A pytest fixture for setting up a default Hydra DictConfig for running
-    test functions.
+def process_global_configs(path: str):
+    """Setting up hydra configs with global settings, such as the root_dir and
+    disabling unnecessary prints and logging.
 
-    This differs from other fixtures in that the model is dramatically smaller
-    and designed for quick testing.
+    Args:
+        path (str): The path to the test config yaml file.
 
     Returns:
-        A DictConfig containing a default Hydra configuration for
-    testing.
+        A DictConfig configured with project root and other global settings.
     """
     with initialize(version_base=None, config_path="configs"):
         cfg = compose(
@@ -46,7 +43,17 @@ def process_global(path: str):
     return cfg
 
 
-def process_local(cfg: DictConfig, tmp_path: Path):
+def process_test_configs(cfg: DictConfig, tmp_path: Path):
+    """
+    Augments a given test_config with temporary paths for data, logs, and output.
+
+    Args:
+        cfg (DictConfig): The test configuration.
+        tmp_path (Path): The temporary path to store test files.
+
+    Returns:
+        A DictConfig with temporary paths for data, logs, and output.
+    """
     with open_dict(cfg):
         cfg.paths.output_dir = str(tmp_path)
         cfg.paths.log_dir = str(tmp_path)
@@ -56,12 +63,18 @@ def process_local(cfg: DictConfig, tmp_path: Path):
 
 
 @pytest.mark.parametrize(
-    "yamls",
+    "yaml",
     ["test_fixture_e2e_node.yaml", "test_fixture_e2e_contrast.yaml"],
 )
-def test_end_to_end(yamls: str, tmp_path: Path) -> None:
-    cfg = process_global(yamls)
-    cfg = process_local(cfg, tmp_path)
+def test_end_to_end(yaml: str, tmp_path: Path) -> None:
+    """Tests whether a given yaml file can be instantiated and run.
+
+    Args:
+        yamls (str): The path to the test yaml file.
+        tmp_path (Path): A temporary folder created by pytest to store files.
+    """
+    cfg = process_global_configs(yaml)
+    cfg = process_test_configs(cfg, tmp_path)
 
     HydraConfig().set_config(cfg)
 

@@ -19,7 +19,7 @@ seed: 12345
 trainer:
   min_epochs: 10
   max_epochs: 10
-  gradient_clip_val: 0.5
+  # gradient_clip_val: 0.5
 
 logger:
   wandb:
@@ -33,4 +33,3 @@ model:
     num_classes: 12
     learnable_temperature: True
     adaptive_soft_negative_weight: True
-

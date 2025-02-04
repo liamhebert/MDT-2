@@ -9,6 +9,9 @@ from torch import optim
 from torch.optim import lr_scheduler
 from torchmetrics import Metric, MetricCollection
 from losses.loss_abstract import Loss
+from utils import RankedLogger
+
+logger = RankedLogger(__name__)
 
 
 class Model(L.LightningModule):
@@ -37,6 +40,7 @@ class Model(L.LightningModule):
         self.scheduler = scheduler
         self.encoder = encoder
         self.loss = loss
+        self.loss.all_gather_fn = self.all_gather
 
         self.metrics = {
             state: {
@@ -50,7 +54,9 @@ class Model(L.LightningModule):
 
     # TODO(liamhebert): Implement model logic
 
-    def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute the forward pass of the model.
 
         Args:
@@ -59,14 +65,14 @@ class Model(L.LightningModule):
         Returns:
             The predicted values (y_hat).
         """
-        # TODO(liamhebert): Implement forward pass with updated args
+
         return self.encoder(**x)
 
     def model_step(
         self,
-        batch: dict[str, torch.Tensor],
+        batch: dict[str, dict[str, torch.Tensor]],
         metrics: dict[str, MetricCollection | Metric],
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor | int]]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor | Metric | int]]:
         """Compute the loss for a batch of data.
 
         Args:
@@ -88,6 +94,9 @@ class Model(L.LightningModule):
         # by default lightning executes validation step sanity checks before
         # training starts, so it's worth to make sure validation metrics don't
         # store results from these checks
+
+        self.encoder.train()
+
         for metric in self.metrics["val"]["epoch"].values():
             metric.reset()
 
@@ -111,11 +120,14 @@ class Model(L.LightningModule):
             self.log(
                 f"train/{key}",
                 metric,
-                on_step=True if "loss" in key else False,
+                on_step=True,
                 on_epoch=True,
                 prog_bar=True if "loss" in key else False,
                 batch_size=weight,
+                sync_dist=False,
             )
+
+        self.log("train/lr", self.scheduler.get_last_lr()[0], on_step=True)
 
         # return loss or backpropagation will fail
         return loss
@@ -132,8 +144,11 @@ class Model(L.LightningModule):
                 f"train/{key}",
                 val,
                 prog_bar=True,
+                on_epoch=True,
                 sync_dist=True,
             )
+
+        self.encoder.eval()
 
     def validation_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
@@ -156,6 +171,7 @@ class Model(L.LightningModule):
                 on_epoch=True,
                 prog_bar=True if "loss" in key else False,
                 batch_size=weight,
+                sync_dist=True,
             )
         return loss
 
@@ -167,7 +183,14 @@ class Model(L.LightningModule):
         )
 
         for key, val in epoch_vals.items():
-            self.log(f"val/{key}", val, prog_bar=True)
+            self.log(
+                f"val/{key}",
+                val,
+                on_epoch=True,
+                on_step=False,
+                prog_bar=True,
+                sync_dist=True,
+            )
 
     def test_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
@@ -192,6 +215,7 @@ class Model(L.LightningModule):
                 on_epoch=True,
                 prog_bar=True if "loss" in key else False,
                 batch_size=batch_size,
+                sync_dist=True,
             )
         return loss
 
@@ -203,7 +227,14 @@ class Model(L.LightningModule):
         )
 
         for key, val in epoch_vals.items():
-            self.log(f"test/{key}", val, prog_bar=True)
+            self.log(
+                f"test/{key}",
+                val,
+                prog_bar=True,
+                on_epoch=True,
+                on_step=False,
+                sync_dist=True,
+            )
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train +
@@ -217,7 +248,7 @@ class Model(L.LightningModule):
             stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         if self.hparams.compile and stage == "fit":
-            self.net = torch.compile(self.encoder, mode="max-autotune")
+            self.encoder = torch.compile(self.encoder)
 
     def configure_optimizers(self):
         """Choose what optimizers and learning-rate schedulers to use in your
@@ -235,11 +266,11 @@ class Model(L.LightningModule):
             params=self.trainer.model.parameters()
         )
         if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
+            self.scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
-                    "scheduler": scheduler,
+                    "scheduler": self.scheduler,
                     "monitor": "val/loss",
                     "interval": "epoch",
                     "frequency": 1,

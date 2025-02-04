@@ -1,6 +1,8 @@
 default_language_version:
   python: python3
 
+exclude: "(^logs/)|(^data/processed_files)|(^.*__init__.py$)"
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -45,7 +47,7 @@ repos:
             --ignore-nested-functions,
             -vv,
           ]
-        pass_filenames: false # Needed to ignore __init__.py files
+        pass_filenames: True # Needed to ignore __init__.py files
 
   # python check (PEP8), programming errors and code complexity
   - repo: https://github.com/PyCQA/flake8

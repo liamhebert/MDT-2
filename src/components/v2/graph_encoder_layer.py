@@ -11,7 +11,8 @@ from utils import RankedLogger
 log = RankedLogger(__name__, rank_zero_only=True)
 
 if torch.cuda.is_available():
-    flex_attention_comp = torch.compile(flex_attention, mode="max-autotune")
+    flex_attention_comp = torch.compile(flex_attention)
+    # flex_attention_comp = flex_attention
 else:
     flex_attention_comp = flex_attention
 
@@ -151,16 +152,21 @@ class Attention(nn.Module):
         else:
             assert isinstance(mask, BlockMask)
 
-            # kernel_options = {
-            #     "BLOCK_M": 64,
-            #     "BLOCK_N": 64,
-            #     "BLOCK_M1": 32,
-            #     "BLOCK_N1": 64,
-            #     "BLOCK_M2": 64,
-            #     "BLOCK_N2": 32,
-            # }
+            if xq.is_cuda:
+                kernel_options = {
+                    "BLOCK_M": int(64 / 2),
+                    "BLOCK_N": int(64 / 2),
+                    "BLOCK_M1": int(32 / 2),
+                    "BLOCK_N1": int(64 / 2),
+                    "BLOCK_M2": int(64 / 2),
+                    "BLOCK_N2": int(32 / 2),
+                }
+            else:
+                kernel_options = None
 
-            output = flex_attention_comp(xq, xk, xv, block_mask=mask)
+            output = flex_attention_comp(
+                xq, xk, xv, block_mask=mask, kernel_options=kernel_options
+            )
 
         # 1 H S D -> H S D
         xq, xk, xv = xq.squeeze(0), xk.squeeze(0), xv.squeeze(0)
@@ -259,6 +265,7 @@ class GraphTransformerBlock(nn.Module):
         ffn_dim: int,
         proj_dim: int,
         norm_eps: float = 1e-5,
+        head_dim: int | None = None,
     ):
         super().__init__()
 
@@ -274,7 +281,11 @@ class GraphTransformerBlock(nn.Module):
             self.up_proj = nn.Identity()
             self.down_proj = nn.Identity()
 
-        self.head_dim = effective_dim // n_heads
+        if head_dim is None:
+            self.head_dim = effective_dim // n_heads
+        else:
+            self.head_dim = head_dim
+
         self.n_heads = n_heads
         self.n_kv_heads = n_kv_heads
 
