@@ -62,7 +62,7 @@ class ContrastiveLoss(Loss):
             soft_negative_weight (float, optional): Weight to associate to soft
                 negative pairs in the contrastive loss. Flag is exclusive against
                 adaptive_soft_negative_weight
-            adaptive_soft_negative_weight (float, optional): Whether to adapt
+            adaptive_soft_negative_weight (bool, optional): Whether to adapt
                 the soft negative weight based on the number of positive pairs
                 and negative pairs. Flag is exclusive against soft_negative_weight
             temperature (float, optional): The temperature to use for the softmax
@@ -182,7 +182,7 @@ class ContrastiveLoss(Loss):
         # compute loss weights. Hard labels are given 1 weight, soft labels
         # are given extra_weight
 
-        soft_matrix = torch.where(soft_labels, extra_weight, 1)
+        soft_matrix = torch.where(soft_labels, extra_weight, 1.0)
         # Since we do intra-modality contrastive loss, remove diagonal from
         # loss matrix. We don't want to include itself in the loss
 

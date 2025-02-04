@@ -120,6 +120,20 @@ def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
     assert res["y"][ContrastiveLabels.HardYs].shape == (10,)
 
 
+def test_cached_dataset(dataset: DummyNodeTaskDataset):
+    """Test the process method for a dataset without graph splitting."""
+    dataset.process()
+    dataset.populate_cache(force_all=True)
+    data = []
+    print(len(dataset))
+    for x in dataset:
+        data += [x]
+
+    assert len(dataset) == 10
+    assert len(data) == 10
+    dataset.collate_fn(data)
+
+
 def test_flatten_graph(dataset: DummyNodeTaskDataset):
     """
     Test the flatten graph method, which converts a json tree to a flat graph
@@ -274,6 +288,9 @@ def test_wrapped_datamodule(
     dataset: DummyNodeTaskDataset,
     graph_dataset: DummyGraphTaskDataset,
 ):
+    """Tests whether a higher-level datamodule can correctly read from a
+    task dataset.
+    """
     if case == "node":
         data = dataset
     else:
@@ -285,6 +302,7 @@ def test_wrapped_datamodule(
         test_batch_size=1,
         num_workers=1,
         pin_memory=False,
+        cache_dataset=False,
     )
 
     dm.prepare_data()

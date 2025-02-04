@@ -846,9 +846,12 @@ class TaskDataset(Dataset, ABC):
 
         return data
 
-    def populate_cache(self):
+    def populate_cache(self, force_all: bool = False):
         """Populates the graph cache with all processed graphs."""
-        indices = self.train_idx + self.valid_idx + self.test_idx
+        if force_all:
+            indices = range(len(self))
+        else:
+            indices = set(self.train_idx + self.valid_idx + self.test_idx)
         self._graph_cache = {}
         for idx in tqdm(indices, desc="Populating cache"):
             data = torch.load(
@@ -873,7 +876,14 @@ class TaskDataset(Dataset, ABC):
                 self.processed_file_names[idx], weights_only=False
             )
         else:
-            data = self._graph_cache[idx]
+            try:
+                data = self._graph_cache[idx]
+            except KeyError:
+                # This is so stupid but iterable datasets stop on IndexErrors
+                # only, and dont care about KeyErrors. So this maps the KeyError
+                # to one Pytorch can understand.
+                raise IndexError(f"Index {idx} not in cache")
+
         if data is None:
             raise FileNotFoundError("Loaded in None graph")
         return data

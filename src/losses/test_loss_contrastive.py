@@ -1,6 +1,6 @@
 """Tests for the the contrastive loss function."""
 
-from losses.loss_contrastive import ContrastiveLoss
+from losses import ContrastiveLoss
 import torch
 from data.types import ContrastiveLabels
 import torch.nn.functional as F
