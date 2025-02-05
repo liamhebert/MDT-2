@@ -30,7 +30,11 @@ jobs:
           pip install pytest
           if [ -f src/requirements.txt ]; then pip install -r src/requirements.txt; fi
 
-      - name: Test with pytest
+      - name: Test src with pytest
         working-directory: ./src
+        run: |
+          pytest .
+      - name: Test pre-processing with pytest
+        working-directory: ./pre-processing
         run: |
           pytest .

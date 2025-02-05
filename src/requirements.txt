@@ -20,6 +20,6 @@ rich
 xformers
 scikit-learn
 emoji
-Pillow
+pillow
 sentencepiece
 torchdata
