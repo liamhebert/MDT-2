@@ -225,21 +225,23 @@ def main():
                 postid = postid_regex.search(line)
                 linkid = linkid_regex.search(line)
                 if subreddit is None or postid is None:
+                    print("Subreddit or postid doesn't exist")
+                    print(line)
                     continue
                 subreddit = subreddit.group(1)
                 postid = postid.group(1)
                 if linkid:
+                    # Only replies have a linkid field. If that's the case, use
+                    # that as the linkid
                     linkid = linkid.group(1)[3:]
                 else:
+                    # If it doesn't have a linkid field, it's likely the
+                    # original post, so the linkid would just be the postid
                     linkid = postid
                 if subreddit in subreddit_to_topic:
                     counts[subreddit] += 1
                     # write line to topic.txt file
                     for topic in subreddit_to_topic[subreddit]:
-                        os.makedirs(f"{DATA_PATH}/" + topic, exist_ok=True)
-                        os.makedirs(
-                            f"{DATA_PATH}/{topic}/{subreddit}", exist_ok=True
-                        )
                         os.makedirs(
                             f"{DATA_PATH}/{topic}/{subreddit}/{linkid}",
                             exist_ok=True,
