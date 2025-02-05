@@ -128,7 +128,7 @@ def main():
     res = Parallel(n_jobs=-1)(
         delayed(process_file)(file, i)
         for i, file in tqdm(
-            enumerate(list(glob("data/raw/Test-LocalCity/*-RC.txt"))), total=117
+            enumerate(list(glob("data/raw/Test-LocalCity/*-RC.txt")))
         )
     )
     # with open('complete-graphs.json', 'w') as file:
