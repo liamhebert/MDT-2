@@ -1,3 +1,5 @@
+"""Combines the trees into a single file for each subreddit."""
+
 import json
 from tqdm import tqdm
 from glob import glob
