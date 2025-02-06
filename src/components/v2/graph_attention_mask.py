@@ -5,7 +5,11 @@ from typing import Callable
 import torch
 from torch import Tensor
 from torch.nn.attention.flex_attention import _mask_mod_signature
-from torch.nn.attention.flex_attention import BlockMask, create_block_mask
+from torch.nn.attention.flex_attention import (
+    BlockMask,
+    create_block_mask,
+    _DEFAULT_SPARSE_BLOCK_SIZE,
+)
 
 PADDING_GRAPH_ID = -1
 
@@ -19,8 +23,9 @@ logical_graph_mask_mod_signature = Callable[
 def generate_graph_attn_mask_mod(
     graph_ids: torch.Tensor,
     spatial_distance_matrix: torch.Tensor,
-    max_spatial_distance: int = 0,
+    max_spatial_distance: int = 8,
     num_heads: int = 1,
+    block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
 ) -> BlockMask:
     """Shortcut to generate a spatial mask mod for flex attention
 
@@ -46,7 +51,7 @@ def generate_graph_attn_mask_mod(
         Q_LEN=query_len,
         KV_LEN=key_value_len,
         device="cuda" if spatial_distance_matrix.is_cuda else "cpu",
-        # BLOCK_SIZE=32,
+        BLOCK_SIZE=block_size,
     )
 
 
@@ -112,7 +117,8 @@ def generate_attn_mask_mod(
             # This is a stupid workaround to get this to run
             # in eager mode and not crash. This is not a good solution.
             # print("q", q_idx)
-            print("kv", kv_idx)
+            # print("kv", kv_idx)
+            ...
 
         doc_q = document_ids[q_idx]
         doc_kv = document_ids[kv_idx]

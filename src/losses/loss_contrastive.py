@@ -14,7 +14,7 @@ from torchmetrics import MeanMetric
 from torchmetrics import MinMetric
 from torchmetrics import Precision
 from torchmetrics import Recall
-from typing import Literal
+from typing import Literal, Mapping
 
 
 class ContrastiveLoss(Loss):
@@ -48,7 +48,7 @@ class ContrastiveLoss(Loss):
     def __init__(
         self,
         num_classes: int,
-        soft_negative_weight: float = -1e9,
+        soft_negative_weight: float = 0.0,
         adaptive_soft_negative_weight: bool = False,
         temperature: float = 10.0,
         bias: float = -10.0,
@@ -93,8 +93,8 @@ class ContrastiveLoss(Loss):
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
-        ys: dict[str, torch.Tensor],
-        batch_metrics: dict[str, Metric] | None = None,
+        ys: Mapping[ContrastiveLabels, torch.Tensor],
+        batch_metrics: dict[str, Metric | MetricCollection] | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the contrastive pretraining loss.
 
@@ -130,7 +130,7 @@ class ContrastiveLoss(Loss):
         )
 
         graph_shape = graph_embeddings.shape
-        all_graph_embeddings = self.all_gather_fn(normalized_A, sync_grads=True)
+        all_graph_embeddings = self.all_gather_fn(normalized_A)
         assert isinstance(all_graph_embeddings, torch.Tensor)
 
         targets, hard_targets, graph_embeddings = (
@@ -200,9 +200,10 @@ class ContrastiveLoss(Loss):
         target_matrix = (target_matrix * 2) - 1
 
         loss = torch.einsum(
-            "ij, ij -> ", -F.logsigmoid(sim * target_matrix), soft_matrix
+            "ij, ij -> ij", -F.logsigmoid(sim * target_matrix), soft_matrix
         )
-        loss = loss / num_valid_labels
+
+        loss = loss.sum() / num_valid_labels
 
         # loss = F.binary_cross_entropy_with_logits(
         #     sim,
@@ -213,18 +214,19 @@ class ContrastiveLoss(Loss):
 
         if batch_metrics is not None:
             with torch.no_grad():
-                metric_sim = sim.detach().clone()
+                metric_sim = sim.clone().detach()
                 pred_sim = metric_sim.fill_diagonal_(-1e9)
 
                 pred_sim[padding_mask] = -1e9
 
                 metrics = self.compute_batch_metrics(
                     metric_sim,
-                    targets.detach(),
-                    loss.detach().clone(),
+                    targets.clone().detach(),
+                    # torch.tensor([20.0], device=""),
+                    loss.clone().detach(),
                     batch_metrics,
                 )
-            # metrics = {"weight": 2}
+            # metrics = {"weight": sim.shape[0]}
         else:
             metrics = {}
 
@@ -239,7 +241,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
     def build_batch_metric_aggregators(
         self,
-    ) -> dict[str, MetricCollection | Metric]:
+    ) -> Mapping[str, MetricCollection | Metric]:
         """Build metric collectors for batch metrics.
 
         TODO(liamhebert): Write more docs here
@@ -300,7 +302,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
     def build_epoch_metric_aggregators(
         self,
-    ) -> dict[str, Metric]:
+    ) -> Mapping[str, Metric | MetricCollection]:
         """
         Build run-level metric aggregators for each metric.
         """
@@ -322,7 +324,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
         targets: torch.Tensor,
         loss: torch.Tensor,
         metrics: dict[str, Metric | MetricCollection],
-    ) -> dict[str, torch.Tensor]:
+    ) -> Mapping[str, torch.Tensor | Metric]:
         """Update metric objects with new batch.
 
         Args:
@@ -348,16 +350,6 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
         metrics["classification"].to(preds.device).update(preds, targets)
 
-        # for key, value in classification_metrics.items():
-        #     if value.shape == (self.num_classes,):
-        #         # Unpack class-wise metrics into separate keys
-        #         for i, v in enumerate(value):
-        #             class_key = key.replace("none", f"class_{i}")
-        #             return_metrics[class_key] = v
-        #     else:
-        #         assert value.shape == (), f"Unexpected shape: {value.shape}"
-        #         return_metrics[key] = value
-
         return_metrics["loss"] = metrics["loss"].to(loss.device).forward(loss)
 
         effective_batch_size = (targets != -100).sum()
@@ -371,7 +363,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
         self,
         batch_metrics: dict[str, Metric | MetricCollection],
         epoch_metrics: dict[str, Metric | MetricCollection],
-    ) -> dict[str, torch.Tensor]:
+    ) -> Mapping[str, torch.Tensor]:
         """Update run-level metric aggregator with epoch metrics.
 
         This should be called at the end of each epoch to capture the best value
@@ -385,31 +377,45 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
         Returns:
             Dictionary of metric values for the epoch
         """
-        epoch_vals = {}
-        metrics = batch_metrics["classification"].compute()
+
+        ret_metrics = {}
+
+        device = batch_metrics["classification"]["macro_f1"].device
+        assert isinstance(device, torch.device)
+        metrics = batch_metrics["classification"].to(device).compute()
         for metric_type in ["macro", "weighted"]:
             metric_ids = ["f1", "recall", "precision"]
             if metric_type == "weighted":
                 metric_ids.append("accuracy")
             for metric in metric_ids:
                 key = f"best_{metric_type}_{metric}"
-                epoch_vals[key] = epoch_metrics[key].forward(
-                    metrics[f"{metric_type}_{metric}"]
+
+                metric_value = metrics[f"{metric_type}_{metric}"]
+                ret_metrics[f"{metric_type}_{metric}"] = metric_value
+                ret_metrics[key] = (
+                    epoch_metrics[key].to(device).forward(metric_value)
                 )
 
         for metric in ["f1", "recall", "precision"]:
             metric_values = metrics["none_" + metric]
             for class_id in range(self.num_classes):
                 key = f"best_class_{class_id}_{metric}"
-                epoch_vals[key] = epoch_metrics[key].forward(
-                    metric_values[class_id]
+                ret_metrics[f"class_{class_id}_{metric}"] = metric_values[
+                    class_id
+                ]
+                ret_metrics[key] = (
+                    epoch_metrics[key]
+                    .to(device)
+                    .forward(metric_values[class_id])
                 )
 
-        epoch_vals["best_loss"] = epoch_metrics["best_loss"].forward(
-            batch_metrics["loss"].compute()
+        ret_metrics["best_loss"] = (
+            epoch_metrics["best_loss"]
+            .to(device)
+            .forward(batch_metrics["loss"].compute())
         )
 
         for metric_obj in batch_metrics.values():
             metric_obj.reset()
 
-        return epoch_vals
+        return ret_metrics

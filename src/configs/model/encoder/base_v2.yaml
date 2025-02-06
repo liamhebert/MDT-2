@@ -14,11 +14,12 @@ graph_stack_factory:
   graph_tfmr_factory:
     _target_: components.v2.graph_encoder_layer.GraphTransformerBlock
     _partial_: True
-    dim: "${model.encoder.embedding_dim}"
-    proj_dim: "${model.encoder.embedding_dim}"
     n_heads: 12
     n_kv_heads: 12
+    dim: "${model.encoder.embedding_dim}"
     ffn_dim: 3072
+    differential_attention: False
+
 
 text_model_config:
   bert_model_name: "${modality_encoder.text_config.text_model_name}"

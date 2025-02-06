@@ -26,7 +26,6 @@ from transformers.models.vit.modeling_vit import ViTModel
 from transformers.models.vit.modeling_vit import ViTPooler
 
 from components.graph_fusion_layer import GraphFusionStack
-from components.v1.custom_attn import MultiheadAttention
 from components.v2.graph_encoder_layer import BaseGraphTransformer
 from components.v2.feature_layers import GraphAttnBias
 from components.v2.feature_layers import GraphNodeFeature
@@ -61,10 +60,6 @@ def init_graphormer_params(module):
         normal_(module.weight.data)
         if module.padding_idx is not None:
             module.weight.data[module.padding_idx].zero_()
-    if isinstance(module, MultiheadAttention):
-        normal_(module.q_proj.weight.data)
-        normal_(module.k_proj.weight.data)
-        normal_(module.v_proj.weight.data)
 
 
 class DiscussionTransformer(nn.Module):

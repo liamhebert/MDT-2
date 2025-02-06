@@ -2,7 +2,7 @@
 Implementation for cross-entropy loss function.
 """
 
-from typing import Literal
+from typing import Literal, Mapping
 
 import torch
 from torch.nn import functional as F
@@ -111,7 +111,7 @@ class NodeCrossEntropyLoss(Loss):
         targets: torch.Tensor,
         loss: torch.Tensor,
         metrics: dict[str, Metric],
-    ) -> dict[str, torch.Tensor | int]:
+    ) -> Mapping[str, torch.Tensor | Metric]:
         """Update metric objects with new batch.
 
         Args:
@@ -158,7 +158,7 @@ class NodeCrossEntropyLoss(Loss):
 
     def build_epoch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | None]:
+    ) -> Mapping[str, Metric | MetricCollection]:
         """
         Build run-level metric aggregators for each metric.
         """
@@ -175,9 +175,9 @@ class NodeCrossEntropyLoss(Loss):
 
     def compute_epoch_metrics(
         self,
-        batch_metrics: dict[str, Metric],
-        epoch_metrics: dict[str, Metric],
-    ) -> dict[str, torch.Tensor]:
+        batch_metrics: dict[str, Metric | MetricCollection],
+        epoch_metrics: dict[str, Metric | MetricCollection],
+    ) -> Mapping[str, torch.Tensor]:
         """Update run-level metric aggregator with epoch metrics.
 
         This should be called at the end of each epoch to capture the best value
@@ -229,8 +229,8 @@ class NodeCrossEntropyLoss(Loss):
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
-        ys: dict[str, torch.Tensor],
-        batch_metrics: dict[str, Metric] | None = None,
+        ys: Mapping[str, torch.Tensor],
+        batch_metrics: dict[str, Metric | MetricCollection] | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the cross-entropy loss.
 

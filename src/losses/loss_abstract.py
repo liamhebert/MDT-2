@@ -8,7 +8,7 @@ import torch
 from torchmetrics import Metric
 from torchmetrics import SumMetric
 from torchmetrics import MetricCollection
-from typing import Callable
+from typing import Callable, Mapping
 
 
 class LastValueMetric(SumMetric):
@@ -44,7 +44,7 @@ class Loss(abc.ABC, torch.nn.Module):
     @abc.abstractmethod
     def build_batch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | MetricCollection]:
+    ) -> Mapping[str, Metric | MetricCollection]:
         """Build metric collectors for batch metrics.
 
         TODO(liamhebert): Write more docs here
@@ -54,7 +54,7 @@ class Loss(abc.ABC, torch.nn.Module):
     @abc.abstractmethod
     def build_epoch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | MetricCollection]:
+    ) -> Mapping[str, Metric | MetricCollection]:
         """
         Build run-level metric aggregators for each metric.
         """
@@ -68,7 +68,7 @@ class Loss(abc.ABC, torch.nn.Module):
         targets: torch.Tensor,
         loss: torch.Tensor,
         metrics: dict[str, Metric | MetricCollection],
-    ) -> dict[str, torch.Tensor]:
+    ) -> Mapping[str, torch.Tensor | Metric]:
         """Update metric objects with new batch.
 
         Args:
@@ -89,7 +89,7 @@ class Loss(abc.ABC, torch.nn.Module):
         self,
         batch_metrics: dict[str, Metric | MetricCollection],
         epoch_metrics: dict[str, Metric | MetricCollection],
-    ) -> dict[str, torch.Tensor]:
+    ) -> Mapping[str, torch.Tensor]:
         """Update run-level metric aggregator with epoch metrics.
 
         This should be called at the end of each epoch to capture the best value
@@ -110,7 +110,7 @@ class Loss(abc.ABC, torch.nn.Module):
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
-        ys: dict[str, torch.Tensor],
+        ys: Mapping[str, torch.Tensor],
         batch_metrics: dict[str, Metric | MetricCollection] | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the cross-entropy loss.
