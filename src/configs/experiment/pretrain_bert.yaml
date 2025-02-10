@@ -4,9 +4,11 @@
 # python train.py experiment=example
 
 defaults:
-  - pretrain_siglip
+  - override /dataset: pretrain
   - override /modality_encoder: bert-vit-base
   - override /model/encoder: base_v2
+  - override /model/loss: contrastive_loss
+  - override /trainer: fsdp
   - _self_
 
 # all parameters below will be merged with parameters from default configurations set above

@@ -143,11 +143,13 @@ def test_flatten_graph(dataset: DummyNodeTaskDataset):
         "id": "root",
         "images": ["image1.png"],
         "distances": {"root": [0, 0], "child1": [0, 1], "child2": [0, 1]},
+        "rotary_position": [0, 0],
         "data": {"title": "Root Title", "body": "Root Body", "label": "A"},
         "tree": [
             {
                 "id": "child1",
                 "images": [],
+                "rotary_position": [0, 1],
                 "distances": {
                     "root": [1, 0],
                     "child1": [0, 0],
@@ -159,6 +161,7 @@ def test_flatten_graph(dataset: DummyNodeTaskDataset):
             {
                 "id": "child2",
                 "images": ["image2.png"],
+                "rotary_position": [1, 1],
                 "distances": {
                     "root": [1, 0],
                     "child1": [1, 1],
@@ -182,6 +185,7 @@ def test_flatten_graph(dataset: DummyNodeTaskDataset):
         {"root": [1, 0], "child1": [0, 0], "child2": [1, 1]},
         {"root": [1, 0], "child1": [1, 1], "child2": [0, 0]},
     ]
+    assert flattened_graph["rotary_position"] == [[0, 0], [0, 1], [1, 1]]
     assert flattened_graph["text"] == [
         "Title: Root Title\nBody: Root Body",
         "Comment: Child 1 Body",

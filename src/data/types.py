@@ -15,6 +15,7 @@ class GraphFeatures(StrEnum):
     ImageMask = "image_mask"
     Distance = "distance"
     DistanceIndex = "distance_index"
+    RotaryPos = "rotary_pos"
 
 
 class TextFeatures(StrEnum):

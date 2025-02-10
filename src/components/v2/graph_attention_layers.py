@@ -6,6 +6,7 @@ import torch
 from torch.nn.attention.flex_attention import BlockMask
 from torch.nn.attention.flex_attention import flex_attention
 import math
+from components.v2.graph_rope_encoding import RoPE
 
 if torch.cuda.is_available():
     flex_attention_comp = torch.compile(flex_attention)
@@ -76,6 +77,9 @@ class Attention(nn.Module):
         n_heads: int,
         n_kv_heads: int,
         use_biased_attention: bool = False,
+        use_rope: bool = False,
+        rope_theta: float = 10.0,
+        rope_mixed: bool = True,
     ):
         super().__init__()
 
@@ -109,10 +113,21 @@ class Attention(nn.Module):
         )
         self.use_biased_attention = use_biased_attention
 
+        if use_rope:
+            self.rope = RoPE(
+                head_dim=head_dim,
+                num_heads=n_heads,
+                rope_theta=rope_theta,
+                rope_mixed=rope_mixed,
+            )
+        else:
+            self.rope = None
+
     def forward(
         self,
         x: torch.Tensor,
         mask: torch.Tensor | BlockMask | None = None,
+        spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Computes the standard multi-head scaled dot-product attention.
 
@@ -128,6 +143,9 @@ class Attention(nn.Module):
 
                 If mask is a torch.Tensor or None, then we will use the
                 standard scaled dot-product attention.
+            spatial_pos (torch.Tensor | None): Spatial position tensor of shape
+                `(S, 2)` for use with RoPE. If RoPE is not used, then this can
+                be None.
 
         Returns:
             torch.Tensor: Output tensor of shape `(S, D)`.
@@ -145,6 +163,9 @@ class Attention(nn.Module):
         xv = xv.view(seq_len, self.n_kv_heads, self.head_dim)
 
         # ROPE HERE
+        if self.rope is not None:
+            assert spatial_pos is not None
+            xq, xk = self.rope(xq, xk, spatial_pos)
 
         xk = repeat_kv(xk, self.heads_per_group, dim=1)
         xv = repeat_kv(xv, self.heads_per_group, dim=1)
@@ -219,6 +240,7 @@ class Attention(nn.Module):
 
 
 class DifferentialAttention(nn.Module):
+
     def __init__(
         self,
         dim: int,
@@ -226,20 +248,25 @@ class DifferentialAttention(nn.Module):
         n_heads: int,
         n_kv_heads: int,
         depth: int = 0,  # added
+        use_rope: bool = False,
+        rope_theta: float = 10.0,
+        rope_mixed: bool = True,
     ):
         super().__init__()
 
+        # Note that we lose half of the head_dim here, so the effective head_dim
+        # is actually head_dim / 2.
+
         self.num_heads = n_heads
         self.num_kv_heads = n_kv_heads
-        self.n_rep = self.num_heads // self.num_kv_heads
 
         self.head_dim = head_dim // 2
         self.dim = dim
 
-        self.wq = nn.Linear(dim, dim, bias=False)
-        self.wk = nn.Linear(dim, dim // self.n_rep, bias=False)
-        self.wv = nn.Linear(dim, dim // self.n_rep, bias=False)
-        self.wo = nn.Linear(dim, dim, bias=False)
+        self.wq = nn.Linear(dim, head_dim * n_heads, bias=False)
+        self.wk = nn.Linear(dim, head_dim * n_kv_heads, bias=False)
+        self.wv = nn.Linear(dim, head_dim * n_kv_heads, bias=False)
+        self.wo = nn.Linear(head_dim * n_heads, dim, bias=False)
 
         self.lambda_init = 0.8 - 0.6 * math.exp(-0.3 * depth)
         self.lambda_q1 = nn.Parameter(
@@ -264,6 +291,15 @@ class DifferentialAttention(nn.Module):
         )
 
         self.subln = RMSNorm(2 * self.head_dim, eps=1e-5)
+        if use_rope:
+            self.rope = RoPE(
+                head_dim=head_dim,
+                num_heads=n_heads,
+                rope_theta=rope_theta,
+                rope_mixed=rope_mixed,
+            )
+        else:
+            self.rope = None
 
     def _attn_forward(
         self,
@@ -296,6 +332,7 @@ class DifferentialAttention(nn.Module):
         self,
         x: torch.Tensor,
         mask: BlockMask,
+        spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Computes the differential multi-head scaled dot-product attention.
 
@@ -306,6 +343,9 @@ class DifferentialAttention(nn.Module):
             x (torch.Tensor): Input tensor of shape `(S, D)`.
             mask (BlockMask): BlockMask to apply to the attention, which allows
                 for sparse attention.
+            spatial_pos (torch.Tensor | None): Spatial position tensor of shape
+                `(S, 2)` for use with RoPE. If RoPE is not used, then this can
+                be None.
 
         Returns:
             torch.Tensor: Output tensor of shape `(S, D)`.
@@ -322,6 +362,10 @@ class DifferentialAttention(nn.Module):
         xq = xq.view(seq_len, 2 * self.num_heads, self.head_dim)
         xk = xk.view(seq_len, 2 * self.num_kv_heads, self.head_dim)
         xv = xv.view(seq_len, self.num_kv_heads, 2 * self.head_dim)
+
+        if self.rope is not None:
+            assert spatial_pos is not None
+            xq, xk = self.rope(xq, xk, spatial_pos)
 
         xq = xq.reshape(1, seq_len, self.num_heads, 2, self.head_dim)
         xk = xk.reshape(1, seq_len, self.num_kv_heads, 2, self.head_dim)

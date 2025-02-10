@@ -354,6 +354,7 @@ class DiscussionTransformer(nn.Module):
         else:
             vit_model = AutoModel.from_pretrained(
                 vit_model_name,
+                attn_implementation="sdpa",
                 # hidden_dropout_prob=activation_dropout,
                 # attention_probs_dropout_prob=attention_dropout,
             )
@@ -418,6 +419,7 @@ class DiscussionTransformer(nn.Module):
         else:
             bert = AutoModel.from_pretrained(
                 bert_model_name,
+                attn_implementation="sdpa",
                 # hidden_dropout_prob=activation_dropout,
                 # attention_probs_dropout_prob=attention_dropout,
             )
@@ -447,6 +449,7 @@ class DiscussionTransformer(nn.Module):
         image_padding_mask: torch.Tensor,
         graph_ids: torch.Tensor,
         spatial_pos: torch.Tensor,
+        rotary_pos: torch.Tensor,
         in_degree: torch.Tensor,
         out_degree: torch.Tensor,
         num_total_graphs: int,
@@ -527,18 +530,6 @@ class DiscussionTransformer(nn.Module):
             graph_x, out_degree, graph_ids, num_total_graphs
         )
 
-        # add on the key dimension
-        virtual_distance = torch.zeros_like(spatial_pos[0, :]).expand(
-            (num_total_graphs, -1)
-        )
-        spatial_pos = torch.cat((spatial_pos, virtual_distance), dim=0)
-
-        # add on the query dimension
-        virtual_distance = torch.zeros_like(spatial_pos[:, 0]).expand(
-            (num_total_graphs, -1)
-        )
-        spatial_pos = torch.cat((spatial_pos, virtual_distance.T), dim=1)
-
         # TODO(liamhebert): update spatial pos with new graph ids, distance for
         # each of those nodes.
 
@@ -570,6 +561,7 @@ class DiscussionTransformer(nn.Module):
             graph_x = g_layer(
                 graph_x,
                 mask=flex_block_mask,
+                spatial_pos=rotary_pos,
             )
 
             # extract bottle_neck tokens

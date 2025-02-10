@@ -1,0 +1,7 @@
+defaults:
+  - default
+  - _self_
+
+gres: null
+partition: ALL
+tasks_per_node: 1

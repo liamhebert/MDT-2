@@ -39,8 +39,13 @@ def compute_relative_distance(tree) -> dict:
         The same tree with nodes updated to include the "distances" field. Note
         this is done in-place, so the return is not necessary.
     """
+    # Relative Tuple
     UP = 0
     DOWN = 1
+
+    # Rotary tuple
+    SPLIT = 0
+    DEPTH = 1
 
     # The algorithm is a two-step process:
     # First, we calculate the distance depth first from the root to all nodes.
@@ -54,7 +59,9 @@ def compute_relative_distance(tree) -> dict:
     # root copies that distance with an additional hop to the root. This is also
     # done depth-first, but starting with complete information.
 
-    def depth_first(node, depths={}) -> dict:
+    def depth_first(
+        node, current_depth=0, current_split=0, depths={}
+    ) -> tuple[dict, int]:
         # To avoid in-place modification, we copy the running distance dictionary.
         distances = copy.deepcopy(depths)
         # All nodes that we've already seen in this recursion are one above us
@@ -63,10 +70,19 @@ def compute_relative_distance(tree) -> dict:
             distances[key][UP] += 1
         # The current node is 0, 0
         distances[node["id"]] = [0, 0]
+        node["rotary_position"] = [current_split, current_depth]
 
+        if node["tree"]:
+            current_split -= 1
         for x in node["tree"]:
             # Do this recursion for all children
-            val = depth_first(x, distances)
+            # current_split += 1
+            val, current_split = depth_first(
+                x,
+                current_depth=current_depth + 1,
+                current_split=current_split + 1,
+                depths=distances,
+            )
             # All new nodes we've picked up are one further below us from the
             # children.
             for key, value in val.items():
@@ -76,7 +92,7 @@ def compute_relative_distance(tree) -> dict:
                     distances[key] = [value[UP], value[DOWN] + 1]
 
         node["distances"] = distances
-        return distances
+        return distances, current_split
 
     def spread_adj_branch_distance(node, depths={}) -> None:
         for key, value in depths.items():

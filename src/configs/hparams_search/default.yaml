@@ -27,7 +27,7 @@ hydra:
     study_name: null
 
     # number of parallel workers
-    n_jobs: 3
+    n_jobs: ???
 
     # 'minimize' or 'maximize' the objective
     direction: minimize
@@ -44,6 +44,4 @@ hydra:
       n_startup_trials: 2 # number of random sampling runs before optimization starts
 
     # define hyperparameter search space
-    params:
-      model.optimizer.lr: choice(0.001) # choose between 0.001 to 0.01
-      model.encoder.graph_stack_factory.num_layers: choice(2, 3, 4) # choose between 2, 3, 4
+    params: ???

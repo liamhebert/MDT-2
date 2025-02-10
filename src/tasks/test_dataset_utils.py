@@ -60,6 +60,7 @@ class TestComputeRelativeDistance:
         tree = {"id": 1, "tree": []}
         dut.compute_relative_distance(tree)
         assert tree["distances"] == {1: [0, 0]}
+        assert tree["rotary_position"] == [0, 0]
 
     def test_two_level_tree(self):
         """Test that compute_relative_distance works for a two-level tree."""
@@ -67,6 +68,8 @@ class TestComputeRelativeDistance:
         dut.compute_relative_distance(tree)
         assert tree["distances"] == {1: [0, 0], 2: [0, 1]}
         assert tree["tree"][0]["distances"] == {1: [1, 0], 2: [0, 0]}
+        assert tree["rotary_position"] == [0, 0]
+        assert tree["tree"][0]["rotary_position"] == [0, 1]
 
     def test_three_level_tree(self):
         """Test that compute_relative_distance works for a three-level tree."""
@@ -79,6 +82,9 @@ class TestComputeRelativeDistance:
             2: [1, 0],
             3: [0, 0],
         }
+        assert tree["rotary_position"] == [0, 0]
+        assert tree["tree"][0]["rotary_position"] == [0, 1]
+        assert tree["tree"][0]["tree"][0]["rotary_position"] == [0, 2]
 
     def test_multiple_branches(self):
         """Test that compute_relative_distance works for a branching tree."""
@@ -108,4 +114,42 @@ class TestComputeRelativeDistance:
             2: [2, 1],
             3: [1, 0],
             4: [0, 0],
+        }
+        assert tree["rotary_position"] == [0, 0]
+        assert tree["tree"][0]["rotary_position"] == [0, 1]
+        assert tree["tree"][1]["rotary_position"] == [1, 1]
+        assert tree["tree"][1]["tree"][0]["rotary_position"] == [1, 2]
+
+    def test_complex_rotary(self):
+        tree = {
+            "id": 1,
+            "tree": [
+                {
+                    "id": 2,
+                    "tree": [{"id": 6, "tree": []}, {"id": 7, "tree": []}],
+                },
+                {
+                    "id": 3,
+                    "tree": [{"id": 4, "tree": []}, {"id": 5, "tree": []}],
+                },
+            ],
+        }
+        dut.compute_relative_distance(tree)
+
+        def get_distance(tree, distances={}):
+            distances[tree["id"]] = tree["rotary_position"]
+            for child in tree["tree"]:
+                get_distance(child, distances)
+            return distances
+
+        distances = get_distance(tree)
+        # Split, Depth
+        assert distances == {
+            1: [0, 0],
+            2: [0, 1],
+            6: [0, 2],
+            7: [1, 2],
+            3: [2, 1],
+            4: [2, 2],
+            5: [3, 2],
         }

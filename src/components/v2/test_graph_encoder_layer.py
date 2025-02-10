@@ -34,12 +34,13 @@ def create_graph_transformer_factory(
 def test_graph_transformer(diff_attn: bool):
     """Smoke test for the GraphTransformerBlock."""
 
-    n_heads = 4
-    n_kv_heads = 4
+    n_heads = 16
+    n_kv_heads = 16
     dim = 64
     ffn_dim = 256
     norm_eps = 1e-6
     head_dim = 16
+    seq_len = 8
 
     graph_tfmr_factory = create_graph_transformer_factory(
         n_heads, n_kv_heads, dim, ffn_dim, norm_eps, head_dim, diff_attn
@@ -50,9 +51,6 @@ def test_graph_transformer(diff_attn: bool):
         num_layers=num_layers,
         graph_tfmr_factory=graph_tfmr_factory,
     )
-
-    seq_len = 8
-    dim = 64
 
     x = torch.randn(seq_len, dim)
     graph_ids = torch.randint(0, 2, (seq_len,))

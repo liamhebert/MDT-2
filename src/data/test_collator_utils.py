@@ -176,6 +176,7 @@ class DummyValues(IntEnum):
     IMAGES = auto()
     NODE_MASK = auto()
     Y = auto()
+    ROTARY_POS = auto()
 
 
 def create_sample_input(
@@ -219,6 +220,9 @@ def create_sample_input(
                     DummyValues.IMAGES * num_nodes,
                 )
             }
+        ),
+        rotary_position=torch.full(
+            (num_nodes, 2), DummyValues.ROTARY_POS * num_nodes
         ),
     )
     return data
@@ -431,38 +435,10 @@ def test_collator_v2(with_token_type_ids: bool):
         graph_features, text_features, image_features, block_size=4
     )
     non_block_spatial_pos = [
-        torch.tensor(
-            [
-                [
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                ],
-                [
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                ],
-                [
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                ],
-            ]
-        ),
-        torch.tensor(
-            [
-                [
-                    DummyValues.DISTANCE_INDEX * 2 + 1,
-                    DummyValues.DISTANCE_INDEX * 2 + 1,
-                ],
-                [
-                    DummyValues.DISTANCE_INDEX * 2 + 1,
-                    DummyValues.DISTANCE_INDEX * 2 + 1,
-                ],
-            ],
-        ),
-        torch.tensor([[0]]),
+        torch.full((2, 2), 0),  # Graph Token distance
+        torch.full((3, 3), DummyValues.DISTANCE_INDEX * 3 + 1),
+        torch.full((2, 2), DummyValues.DISTANCE_INDEX * 2 + 1),
+        torch.full((1, 1), 0),  # Padding
     ]
     expected = {
         "spatial_pos": torch.block_diag(*non_block_spatial_pos),

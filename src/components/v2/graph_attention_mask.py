@@ -46,8 +46,8 @@ def generate_graph_attn_mask_mod(
 
     return create_block_mask(
         mask_mod=mask_mod,
-        B=num_nodes,
-        H=num_heads,
+        B=None,
+        H=None,
         Q_LEN=query_len,
         KV_LEN=key_value_len,
         device="cuda" if spatial_distance_matrix.is_cuda else "cpu",

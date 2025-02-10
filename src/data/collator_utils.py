@@ -198,6 +198,7 @@ def extract_and_merge_features(
         GraphFeatures.ImageMask: [],
         GraphFeatures.Distance: [],
         GraphFeatures.DistanceIndex: [],
+        GraphFeatures.RotaryPos: [],
     }
 
     text_features: InputFeatures = {
@@ -221,6 +222,7 @@ def extract_and_merge_features(
         graph_features[GraphFeatures.ImageMask].append(graph.image_mask)
         graph_features[GraphFeatures.Distance].append(graph.distance)
         graph_features[GraphFeatures.DistanceIndex].append(graph.distance_index)
+        graph_features[GraphFeatures.RotaryPos].append(graph.rotary_position)
 
         text: BatchEncoding = graph.text
         for feature in [

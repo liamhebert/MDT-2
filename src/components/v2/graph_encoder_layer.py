@@ -123,6 +123,9 @@ class GraphTransformerBlock(nn.Module):
         head_dim: int | None = None,
         depth: int = 0,
         differential_attention: bool = False,
+        use_rope: bool = False,
+        rope_theta: float = 10.0,
+        rope_mixed: bool = True,
     ):
         super().__init__()
 
@@ -156,6 +159,9 @@ class GraphTransformerBlock(nn.Module):
                 n_heads=n_heads,
                 n_kv_heads=n_kv_heads,
                 depth=depth,
+                use_rope=use_rope,
+                rope_theta=rope_theta,
+                rope_mixed=rope_mixed,
             )
         else:
             self.attention = Attention(
@@ -163,6 +169,9 @@ class GraphTransformerBlock(nn.Module):
                 head_dim=self.head_dim,
                 n_heads=self.n_heads,
                 n_kv_heads=self.n_kv_heads,
+                use_rope=use_rope,
+                rope_theta=rope_theta,
+                rope_mixed=rope_mixed,
             )
         self.feed_forward = FeedForward(
             dim=dim,
@@ -176,11 +185,13 @@ class GraphTransformerBlock(nn.Module):
         x: torch.Tensor,
         # freq_cis: torch.Tensor,
         mask: BlockMask | None = None,
+        spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
         h = x + self.attention(
             self.attention_norm(x),
             # freq_cis,
             mask=mask,
+            spatial_pos=spatial_pos,
         )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
@@ -223,11 +234,37 @@ class BaseGraphTransformer(nn.Module):
         """Number of layers in the transformer."""
         return len(self.layers)
 
-    def forward(self, x: torch.Tensor, mask: BlockMask | None = None):
-        # TODO(liamhebert): Add rotary positional encoding frequency cis
-        # TODO(liamhebert): Consider projecting up before layers and down after
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: BlockMask | None = None,
+        spatial_pos: torch.Tensor | None = None,
+    ):
+        """Computes the forward pass of the transformer.
+
+        Notably, this function applies the forward pass of a stack of layers,
+        defined by `num_layers`.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape `(S, D)`.
+            mask (torch.Tensor | BlockMask | None, optional): Mask tensor to
+                apply to the attention.
+                If mask is a FlexAttention BlockMask, then we will use
+                FlexAttention, which has the benefit of being sparse.
+
+                If mask is a torch.Tensor or None, then we will use the
+                standard scaled dot-product attention.
+            spatial_pos (torch.Tensor | None): Spatial position tensor of shape
+                `(S, 2)` for use with RoPE. If RoPE is not used, then this can
+                be None.
+
+        Returns:
+            torch.Tensor: The transformed tensor with the same shape as `x`
+                (S, D).
+        """
+
         for layer in self.layers:
-            x = layer(x, mask=mask)
+            x = layer(x, mask=mask, spatial_pos=spatial_pos)
         return x
 
     def init_weights(self):

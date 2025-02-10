@@ -577,6 +577,7 @@ class TaskDataset(Dataset, ABC):
         ] = {
             "images": [],
             "distances": [],
+            "rotary_position": [],
             "id": [],
             "parent_id": [],
             "is_root": [],
@@ -609,11 +610,7 @@ class TaskDataset(Dataset, ABC):
 
                 result["images"].append(node["images"])
                 result["distances"].append(node["distances"])
-                if node["id"] in result["id"]:
-                    raise ValueError(
-                        f"Duplicate id found {node['id']} \n {result=} \n"
-                        f"new node \n {node=}"
-                    )
+                result["rotary_position"].append(node["rotary_position"])
                 result["id"].append(node["id"])
                 result["parent_id"].append(parent_id)
                 result["is_root"].append(is_root)
@@ -784,6 +781,12 @@ class TaskDataset(Dataset, ABC):
             mapped_distance = sorted(mapped_distance, key=lambda x: x[0])
             combined_distance.append([x[1] for x in mapped_distance])
 
+        rotary_pos = torch.tensor(flattened_graph["rotary_position"])
+        assert rotary_pos.shape == (
+            len(flattened_graph["id"]),
+            2,
+        ), rotary_pos.shape
+
         distance_tensor = torch.tensor(combined_distance)
 
         # Since each node only has one directional edge, we know that the number
@@ -827,6 +830,7 @@ class TaskDataset(Dataset, ABC):
             images=tokenized_images,
             distance=distance_tensor,  # NOTE: this distance is not clamped
             distance_index=distance_index,
+            rotary_position=rotary_pos,
             attn_bias=attn_bias,
         )
 

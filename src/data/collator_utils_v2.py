@@ -113,6 +113,7 @@ def generic_collator(
     distance_indices: list[torch.Tensor] = graph_features[
         GraphFeatures.DistanceIndex
     ]
+    rotary_poses: list[torch.Tensor] = graph_features[GraphFeatures.RotaryPos]
 
     # assert that each property is a list of torch tensors
     assert all(isinstance(i, torch.Tensor) for i in in_degrees)
@@ -196,6 +197,14 @@ def generic_collator(
 
     image_padding = torch.cat(image_masks)
 
+    # Add padding to the in_degrees, image_masks, distances, and distance_indices
+    virtual_distance_pad = torch.zeros((num_padding, 2), dtype=torch.long)
+    virtual_distance_graph = torch.zeros((num_graphs, 2), dtype=torch.long)
+    rotary_pos = torch.cat(rotary_poses)
+    rotary_pos = torch.cat(
+        [virtual_distance_graph, rotary_pos, virtual_distance_pad], dim=0
+    )
+
     spatial_pos = torch.block_diag(*[x + 1 for x in distance_indices])
     in_degree = torch.cat(in_degrees) + 1
 
@@ -208,17 +217,32 @@ def generic_collator(
     )
     graph_ids = torch.cat([graph_ids, padding_graph_index])
 
+    total_num_graphs = len(in_degrees)
+
+    # We add distance to the spatial pos for the padding nodes (end) and the
+    # graph tokens (start)
+
     # add on the key dimension
-    virtual_distance = torch.zeros_like(spatial_pos[0, :]).expand(
+    virtual_distance_pad = torch.zeros_like(spatial_pos[0, :]).expand(
         (num_padding, -1)
     )
-    spatial_pos = torch.cat((spatial_pos, virtual_distance), dim=0)
+    virtual_distance_graph = torch.zeros_like(spatial_pos[0, :]).expand(
+        (total_num_graphs, -1)
+    )
+    spatial_pos = torch.cat(
+        (virtual_distance_graph, spatial_pos, virtual_distance_pad), dim=0
+    )
 
     # add on the query dimension
-    virtual_distance = torch.zeros_like(spatial_pos[:, 0]).expand(
+    virtual_distance_pad = torch.zeros_like(spatial_pos[:, 0]).expand(
         (num_padding, -1)
     )
-    spatial_pos = torch.cat((spatial_pos, virtual_distance.T), dim=1)
+    virtual_distance_graph = torch.zeros_like(spatial_pos[:, 0]).expand(
+        (total_num_graphs, -1)
+    )
+    spatial_pos = torch.cat(
+        (virtual_distance_graph.T, spatial_pos, virtual_distance_pad.T), dim=1
+    )
 
     return {
         "spatial_pos": spatial_pos,
@@ -230,4 +254,5 @@ def generic_collator(
         "image_padding_mask": image_padding,
         "graph_ids": graph_ids,
         "num_total_graphs": len(in_degrees),
+        "rotary_pos": rotary_pos,
     }
