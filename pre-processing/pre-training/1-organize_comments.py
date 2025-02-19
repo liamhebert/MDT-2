@@ -196,7 +196,7 @@ def main():
                     subreddit_to_topic[sub] = []
                 subreddit_to_topic[sub] += [topic]
 
-    path = "./"
+    path = "/mnt/DATA/reddit_share/"
     counts = {key: 0 for key in subreddit_to_topic.keys()}
     subreddit_regex = re.compile('"subreddit":"([^"]+)"')
     postid_regex = re.compile('"id":"([^"]+)"')
@@ -223,20 +223,20 @@ def main():
                 # find the first subreddit mentioned
                 subreddit = subreddit_regex.search(line)
                 postid = postid_regex.search(line)
-                linkid = linkid_regex.search(line)
+
                 if subreddit is None or postid is None:
                     print("Subreddit or postid doesn't exist")
                     print(line)
                     continue
                 subreddit = subreddit.group(1)
                 postid = postid.group(1)
-                if linkid:
-                    # Only replies have a linkid field. If that's the case, use
-                    # that as the linkid
+                if "RC" in file:
+                    # Comments have link IDs as a field. Use that.
+                    linkid = linkid_regex.search(line)
                     linkid = linkid.group(1)[3:]
                 else:
-                    # If it doesn't have a linkid field, it's likely the
-                    # original post, so the linkid would just be the postid
+                    # Original posts don't have link IDs, so we just use
+                    # the post ID as the link ID
                     linkid = postid
                 if subreddit in subreddit_to_topic:
                     counts[subreddit] += 1
