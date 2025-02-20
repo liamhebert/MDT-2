@@ -6,7 +6,7 @@ import re
 
 # The pattern for the months of archives to look for.
 ARCHIVE_MONTHS = "2017-1*"
-DATA_PATH = "data_test/raw"
+DATA_PATH = "/mnt/DATA/reddit_share/data_test/raw"
 
 
 def main():
@@ -199,8 +199,10 @@ def main():
     path = "/mnt/DATA/reddit_share/"
     counts = {key: 0 for key in subreddit_to_topic.keys()}
     subreddit_regex = re.compile('"subreddit":"([^"]+)"')
+    subreddit_null_regex = re.compile('"subreddit_id":null')
     postid_regex = re.compile('"id":"([^"]+)"')
     linkid_regex = re.compile('"link_id":"([^"]+)"')
+    crosspost_regex = re.compile('"crosspost_parent":".._([^"]+)"')
     for file in tqdm(
         list(
             glob(path + f"RC_{ARCHIVE_MONTHS}.zst")
@@ -222,14 +224,30 @@ def main():
             ):
                 # find the first subreddit mentioned
                 subreddit = subreddit_regex.search(line)
-                postid = postid_regex.search(line)
+                postids = postid_regex.findall(line)
+                crosspost_ids = crosspost_regex.findall(line)
+                # Filter out crosspost ids from a list of possible ids
+                for crosspost_id in crosspost_ids:
+                    if crosspost_id in postids:
+                        postids.remove(crosspost_id)
+                # Assume post IDs have length less than 8. If not, it's not
+                # postid and we can remove it
+                for i in reversed(range(len(postids))):
+                    if len(postids[i]) > 8:
+                        postids.pop(i)
 
-                if subreddit is None or postid is None:
-                    print("Subreddit or postid doesn't exist")
-                    print(line)
+                if subreddit is None:
+                    # If subreddit_id is null, assume it's an ad
+                    if subreddit_null_regex.search(line) is None:
+                        print("Subreddit doesn't exist")
+                        print(line)
                     continue
                 subreddit = subreddit.group(1)
-                postid = postid.group(1)
+                if len(postids) != 1:
+                    print(f"Incorrect IDs: {postids}")
+                    print(line)
+                    continue
+                postid = postids[0]
                 if "RC" in file:
                     # Comments have link IDs as a field. Use that.
                     linkid = linkid_regex.search(line)
