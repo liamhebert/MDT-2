@@ -1,10 +1,12 @@
+"""Script to combine lists of comments and posts into a tree structure."""
+
 import json
 from tqdm import tqdm
-from glob import glob
 from joblib import Parallel, delayed
 import os
 import gc
 import shutil
+from combine_utils import combine_nodes_to_tree
 
 ROOT_PATH = "/mnt/DATA/reddit_share"
 DATA_PATH_RAW = ROOT_PATH + "/data_test/raw"
@@ -22,11 +24,8 @@ def main():
         tree: [<>]
     }
     """
-    files_we_have = list(glob(f"{DATA_PATH_PROCESSED}/*/*.json"))
-    files_we_have = []
-    skip = {}
 
-    def process_file(subreddit, num):
+    def process_file(subreddit):
         # this includes the topic prefix
         # if f'{DATA_PATH_PROCESSED}/{file[9:-7]}.json' in files_we_have:
         #     return 0
@@ -46,7 +45,6 @@ def main():
                     shutil.rmtree(invalid_dir, ignore_errors=True)
                 continue
 
-            counts = 0
             with open(sub, "r") as f:
                 raw_file = f.read().strip()
                 if len(raw_file.split("\n")) >= 2:
@@ -57,40 +55,14 @@ def main():
                     continue
                 link_id = data["id"]
 
-                graph = {
-                    link_id: {
+                graph = [
+                    {
                         "data": data,
                         "tree": [],
                         "id": link_id,
                         "depth": 0,
                     }
-                }
-                counts = 1
-
-            missing = []
-
-            def add_to_graph(node, parent_id):
-                nonlocal counts
-                if parent_id in skip:
-                    skip[node["id"]] = True
-                    return True
-                elif parent_id in graph:
-                    parent_depth = graph[parent_id]["depth"]
-                    if (
-                        parent_depth + 1 > 4
-                    ):  # NOTE: We also enforce a depth limit here
-                        skip[node["id"]] = True
-                    else:
-                        graph[node["id"]] = {
-                            "data": node,
-                            "tree": [],
-                            "id": node["id"],
-                            "depth": parent_depth + 1,
-                        }
-                        graph[parent_id]["tree"] += [graph[node["id"]]]
-                        counts += 1
-                    return True
-                return False
+                ]
 
             if os.path.exists(comment):
                 with open(comment, "r") as comment_f:
@@ -98,17 +70,11 @@ def main():
                         if line == "\n":
                             continue
                         node = json.loads(line)
-                        parent_id = node["parent_id"][3:]
-                        node["parent_id"] = node["parent_id"][3:]
+                        graph.append(node)
 
-                        if not add_to_graph(node, parent_id):
-                            missing += [(parent_id, node)]
-
-            for parent_id, data in missing:
-                add_to_graph(data, parent_id)
-
-            graph = {link_id: graph[link_id]}
-
+            processed_graph = combine_nodes_to_tree(graph)
+            if not processed_graph:
+                print("Invalid processed graph")
             gc.collect()
             # mem_count = 0
             # os.makedirs(
@@ -118,34 +84,21 @@ def main():
             with open(
                 f"{DATA_PATH_PROCESSED}/{CATEGORY}/{subreddit}.json", "a+"
             ) as write:
-                write.write(json.dumps(graph[link_id]) + "\n")
-                # count_size = count_size_of_tree(data[key])
-                # if counts != count_size:
-                #     print(counts, count_size)
-                # mem_count += 1
-                # if mem_count > 10000:
-                #     gc.collect()
-                #     mem_count = 0
+                write.write(json.dumps(processed_graph) + "\n")
 
     # NOTE: Right now this is set to just read from the files in Test-LocalCity
     # but it should be all the files you want to read from. It can handle
     # multiple subreddits at once. (data/raw/*/*-RC.txt, for example)
 
-    res = Parallel(n_jobs=-1)(
-        delayed(process_file)(file, i)
-        for i, file in tqdm(
-            enumerate(os.listdir(f"{DATA_PATH_RAW}/{CATEGORY}"))
-        )
+    dirs_to_process = os.listdir(f"{DATA_PATH_RAW}/{CATEGORY}")
+    Parallel(n_jobs=-1)(
+        delayed(process_file)(file)
+        for file in tqdm(dirs_to_process, total=len(dirs_to_process))
     )
-    # with open('complete-graphs.json', 'w') as file:
-    #     for graph_file in glob('complete-graphs-*.json'):
-    #         with open(graph_file, 'r') as read:
-    #             for line in read:
-    #                 file.write(line)
-    # print('labels: ', sum(res))
 
 
-def count_size_of_tree(x):
+def count_size_of_tree(x: dict) -> int:
+    """Returns the size of the tree."""
     return sum([count_size_of_tree(y) for y in x["tree"]]) + 1
 
 

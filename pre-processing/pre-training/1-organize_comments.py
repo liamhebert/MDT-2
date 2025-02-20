@@ -1,3 +1,8 @@
+"""
+Processes .zst archives of Reddit comments and sorts them into
+topic-specific files.
+"""
+
 import json
 from tqdm import tqdm
 from glob import glob
@@ -10,6 +15,7 @@ DATA_PATH = "/mnt/DATA/reddit_share/data_test/raw"
 
 
 def main():
+    """Entry point to process the files."""
     # groups = {
     #     "Partisan A": {
     #         "a": [
