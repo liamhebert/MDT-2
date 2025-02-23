@@ -14,11 +14,11 @@ def test_single_root_node():
 
 
 def test_simple_parent_child():
-    data = [{"id": "1", "parent_id": None}, {"id": "2", "parent_id": "1"}]
+    data = [{"id": "1", "parent_id": None}, {"id": "2", "parent_id": "t1_1"}]
     expected = {
         "id": "1",
         "tree": [
-            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "1"}}
+            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "t1_1"}}
         ],
         "data": {"id": "1", "parent_id": None},
     }
@@ -28,14 +28,14 @@ def test_simple_parent_child():
 def test_multiple_children():
     data = [
         {"id": "1", "parent_id": None},
-        {"id": "2", "parent_id": "1"},
-        {"id": "3", "parent_id": "1"},
+        {"id": "2", "parent_id": "t1_1"},
+        {"id": "3", "parent_id": "t1_1"},
     ]
     expected = {
         "id": "1",
         "tree": [
-            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "1"}},
-            {"id": "3", "tree": [], "data": {"id": "3", "parent_id": "1"}},
+            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "t1_1"}},
+            {"id": "3", "tree": [], "data": {"id": "3", "parent_id": "t1_1"}},
         ],
         "data": {"id": "1", "parent_id": None},
     }
@@ -45,13 +45,13 @@ def test_multiple_children():
 def test_max_depth_limit():
     data = [
         {"id": "1", "parent_id": None},
-        {"id": "2", "parent_id": "1"},
-        {"id": "3", "parent_id": "2"},
+        {"id": "2", "parent_id": "t1_1"},
+        {"id": "3", "parent_id": "t1_2"},
     ]
     expected = {
         "id": "1",
         "tree": [
-            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "1"}}
+            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "t1_1"}}
         ],
         "data": {"id": "1", "parent_id": None},
     }
@@ -59,7 +59,7 @@ def test_max_depth_limit():
 
 
 def test_no_root_node():
-    data = [{"id": "2", "parent_id": "1"}]  # No root node
+    data = [{"id": "2", "parent_id": "t1_1"}]  # No root node
     assert combine_nodes_to_tree(data) is None
 
 
@@ -72,11 +72,11 @@ def test_node_with_missing_id():
 def test_complex_tree():
     data = [
         {"id": "1", "parent_id": None},
-        {"id": "2", "parent_id": "1"},
-        {"id": "3", "parent_id": "1"},
-        {"id": "4", "parent_id": "2"},
-        {"id": "5", "parent_id": "3"},
-        {"id": "6", "parent_id": "4"},
+        {"id": "2", "parent_id": "t1_1"},
+        {"id": "3", "parent_id": "t1_1"},
+        {"id": "4", "parent_id": "t1_2"},
+        {"id": "5", "parent_id": "t1_3"},
+        {"id": "6", "parent_id": "t1_4"},
     ]
     expected = {
         "id": "1",
@@ -90,13 +90,13 @@ def test_complex_tree():
                             {
                                 "id": "6",
                                 "tree": [],
-                                "data": {"id": "6", "parent_id": "4"},
+                                "data": {"id": "6", "parent_id": "t1_4"},
                             }
                         ],
-                        "data": {"id": "4", "parent_id": "2"},
+                        "data": {"id": "4", "parent_id": "t1_2"},
                     }
                 ],
-                "data": {"id": "2", "parent_id": "1"},
+                "data": {"id": "2", "parent_id": "t1_1"},
             },
             {
                 "id": "3",
@@ -104,10 +104,10 @@ def test_complex_tree():
                     {
                         "id": "5",
                         "tree": [],
-                        "data": {"id": "5", "parent_id": "3"},
+                        "data": {"id": "5", "parent_id": "t1_3"},
                     }
                 ],
-                "data": {"id": "3", "parent_id": "1"},
+                "data": {"id": "3", "parent_id": "t1_1"},
             },
         ],
         "data": {"id": "1", "parent_id": None},
@@ -126,5 +126,5 @@ def test_data_field_preserved():
 
 
 def test_max_depth_zero():
-    data = [{"id": "1", "parent_id": None}, {"id": "2", "parent_id": "1"}]
+    data = [{"id": "1", "parent_id": None}, {"id": "2", "parent_id": "t1_1"}]
     assert combine_nodes_to_tree(data, max_depth=0) is None
