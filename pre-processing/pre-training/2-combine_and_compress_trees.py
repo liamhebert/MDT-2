@@ -55,14 +55,7 @@ def main():
                     continue
                 link_id = data["id"]
 
-                graph = [
-                    {
-                        "data": data,
-                        "tree": [],
-                        "id": link_id,
-                        "depth": 0,
-                    }
-                ]
+                graph = [data]
 
             if os.path.exists(comment):
                 with open(comment, "r") as comment_f:
