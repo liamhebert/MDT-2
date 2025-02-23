@@ -146,7 +146,7 @@ class GraphTransformerBlock(nn.Module):
             n_kv_heads % 2 == 0
         ), f"Number of heads must be divisible by 2. {self.n_kv_heads=}"
         assert (self.head_dim & (self.head_dim - 1)) == 0, (
-            f"Head dim must be a power of 2. "
+            "Head dim must be a power of 2. "
             f"{self.head_dim=}, {self.n_heads=}, {dim=}"
         )
 
@@ -277,9 +277,8 @@ class BaseGraphTransformer(nn.Module):
             factor = {
                 InitStdFactor.CURRENT_DEPTH: (2 * (depth + 1)) ** 0.5,
                 InitStdFactor.GLOBAL_DEPTH: (
-                    2 * (len(self.layers) + 1 + self.starting_depth)
-                )
-                ** 0.5,
+                    (2 * (len(self.layers) + 1 + self.starting_depth)) ** 0.5
+                ),
                 InitStdFactor.DIM_RATIO: self.dim / 4096,
                 InitStdFactor.DISABLED: 1.0,
             }[self.init_std_factor]

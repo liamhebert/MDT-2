@@ -8,7 +8,8 @@ import torch
 from torchmetrics import Metric
 from torchmetrics import SumMetric
 from torchmetrics import MetricCollection
-from typing import Callable, Mapping
+from typing import Mapping
+from torch.distributed.nn import functional as distF
 
 
 class LastValueMetric(SumMetric):
@@ -31,15 +32,14 @@ class Loss(abc.ABC, torch.nn.Module):
     Abstract class for loss functions.
     """
 
-    def _dummy_all_gather(
-        self, data: tuple[torch.Tensor] | torch.Tensor, sync_grads: bool = False
-    ) -> tuple[torch.Tensor] | torch.Tensor:
-        """Dummy all-gather function that does nothing. Useful for testing."""
-        return data
+    is_distributed: bool = torch.distributed.is_initialized()
 
-    all_gather_fn: Callable[..., tuple[torch.Tensor, ...] | torch.Tensor] = (
-        _dummy_all_gather
-    )
+    def all_gather(self, x: torch.Tensor) -> torch.Tensor:
+        """Dummy all-gather function that does nothing. Useful for testing."""
+        if self.is_distributed:
+            gathered = distF.all_gather(x)
+            return torch.stack(gathered, dim=0)
+        return x
 
     @abc.abstractmethod
     def build_batch_metric_aggregators(
@@ -106,7 +106,7 @@ class Loss(abc.ABC, torch.nn.Module):
         ...
 
     @abc.abstractmethod
-    def __call__(
+    def forward(
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,

@@ -3,9 +3,9 @@
 # specify here default configuration
 # order of defaults determines the order in which configs override each other
 defaults:
-  - modality_encoder: siglip
-  - dataset: pretrain
+  - modality_encoder: siglip-UAE
   - model: default
+  - dataset: pretrain
   - callbacks: default
   - logger: null # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: default

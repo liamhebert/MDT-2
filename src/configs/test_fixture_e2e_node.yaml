@@ -5,10 +5,6 @@ defaults:
   - override model: debug
   - _self_
 
-trainer:
-  fast_dev_run: True
-  detect_anomaly: true
-
 model:
   encoder:
     text_model_config:

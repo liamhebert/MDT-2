@@ -53,7 +53,7 @@ class NodeCrossEntropyLoss(Loss):
         """
 
         def make_metric_group(
-            average: Literal["micro", "macro", "weighted", "none"]
+            average: Literal["micro", "macro", "weighted", "none"],
         ) -> MetricCollection:
             return MetricCollection(
                 (
@@ -225,7 +225,7 @@ class NodeCrossEntropyLoss(Loss):
 
         return epoch_vals
 
-    def __call__(
+    def forward(
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,

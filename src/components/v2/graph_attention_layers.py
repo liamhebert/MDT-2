@@ -191,14 +191,16 @@ class Attention(nn.Module):
             assert isinstance(mask, BlockMask)
 
             if xq.is_cuda:
+                divide = 2
                 kernel_options = {
-                    "BLOCK_M": int(64 / 2),
-                    "BLOCK_N": int(64 / 2),
-                    "BLOCK_M1": int(32 / 2),
-                    "BLOCK_N1": int(64 / 2),
-                    "BLOCK_M2": int(64 / 2),
-                    "BLOCK_N2": int(32 / 2),
+                    "BLOCK_M": int(64 / divide),
+                    "BLOCK_N": int(64 / divide),
+                    "BLOCK_M1": int(32 / divide),
+                    "BLOCK_N1": int(64 / divide),
+                    "BLOCK_M2": int(64 / divide),
+                    "BLOCK_N2": int(32 / divide),
                 }
+                # kernel_options = None
             else:
                 kernel_options = None
 
@@ -311,14 +313,16 @@ class DifferentialAttention(nn.Module):
         """Utility to compute attention."""
 
         if q.is_cuda:
+            divide = 2
             kernel_options = {
-                "BLOCK_M": int(64 / 2),
-                "BLOCK_N": int(64 / 2),
-                "BLOCK_M1": int(32 / 2),
-                "BLOCK_N1": int(64 / 2),
-                "BLOCK_M2": int(64 / 2),
-                "BLOCK_N2": int(32 / 2),
+                "BLOCK_M": int(64 / divide),
+                "BLOCK_N": int(64 / divide),
+                "BLOCK_M1": int(32 / divide),
+                "BLOCK_N1": int(64 / divide),
+                "BLOCK_M2": int(64 / divide),
+                "BLOCK_N2": int(32 / divide),
             }
+            # kernel_options = None
         else:
             kernel_options = None
 

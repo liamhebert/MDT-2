@@ -2,7 +2,6 @@ from enum import auto
 from enum import IntEnum
 
 import torch
-from torch_geometric.data import Data
 from transformers import BatchEncoding
 
 from data import collator_utils as cut
@@ -181,10 +180,10 @@ class DummyValues(IntEnum):
 
 def create_sample_input(
     num_nodes: int, text_length: int, num_images: int, image_length: int
-) -> Data:
+) -> dict:
     """Utility function to create a sample input for testing the collator."""
 
-    data = Data(
+    data = dict(
         attn_bias=torch.full(
             (num_nodes, num_nodes), DummyValues.ATTN_BIAS * num_nodes
         ),
@@ -213,7 +212,7 @@ def create_sample_input(
                 ),
             }
         ),
-        image=BatchEncoding(
+        images=BatchEncoding(
             {
                 ImageFeatures.PixelValues: torch.full(
                     (num_images, 3, image_length, image_length),
@@ -425,7 +424,7 @@ def test_collator_v2(with_token_type_ids: bool):
 
     if not with_token_type_ids:
         for item in items:
-            item.text.pop(TextFeatures.TokenTypeIds)
+            item["text"].pop(TextFeatures.TokenTypeIds)
 
     graph_features, text_features, image_features = (
         cut.extract_and_merge_features(items)

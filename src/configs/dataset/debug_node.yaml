@@ -1,6 +1,11 @@
 defaults:
   - default
 
+train_batch_size: 2
+test_batch_size: 2
+num_workers: 2
+max_total_length: 32
+
 dataset:
   _target_: "tasks.test_dataset.DummyNodeTaskDataset"
   root: "tasks/sample_test_data"

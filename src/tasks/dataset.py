@@ -21,6 +21,7 @@ from joblib import Parallel, delayed
 from data.types import Labels, TextFeatures
 import tasks.dataset_utils as dut
 from utils.pylogger import RankedLogger
+from typing import Iterable
 
 log = RankedLogger(__name__)
 
@@ -49,6 +50,7 @@ class TaskDataset(Dataset, ABC):
     spatial_pos_max: int = 100
 
     _graph_cache: dict[int, Data] | None = None
+    graph_sizes: dict[int, int] | None = None
 
     _splits: dict[str, list[int]] | None
 
@@ -208,8 +210,8 @@ class TaskDataset(Dataset, ABC):
                         current_dataset_splits[key] = loaded_splits[key]
                     if "valid_idx" not in loaded_splits:
                         log.warning(
-                            f"Dataset {dataset_name}: No validation split found,"
-                            "using test set for validation"
+                            f"Dataset {dataset_name}: No validation split"
+                            " found,using test set for validation"
                         )
                         current_dataset_splits["valid_idx"] = loaded_splits[
                             "test_idx"
@@ -229,8 +231,9 @@ class TaskDataset(Dataset, ABC):
                     # If we have valid paths, we should have a list of corrected
                     # paths.
                     assert (not val) or corrected_paths, (
-                        f"No paths after correction found for {key=},"
-                        f"{corrected_paths=}, {val=}, {current_dataset_mapping=}"
+                        "No paths after correction found for"
+                        f" {key=},{corrected_paths=}, {val=},"
+                        f" {current_dataset_mapping=}"
                     )
                     current_dataset_splits[key] = corrected_paths
             else:
@@ -239,12 +242,10 @@ class TaskDataset(Dataset, ABC):
                 if self.debug:
                     log.warning("Forcing auto split for debug mode")
                 log.info(
-                    (
-                        f"Dataset {dataset_name}: No split path provided,"
-                        "generating splits using train_test_split of"
-                        f"{self.train_size=}, {self.valid_size=}, "
-                        f"{self.test_size=}"
-                    )
+                    f"Dataset {dataset_name}: No split path provided,"
+                    "generating splits using train_test_split of"
+                    f"{self.train_size=}, {self.valid_size=}, "
+                    f"{self.test_size=}"
                 )
 
                 all_indices_for_dataset = []
@@ -355,8 +356,8 @@ class TaskDataset(Dataset, ABC):
                 path += "*.json"
             else:
                 raise ValueError(
-                    f"Raw path globs should end with *.json or not contain .json."
-                    f"Got {path=}"
+                    "Raw path globs should end with *.json or not contain"
+                    f" .json.Got {path=}"
                 )
 
             # This will include -data.json and -split.json
@@ -393,6 +394,7 @@ class TaskDataset(Dataset, ABC):
             self._text_tokenizer = AutoTokenizer.from_pretrained(
                 self.text_config["text_model_name"],
                 clean_up_tokenization_spaces=True,
+                use_fast=True,
             )
 
         return self._text_tokenizer
@@ -402,7 +404,8 @@ class TaskDataset(Dataset, ABC):
         """Returns the lazily initialized image tokenizer for the dataset."""
         if self._image_tokenizer is None:
             self._image_tokenizer = AutoImageProcessor.from_pretrained(
-                self.image_tokenizer_key
+                self.image_tokenizer_key,
+                use_fast=True,
             )
 
         return self._image_tokenizer
@@ -459,7 +462,7 @@ class TaskDataset(Dataset, ABC):
         """
 
         assert self.has_node_labels or self.has_graph_labels, (
-            f"Either has_node_labels or has_graph_labels must be True - "
+            "Either has_node_labels or has_graph_labels must be True - "
             f"{self.has_node_labels=} {self.has_graph_labels=}"
         )
         assert not (
@@ -468,7 +471,7 @@ class TaskDataset(Dataset, ABC):
 
         if self.force_reload:
             log.warning("Force reloading data, deleting all processed data")
-            os.system(f"rm -rf {self.output_graph_path}/processed")
+            os.system(f"rm -rf {self.output_graph_path}/*")
 
         processed_folders = (
             list(glob(f"{self.output_graph_path}/processed/*"))
@@ -518,16 +521,16 @@ class TaskDataset(Dataset, ABC):
                             "Trying to split graphs with graph labels,"
                             "this is pointless you silly goose!"
                         )
-                        mask = data.y[Labels.Ys] != -100
+                        mask = data["y"][Labels.Ys] != -100
 
                         for i in mask.nonzero(as_tuple=True)[0]:
                             new_data = copy.deepcopy(data)
                             # We negate all other labels
-                            ys = new_data.y[Labels.Ys]
+                            ys = new_data["y"][Labels.Ys]
                             y_mask = torch.ones_like(ys).bool()
                             # But keep the one we want
                             y_mask[i] = False
-                            new_data.y[Labels.Ys][y_mask] = -100
+                            new_data["y"][Labels.Ys][y_mask] = -100
 
                             torch.save(
                                 new_data,
@@ -541,7 +544,7 @@ class TaskDataset(Dataset, ABC):
                             f"graph-{idx}.pt",
                         )
 
-        Parallel(n_jobs=8)(
+        Parallel(n_jobs=6)(
             delayed(process_file)(file)
             for file in tqdm(self.raw_paths, desc="Files")
         )
@@ -628,7 +631,7 @@ class TaskDataset(Dataset, ABC):
                     text = f"Comment: {node['data']['body']}"
                 result["text"].append(dut.clean_text(text))
             else:
-                print("Duplicate id found, skipping ", node["id"])
+                log.info("Duplicate id found, skipping ", node["id"])
 
             for child in node["tree"]:
                 traverse(child, node["id"])
@@ -644,7 +647,9 @@ class TaskDataset(Dataset, ABC):
             result["y"].append(label)
         return result
 
-    def process_graph(self, json_data: dict[str, Any]) -> Data:
+    def process_graph(
+        self, json_data: dict[str, Any]
+    ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         """Processes a single raw json graph into a processed torch_geometric
         Data object.
 
@@ -705,7 +710,7 @@ class TaskDataset(Dataset, ABC):
                 has no valid labels. Otherwise, we log a warning and suppress.
 
         Returns:
-            Data: The processed torch_geometric Data object, ready to be used
+            Data: The processed dict of all fields, ready to be used
                 by the model.
         """
         dut.compute_relative_distance(json_data)
@@ -716,8 +721,8 @@ class TaskDataset(Dataset, ABC):
                 raise ValueError("No valid labels in graph with {link_id=}")
             else:
                 log.warning(
-                    f"No valid labels in graph with {link_id=}, suppressing due "
-                    f"to {self.strict=}. Note that if {self.split_graphs=} is"
+                    f"No valid labels in graph with {link_id=}, suppressing due"
+                    f" to {self.strict=}. Note that if {self.split_graphs=} is"
                     " True, then the graph will be dropped."
                 )
 
@@ -759,7 +764,7 @@ class TaskDataset(Dataset, ABC):
             isinstance(x, str) or x is None for x in flattened_graph["images"]
         )
         image_mask = torch.tensor(
-            [x is not None for x in flattened_graph["images"]]
+            [x is not None for x in flattened_graph["images"]], dtype=torch.bool
         )
         images = [
             Image.open(self.root + "/" + x).convert(mode="RGB")  # type: ignore
@@ -822,7 +827,19 @@ class TaskDataset(Dataset, ABC):
             + distance_clamped[..., 1]
         )
 
-        data = Data(
+        degree_out = pyg_utils.degree(
+            edges[0][1:], num_nodes=num_nodes, dtype=torch.long
+        )
+        degree_in = pyg_utils.degree(
+            edges[1][1:], num_nodes=num_nodes, dtype=torch.long
+        )
+
+        # We do [1:] to remove the self-loop from the root node because it is it's
+        # own parent.
+
+        degree = degree_out + degree_in
+
+        data = dict(
             text=tokenized_text,
             edge_index=edges,
             y=y,
@@ -832,36 +849,59 @@ class TaskDataset(Dataset, ABC):
             distance_index=distance_index,
             rotary_position=rotary_pos,
             attn_bias=attn_bias,
-        )
-
-        # We do [1:] to remove the self-loop from the root node because it is it's
-        # own parent.
-        degree_out = pyg_utils.degree(
-            data.edge_index[0][1:], num_nodes=num_nodes, dtype=torch.long
-        )
-        degree_in = pyg_utils.degree(
-            data.edge_index[1][1:], num_nodes=num_nodes, dtype=torch.long
+            in_degree=degree,
+            out_degree=degree,
         )
 
         # We currently treat the graph as bidirectional
-        degree = degree_out + degree_in
-        data.in_degree = degree
-        data.out_degree = degree
 
         return data
 
-    def populate_cache(self, force_all: bool = False):
+    def populate_cache(
+        self,
+        force_all: bool = False,
+        counts_only: bool = False,
+        indices: Iterable[int] | None = None,
+    ):
         """Populates the graph cache with all processed graphs."""
-        if force_all:
-            indices = range(len(self))
-        else:
-            indices = set(self.train_idx + self.valid_idx + self.test_idx)
+        if indices is None:
+            if force_all:
+                indices = range(len(self))
+            else:
+                indices = set(self.train_idx + self.valid_idx + self.test_idx)
+
         self._graph_cache = {}
-        for idx in tqdm(indices, desc="Populating cache"):
-            data = torch.load(
-                self.processed_file_names[idx], weights_only=False
+
+        has_counts = os.path.exists(f"{self.output_graph_path}/counts.json")
+        self.graph_sizes = {}
+        if has_counts:
+            log.info("Loading graph sizes from disk cache")
+            self.graph_sizes = json.load(
+                open(f"{self.output_graph_path}/counts.json")
             )
-            self._graph_cache[idx] = data
+            assert self.graph_sizes is not None
+            self.graph_sizes = {int(k): v for k, v in self.graph_sizes.items()}
+
+        if has_counts and counts_only:
+            log.info(
+                "Counts only mode and loaded counts, skipping loading graph"
+                " data"
+            )
+        else:
+            for idx in tqdm(indices, desc="Populating cache"):
+                data = torch.load(
+                    self.processed_file_names[idx], weights_only=False
+                )
+                if not has_counts:
+                    self.graph_sizes[int(idx)] = len(data["in_degree"])
+                if not counts_only:
+                    self._graph_cache[idx] = data
+
+        if not has_counts:
+            log.info("Saving graph sizes to disk cache")
+
+            with open(f"{self.output_graph_path}/counts.json", "w") as f:
+                json.dump(self.graph_sizes, f)
 
     def __getitem__(self, idx: int) -> Data:
         """Loads the processed graph from disk at the given index.

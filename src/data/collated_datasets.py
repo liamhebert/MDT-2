@@ -18,8 +18,15 @@ class CollatedDataset(TaskDataset):
     sizes into a single batch.
     """
 
-    def __init__(self, *args, use_flattened_collator: bool = True, **kwargs):
+    def __init__(
+        self,
+        *args,
+        block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
+        use_flattened_collator: bool = True,
+        **kwargs,
+    ):
         self.use_flattened_collator = use_flattened_collator
+        self.block_size = block_size
         super().__init__(*args, **kwargs)
 
     @abstractmethod
@@ -30,7 +37,7 @@ class CollatedDataset(TaskDataset):
         max_nodes: int | None = None,
     ) -> dict[str, torch.Tensor]: ...
 
-    def collate_fn(self, batch: list[Data]) -> Data:
+    def collate_fn(self, batch: list[dict]) -> dict:
         """Collate function to merge data samples of various sizes into a batch.
 
         Individual data samples must contain the following attributes:
@@ -108,7 +115,7 @@ class CollatedDataset(TaskDataset):
                 graph_features,
                 text_features,
                 image_features,
-                _DEFAULT_SPARSE_BLOCK_SIZE,
+                self.block_size,
             )
             batch_size = collated_output["graph_ids"].max() + 1
             num_nodes = collated_output["in_degree"].shape[0]
@@ -150,7 +157,7 @@ class ContrastiveTaskDataset(CollatedDataset):
         # TODO(liamhebert): Update docstring
 
         out = {
-            key: torch.cat([item.y[key] for item in batch]).flatten()
+            key: torch.cat([item["y"][key] for item in batch]).flatten()
             for key in [
                 ContrastiveLabels.Ys,
                 ContrastiveLabels.HardYs,
@@ -187,7 +194,7 @@ class NodeBatchedDataDataset(CollatedDataset):
 
         if self.use_flattened_collator:
             out = {
-                Labels.Ys: torch.cat([item.y[Labels.Ys] for item in batch]),
+                Labels.Ys: torch.cat([item["y"][Labels.Ys] for item in batch]),
             }
             if max_nodes is not None:
                 have_nodes = out[Labels.Ys].shape[0]
@@ -208,7 +215,7 @@ class NodeBatchedDataDataset(CollatedDataset):
                 Labels.Ys: torch.cat(
                     [
                         collator_utils.pad_1d_unsqueeze(
-                            item.y[Labels.Ys], max_nodes, -100, False
+                            item["y"][Labels.Ys], max_nodes, -100, False
                         )
                         for item in batch
                     ]

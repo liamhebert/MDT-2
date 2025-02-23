@@ -1,7 +1,11 @@
 _target_: datamodule.DataModule
-train_batch_size: 48
-test_batch_size: 32
-num_workers: 8
+
+train_batch_size: 84
+use_length_grouped_sampler: True
+max_total_length: 800 # Note this is per gpu, so 42 / 2 = 21 graphs, same length
+
+test_batch_size: 84
+num_workers: 12
 pin_memory: True
 cache_dataset: True
 
@@ -10,6 +14,7 @@ dataset:
   root: ???
   raw_graph_path: ???
   output_graph_path: ${paths.data_dir}/processed_files
+  block_size: ${model.encoder.block_size}
 
   train_size: 0.8
   valid_size: 0.1

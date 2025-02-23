@@ -90,13 +90,6 @@ def generate_attn_mask_mod(
     P 0 0 0 0 0 0 0
 
     """
-    # Get unique document IDs and their counts
-    _, counts = torch.unique_consecutive(document_ids, return_counts=True)
-
-    # Create cumulative counts (offsets)
-    offsets = torch.cat(
-        [torch.tensor([0], device=document_ids.device), counts.cumsum(0)[:-1]]
-    )
 
     def doc_mask_wrapper(
         batch_size: Tensor, num_heads: Tensor, q_idx: Tensor, kv_idx: Tensor
@@ -126,15 +119,13 @@ def generate_attn_mask_mod(
         same_doc = doc_q == doc_kv
         valid_doc = (doc_q != PADDING_GRAPH_ID) & (doc_kv != PADDING_GRAPH_ID)
 
-        q_logical = q_idx - offsets[doc_q]
-        kv_logical = kv_idx - offsets[doc_kv]
         distance = (
             spatial_distance_matrix[q_idx, kv_idx]
             if spatial_distance_matrix is not None
             else None
         )
         inner_mask = inner_mask_mod(
-            batch_size, num_heads, q_logical, kv_logical, distance
+            batch_size, num_heads, q_idx, kv_idx, distance
         )
 
         return same_doc & inner_mask & valid_doc

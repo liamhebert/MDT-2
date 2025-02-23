@@ -15,31 +15,33 @@ from datamodule import DataModule
 class DummyNodeTaskDataset(NodeBatchedDataDataset):
     """Dummy task dataset to simulate a node dataset."""
 
+    @property
     def has_node_labels(self) -> bool:
         """Indicating the dataset has node labels."""
         return True
 
-    def retrieve_label(self, tree: dict) -> dict[str, bool | int]:
+    def retrieve_label(self, data: dict) -> dict[str, bool | int]:
         """Return node labels, which is a boolean label and mask."""
-        if tree["label"] == "NA":
+        if data["label"] == "NA":
             return {Labels.Ys: -100}
-        return {Labels.Ys: tree["label"] != "NA"}
+        return {Labels.Ys: data["label"] != "NA"}
 
 
 class DummyGraphTaskDataset(ContrastiveTaskDataset):
     """Dummy task dataset to simulate a contrastive dataset."""
 
+    @property
     def has_graph_labels(self) -> bool:
         """Indicating the dataset has graph labels."""
         return True
 
-    def retrieve_label(self, tree: dict) -> dict[str, bool | int]:
+    def retrieve_label(self, data: dict) -> dict[str, bool | int]:
         """Return constrastive graph labels, which is a boolean y, mask,
         hard y.
         """
         return {
-            ContrastiveLabels.Ys: tree["label"] != "NA",
-            ContrastiveLabels.HardYs: tree["label"] != "NA",
+            ContrastiveLabels.Ys: data["label"] != "NA",
+            ContrastiveLabels.HardYs: data["label"] != "NA",
         }
 
 
@@ -86,7 +88,7 @@ def test_process_split(split_dataset: DummyNodeTaskDataset):
     data = []
     for x in split_dataset:
         data += [x]
-        assert torch.sum(x.y[Labels.Ys] != -100) == 1
+        assert torch.sum(x["y"][Labels.Ys] != -100) == 1
 
     assert len(split_dataset) == 15
     assert len(data) == 15
@@ -102,7 +104,11 @@ def test_node_process(dataset: DummyNodeTaskDataset):
 
     assert len(dataset) == 10
     assert len(data) == 10
-    dataset.collate_fn(data)
+    res = dataset.collate_fn(data)
+
+    assert len(res["x"]["image_inputs"]["pixel_values"]) == 6, res["x"][
+        "image_inputs"
+    ]
 
 
 def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
@@ -118,6 +124,9 @@ def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
 
     assert res["y"][ContrastiveLabels.Ys].shape == (10,)
     assert res["y"][ContrastiveLabels.HardYs].shape == (10,)
+    assert len(res["x"]["image_inputs"]["pixel_values"]) == 6, res["x"][
+        "image_inputs"
+    ]
 
 
 def test_cached_dataset(dataset: DummyNodeTaskDataset):
@@ -217,21 +226,21 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
 
     data = dataset.process_graph(json_data)
 
-    assert data.text is not None
-    assert data.edge_index.tolist() == [[0, 1, 2], [0, 0, 0]]
-    assert data.y[Labels.Ys].tolist() == [True, True, -100]
-    assert data.image_mask.tolist() == [False, False, False]
-    assert data.distance.tolist() == [
+    assert data["text"] is not None
+    assert data["edge_index"].tolist() == [[0, 1, 2], [0, 0, 0]]
+    assert data["y"][Labels.Ys].tolist() == [True, True, -100]
+    assert data["image_mask"].tolist() == [False, False, False]
+    assert data["distance"].tolist() == [
         [[0, 0], [0, 1], [0, 1]],
         [[1, 0], [0, 0], [1, 1]],
         [[1, 0], [1, 1], [0, 0]],
     ]
-    torch.testing.assert_close(data.attn_bias, torch.zeros([3, 3]))
-    assert data.in_degree.tolist() == [2, 1, 1]
-    assert data.out_degree.tolist() == [2, 1, 1]
+    torch.testing.assert_close(data["attn_bias"], torch.zeros([3, 3]))
+    assert data["in_degree"].tolist() == [2, 1, 1]
+    assert data["out_degree"].tolist() == [2, 1, 1]
 
-    assert data.text["input_ids"].shape == (3, 512)
-    assert data.text["attention_mask"].shape == (3, 512)
+    assert data["text"]["input_ids"].shape == (3, 512)
+    assert data["text"]["attention_mask"].shape == (3, 512)
 
 
 def test_truncated_distance(dataset: DummyNodeTaskDataset):
@@ -268,7 +277,7 @@ def test_truncated_distance(dataset: DummyNodeTaskDataset):
 
     data = dataset.process_graph(json_data)
 
-    distance_indices = data.distance_index
+    distance_indices = data["distance_index"]
     # 0 -> 0 == 1 -> 1 == 2 -> 2
     assert (
         distance_indices[0][0]
@@ -307,6 +316,7 @@ def test_wrapped_datamodule(
         num_workers=1,
         pin_memory=False,
         cache_dataset=False,
+        use_length_grouped_sampler=False,
     )
 
     dm.prepare_data()
@@ -329,3 +339,34 @@ def test_wrapped_datamodule(
 
     assert all(x == 2 for x in sizes[:-1])
     assert sizes[-1] == 1
+
+
+@pytest.mark.parametrize("case", ["set_length", "multiplier"])
+def test_length_sampler_datamodule_smoketest(
+    case,
+    graph_dataset: DummyGraphTaskDataset,
+):
+    if case == "set_length":
+        max_total_length = 5
+        max_length_multipler = None
+    else:
+        max_total_length = None
+        max_length_multipler = 3
+
+    dm = DataModule(
+        dataset=graph_dataset,
+        train_batch_size=2,
+        test_batch_size=1,
+        num_workers=1,
+        pin_memory=False,
+        cache_dataset=True,
+        use_length_grouped_sampler=True,
+        max_total_length=max_total_length,
+        max_length_multiplier=max_length_multipler,
+    )
+
+    dm.prepare_data()
+    dm.setup("fit")
+    train_dl = dm.train_dataloader()
+    for x in train_dl:
+        ...

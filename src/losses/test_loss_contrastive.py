@@ -1,6 +1,10 @@
 """Tests for the the contrastive loss function."""
 
 from losses import ContrastiveLoss
+
+# from losses.new_loss_contrastive import (
+#     ContrastiveLossWithMetrics as ContrastiveLoss,
+# )
 import torch
 from data.types import ContrastiveLabels
 import torch.nn.functional as F
@@ -94,6 +98,92 @@ def test_learnable_temperature():
     assert updated_bias != initial_bias
 
 
+@pytest.mark.parametrize("weight", ["fixed", "adaptive", "none"])
+def test_soft_negative_weight(weight):
+    """Test to ensure the loss is calculated accurately without duplicates."""
+    loss = ContrastiveLoss(
+        temperature=1,
+        learnable_temperature=False,
+        num_classes=5,
+        bias=0.0,
+        adaptive_soft_negative_weight=(weight == "adaptive"),
+        soft_negative_weight=0.3 if weight == "fixed" else 0.0,
+    )
+    batch_metrics = loss.build_batch_metric_aggregators()
+    node_x = None
+    graph_x = torch.tensor(
+        [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5]]
+    )
+    y_true = {
+        ContrastiveLabels.Ys: torch.tensor([0, 1, 1.0, 3, 4, -100]),
+        ContrastiveLabels.HardYs: torch.tensor([1, 0, 0, 2, 5, -100]),
+    }
+
+    loss_value, returned_metrics = loss(node_x, graph_x, y_true, batch_metrics)
+
+    graph_x = F.normalize(graph_x[:-1], p=2, dim=1)
+    expect_sim = torch.matmul(graph_x, graph_x.T)
+
+    expect_ys = y_true[ContrastiveLabels.Ys][:-1]
+    expect_labels = expect_ys.unsqueeze(1).eq(expect_ys).float()
+    expect_labels = (expect_labels * 2) - 1
+
+    # Each row must sum to the number of labels, therefore, 1.5 each.
+    if weight == "adaptive":
+        # Weights are 1 / num_soft_negatives
+        weight_matrix = torch.tensor(
+            [
+                [0, 1.0, 1.0, 0.5, 0.5],  # 1 / 2 soft = 0.5
+                [1.0, 0, 1.0, 0.5, 0.5],
+                [1.0, 1.0, 0, 0.5, 0.5],
+                [0.25, 0.25, 0.25, 0.0, 0.25],  # 1 / 4 soft = 0.25
+                [0.25, 0.25, 0.25, 0.25, 0.0],
+            ]
+        )
+    elif weight == "fixed":
+        # All soft negatives have a weight of 0.3
+        weight_matrix = torch.tensor(
+            [
+                [0, 1.0, 1.0, 0.3, 0.3],
+                [1.0, 0, 1.0, 0.3, 0.3],
+                [1.0, 1.0, 0, 0.3, 0.3],
+                [0.3, 0.3, 0.3, 0.0, 0.3],
+                [0.3, 0.3, 0.3, 0.3, 0.0],
+            ]
+        )
+    else:
+        # No weight for soft negatives
+        weight_matrix = torch.tensor(
+            [
+                [0, 1.0, 1.0, 0, 0],
+                [1.0, 0, 1.0, 0, 0],
+                [1.0, 1.0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ]
+        )
+
+    normalized_weights = F.normalize(weight_matrix, p=1, dim=1)
+    if weight == "none":
+        num_labels = 2
+    else:
+        num_labels = 4
+
+    normalized_weights = normalized_weights * num_labels
+    expected_loss = torch.einsum(
+        "ij, ij -> i",
+        -F.logsigmoid(expect_sim * expect_labels),
+        normalized_weights,
+    )
+
+    if weight == "none":
+        expected_loss = expected_loss.sum() / num_labels
+    else:
+        expected_loss = expected_loss.mean()
+
+    test.assert_close(loss_value, expected_loss)
+
+
 def test_contrastive_loss_value():
     """Test to ensure the loss is calculated accurately without duplicates."""
     loss = ContrastiveLoss(
@@ -101,6 +191,8 @@ def test_contrastive_loss_value():
         learnable_temperature=False,
         num_classes=4,
         bias=0.0,
+        adaptive_soft_negative_weight=False,
+        soft_negative_weight=0.0,
     )
     batch_metrics = loss.build_batch_metric_aggregators()
 
@@ -115,11 +207,16 @@ def test_contrastive_loss_value():
     # Class 1: tp: 1, fp: 0, fn: 1, tn: 1
     # Precision: 1, Recall: 0.5, F1: 0.66667, Accuracy: 0.5
 
-    node_x = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.5, 0.5]])
-    graph_x = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.5, 0.5]])
+    # Since soft_negative_weight is 0, the extra (3, 2) item should be ignored
+    node_x = torch.tensor(
+        [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.5, 0.5], [0.5, 0.5]]
+    )
+    graph_x = torch.tensor(
+        [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.5, 0.5], [0.5, 0.5]]
+    )
     y_true = {
-        ContrastiveLabels.Ys: torch.tensor([0, 1, 1.0, -100]),
-        ContrastiveLabels.HardYs: torch.tensor([1, 0, 0, -100]),
+        ContrastiveLabels.Ys: torch.tensor([0, 1, 1.0, 3, -100]),
+        ContrastiveLabels.HardYs: torch.tensor([1, 0, 0, 2, -100]),
     }
 
     loss_value, returned_metrics = loss(node_x, graph_x, y_true, batch_metrics)
@@ -132,13 +229,18 @@ def test_contrastive_loss_value():
     )
     expect_labels = (expect_labels * 2) - 1
 
-    # Each row must sum to the number of labels, therefore, 1.5 each.
-    weight_matrix = torch.ones((3, 3)) * 1.5
+    # Each row must sum to the number of labels, therefore, 1 each.
+    weight_matrix = torch.ones((3, 3))
     weight_matrix = weight_matrix.fill_diagonal_(0)
 
-    expected_loss = torch.einsum(
-        "ij, ij -> i", -F.logsigmoid(expect_sim * expect_labels), weight_matrix
-    ).mean()
+    expected_loss = (
+        torch.einsum(
+            "ij, ij -> i",
+            -F.logsigmoid(expect_sim * expect_labels),
+            weight_matrix,
+        ).sum()
+        / 2
+    )
 
     test.assert_close(loss_value, expected_loss)
 
@@ -166,7 +268,7 @@ def test_contrastive_loss_value():
     # test.assert_close(metrics["weighted_f1"], torch.tensor(0.66667))
     # test.assert_close(metrics["weighted_accuracy"], torch.tensor(0.66667))
 
-    test.assert_close(returned_metrics["loss"], expected_loss)
+    test.assert_close(returned_metrics["loss"], expected_loss.item())
     del returned_metrics["loss"]
 
     # # Formatting the metrics to match each other
@@ -200,12 +302,17 @@ def test_contrastive_loss_value():
         [[1.0, 0.0, 0.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]]
     )
     expect_labels = (expect_labels * 2) - 1
-    weight_matrix = torch.ones((3, 3)) * 1.5
+    weight_matrix = torch.ones((3, 3))
     weight_matrix = weight_matrix.fill_diagonal_(0)
 
-    expected_loss = torch.einsum(
-        "ij, ij -> i", -F.logsigmoid(expect_sim * expect_labels), weight_matrix
-    ).mean()
+    expected_loss = (
+        torch.einsum(
+            "ij, ij -> i",
+            -F.logsigmoid(expect_sim * expect_labels),
+            weight_matrix,
+        ).sum()
+        / 2
+    )
 
     test.assert_close(loss_value_2, expected_loss)
 
@@ -233,7 +340,7 @@ def test_contrastive_loss_value():
     # test.assert_close(metrics["weighted_f1"], torch.tensor(0.66667))
     # test.assert_close(metrics["weighted_accuracy"], torch.tensor(0.66667))
 
-    test.assert_close(returned_metrics["loss"], expected_loss)
+    test.assert_close(returned_metrics["loss"], expected_loss.item())
     del returned_metrics["loss"]
 
 
@@ -241,25 +348,20 @@ def test_contrastive_loss_value():
 def test_distributed_contrastive_loss_value(num_gpus: int):
     """Test to ensure the loss is calculated accurately without duplicates."""
 
-    def fun_all_gather(
-        x: tuple[torch.Tensor, ...] | torch.Tensor, sync_grads=False
-    ) -> tuple[torch.Tensor, ...] | torch.Tensor:
-        if num_gpus == 1:
-            return x
-        if isinstance(x, torch.Tensor):
-            return x.unsqueeze(0).repeat_interleave(num_gpus, dim=0)
-        else:
-            return tuple(
-                y.unsqueeze(0).repeat_interleave(num_gpus, dim=0) for y in x
-            )
+    class FakeDistContrastiveLoss(ContrastiveLoss):
+        def all_gather(self, x: torch.Tensor) -> torch.Tensor:
+            if num_gpus == 1:
+                return x
+            if isinstance(x, torch.Tensor):
+                return x.unsqueeze(0).repeat_interleave(num_gpus, dim=0)
 
-    loss = ContrastiveLoss(
+    loss = FakeDistContrastiveLoss(
         temperature=1,
         learnable_temperature=False,
         num_classes=4,
         bias=0.0,
+        force_all_gather=True,
     )
-    loss.all_gather_fn = fun_all_gather
 
     batch_metrics = loss.build_batch_metric_aggregators()
 
@@ -283,8 +385,6 @@ def test_distributed_contrastive_loss_value(num_gpus: int):
 
     weight_matrix = torch.ones((3 * num_gpus, 3 * num_gpus))
     weight_matrix = weight_matrix.fill_diagonal_(0)
-
-    weight_matrix = (3 * num_gpus / (3 * num_gpus - 1)) * weight_matrix
 
     expected_logits = torch.tensor(
         [

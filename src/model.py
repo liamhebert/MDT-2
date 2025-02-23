@@ -40,7 +40,6 @@ class Model(L.LightningModule):
         self.scheduler = scheduler
         self.encoder = encoder
         self.loss = loss
-        self.loss.all_gather_fn = self.all_gather
 
         self.metrics = {
             state: {
@@ -145,7 +144,6 @@ class Model(L.LightningModule):
                 val,
                 prog_bar=True,
                 on_epoch=True,
-                sync_dist=True,
             )
 
         self.encoder.eval()
@@ -171,7 +169,6 @@ class Model(L.LightningModule):
                 on_epoch=True,
                 prog_bar=True if "loss" in key else False,
                 batch_size=weight,
-                sync_dist=True,
             )
         return loss
 
@@ -189,7 +186,6 @@ class Model(L.LightningModule):
                 on_epoch=True,
                 on_step=False,
                 prog_bar=True,
-                sync_dist=True,
             )
 
     def test_step(
@@ -215,7 +211,6 @@ class Model(L.LightningModule):
                 on_epoch=True,
                 prog_bar=True if "loss" in key else False,
                 batch_size=batch_size,
-                sync_dist=True,
             )
         return loss
 
@@ -233,7 +228,6 @@ class Model(L.LightningModule):
                 prog_bar=True,
                 on_epoch=True,
                 on_step=False,
-                sync_dist=True,
             )
 
     def setup(self, stage: str) -> None:
@@ -262,18 +256,41 @@ class Model(L.LightningModule):
             A dict containing the configured optimizers and learning-rate
             schedulers to be used for training.
         """
+
         optimizer = self.hparams.optimizer(
             params=self.trainer.model.parameters()
         )
         if self.hparams.scheduler is not None:
-            self.scheduler = self.hparams.scheduler(optimizer=optimizer)
+            epochs = 10
+            steps_per_epoch = 10_839
+            total_steps = epochs * steps_per_epoch  # Hard coded, sry.
+            warmup = int(0.2 * total_steps)
+
+            self.scheduler = lr_scheduler.SequentialLR(
+                optimizer=optimizer,
+                schedulers=[
+                    lr_scheduler.LinearLR(
+                        optimizer,
+                        start_factor=1e-5,
+                        end_factor=1.0,
+                        total_iters=warmup,
+                    ),
+                    lr_scheduler.CosineAnnealingLR(
+                        optimizer, T_max=total_steps - warmup, eta_min=0.0
+                    ),
+                ],
+                milestones=[warmup],
+            )
+
+            # self.scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
                     "scheduler": self.scheduler,
-                    "monitor": "val/loss",
-                    "interval": "epoch",
+                    # "monitor": "val/loss",
+                    "interval": "step",
                     "frequency": 1,
+                    "name": "lr_scheduler",
                 },
             }
         return {"optimizer": optimizer}

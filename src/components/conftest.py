@@ -28,7 +28,7 @@ def discussion_transformer_fixture(
 
 @pytest.fixture(scope="module")
 def graph_fusion_stack_fixture(
-    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
 ) -> tuple[GraphFusionStack, DictConfig]:
     """
     Fixture to build the graph fusion stack.
@@ -39,7 +39,7 @@ def graph_fusion_stack_fixture(
 
 @pytest.fixture(scope="module")
 def graph_encoder_stack_fixture(
-    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
 ) -> tuple[GraphEncoderStack, DictConfig]:
     """
     Fixture to build the graph encoder stack.
@@ -49,7 +49,7 @@ def graph_encoder_stack_fixture(
 
 
 def discussion_transformer_input(
-    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
 ) -> dict[str, torch.Tensor]:
     """
     Fixture to build the discussion transformer input.
@@ -113,7 +113,7 @@ def discussion_transformer_input(
 
 @pytest.fixture(scope="function")
 def graph_fusion_layer_input(
-    graph_fusion_stack_fixture: tuple[GraphFusionStack, DictConfig]
+    graph_fusion_stack_fixture: tuple[GraphFusionStack, DictConfig],
 ) -> dict[str, torch.Tensor]:
     """
     Fixture to build the graph fusion layer input.
@@ -145,7 +145,7 @@ def graph_fusion_layer_input(
 
 @pytest.fixture(scope="function")
 def graph_encoder_layer_input(
-    graph_encoder_stack_fixture: tuple[GraphEncoderStack, DictConfig]
+    graph_encoder_stack_fixture: tuple[GraphEncoderStack, DictConfig],
 ) -> dict[str, torch.Tensor]:
     """
     Fixture to build the graph encoder layer input.

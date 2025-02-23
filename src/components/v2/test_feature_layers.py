@@ -20,7 +20,7 @@ def graph_node_feature_fixture(
 
 @pytest.fixture(scope="function")
 def graph_node_feature_input(
-    graph_node_feature_fixture: tuple[GraphNodeFeature, DictConfig]
+    graph_node_feature_fixture: tuple[GraphNodeFeature, DictConfig],
 ) -> dict[str, torch.Tensor | int]:
     """
     Sample input to test the graph node feature layer.
@@ -32,8 +32,8 @@ def graph_node_feature_input(
     return {
         "x": torch.rand(batch_size, config.hidden_dim),
         "out_degree": torch.randint(0, config.num_out_degree, (batch_size,)),
-        "graph_ids": torch.Tensor([0, 1]).repeat_interleave(
-            torch.Tensor([7, 3]).int()
+        "graph_ids": (
+            torch.Tensor([0, 1]).repeat_interleave(torch.Tensor([7, 3]).int())
         ),
         "num_total_graphs": 2,
     }

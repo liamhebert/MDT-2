@@ -4,6 +4,8 @@ src/tasks/*/raw_files/
 src/data/processed_files/
 src/logs/
 *.out
+*.tar.gz
+src/wandb/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

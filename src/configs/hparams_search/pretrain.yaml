@@ -16,7 +16,7 @@ optimized_metric: "val/best_loss_epoch"
 hydra:
   sweeper:
     # number of parallel workers
-    n_jobs: 2
+    n_jobs: 8
 
     # 'minimize' or 'maximize' the objective
     direction: minimize
@@ -27,4 +27,6 @@ hydra:
     # define hyperparameter search space
     params:
       model.optimizer.lr: choice(0.001) # choose between 0.001 to 0.01
-      model.encoder.graph_stack_factory.num_layers: choice(2, 3, 4) # choose between 2, 3, 4
+      model.encoder.graph_stack_factory.num_layers: choice(2, 3) # choose between 2, 3
+      model.encoder.graph_stack_factory.graph_tfmr_factory.use_rope: choice(True, False) # choose between True, False
+      model.encoder.graph_stack_factory.graph_tfmr_factory.differential_attention: choice(True, False) # choose between True, False

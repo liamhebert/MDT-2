@@ -31,7 +31,7 @@ vit_model_config:
     _target_: transformers.ViTConfig
     hidden_size: "${model.encoder.embedding_dim}"
     intermediate_size: 20
-    image_size: 128
+    image_size: 224
     patch_size: 16
     encoder_stride: 16
     num_hidden_layers: 4

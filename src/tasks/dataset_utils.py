@@ -120,6 +120,7 @@ def clean_text(string: str) -> str:
     - Removes accented characters
     - Removes all non-ascii characters
     - Removes trailing whitespace
+    - Removes common escape characters and markdown formatting
 
     Args:
         string (str): The string to clean and normalize.
@@ -151,6 +152,11 @@ def clean_text(string: str) -> str:
     )
     # Remove all non-ascii characters
     x = "".join(i for i in x if ord(i) < 128)
+
+    # Remove common escape characters and markdown formatting
+    x = x.replace("**", "").replace("*", "")
+    x = x.replace("\\", "")
+    x = x.replace("\\n", " ")
 
     # Remove trailing whitespace
     x = x.strip()

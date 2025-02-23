@@ -24,6 +24,7 @@ from transformers.models.vit.modeling_vit import ViTConfig
 from transformers.models.vit.modeling_vit import ViTLayer
 from transformers.models.vit.modeling_vit import ViTModel
 from transformers.models.vit.modeling_vit import ViTPooler
+from torch.nn.attention.flex_attention import _DEFAULT_SPARSE_BLOCK_SIZE
 
 from components.graph_fusion_layer import GraphFusionStack
 from components.v2.graph_encoder_layer import BaseGraphTransformer
@@ -62,6 +63,17 @@ def init_graphormer_params(module):
             module.weight.data[module.padding_idx].zero_()
 
 
+def freeze_module_params(m: nn.Module, freeze: bool = True):
+    """Given a module, freeze all of its parameters.
+
+    Args:
+        m (nn.Module): Module to freeze
+    """
+    if m is not None:
+        for p in m.parameters():
+            p.requires_grad = freeze
+
+
 class DiscussionTransformer(nn.Module):
     """
     Primary model class to create discussion and comment embeddings.
@@ -95,6 +107,7 @@ class DiscussionTransformer(nn.Module):
         embed_scale: float = 1,
         num_graph_layers_to_freeze: int = 0,
         freeze_initial_encoders: bool = False,
+        block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
     ) -> None:
         """The Discussion Transformer model, which fuses comment modalities with
         graph context.
@@ -174,6 +187,8 @@ class DiscussionTransformer(nn.Module):
                 checkpoint towards a different task. Defaults to 0.
             freeze_initial_encoders (bool, optional): Whether to freeze the
                 pre-fusion layers of BERT and ViT. Defaults to False.
+            block_size (int, optional): The sparse block size to use for attention
+                masking. Defaults to _DEFAULT_SPARSE_BLOCK_SIZE (128).
         """
         super().__init__()
 
@@ -210,7 +225,9 @@ class DiscussionTransformer(nn.Module):
         self.fusion_layers = self.build_fusion_layers(
             text_fusion_layers, vit_fusion_layers, fusion_stack_size
         )
-        assert len(self.fusion_layers) == num_fusion_stack
+        assert (
+            len(self.fusion_layers) == num_fusion_stack
+        ), f"Expected {num_fusion_stack=}, got {len(self.fusion_layers)=}"
 
         num_fusion_layers = len(self.fusion_layers)
 
@@ -223,32 +240,10 @@ class DiscussionTransformer(nn.Module):
 
         self.num_bottle_neck = num_bottle_neck
         self.bottle_neck = nn.Embedding(num_bottle_neck, self.embedding_dim)
+        self.block_size = block_size
 
-        def freeze_module_params(m: nn.Module):
-            """Given a module, freeze all of its parameters.
-
-            Args:
-                m (nn.Module): Module to freeze
-            """
-            if m is not None:
-                for p in m.parameters():
-                    p.requires_grad = False
-
-        def unfreeze_module_params(m: nn.Module):
-            """Given a module, unfreeze all of its parameters.
-
-            Args:
-                m (nn.Module): Module to unfreeze
-            """
-            if m is not None:
-                for p in m.parameters():
-                    p.requires_grad = True
-
-        if freeze_initial_encoders:
-            freeze_module_params(self.text_model)
-            freeze_module_params(self.vit_model)
-            # unfreeze_module_params(self.text_pooler)
-            # unfreeze_module_params(self.vit_pooler)
+        freeze_module_params(self.text_model, freeze=freeze_initial_encoders)
+        freeze_module_params(self.vit_model, freeze=freeze_initial_encoders)
 
         for layer in range(num_graph_layers_to_freeze):
             freeze_module_params(self.graphormer_layers[layer])
@@ -282,33 +277,33 @@ class DiscussionTransformer(nn.Module):
 
         # TODO(liamhebert): Consider using itertools.zip_longest to handle
         # uneven lengths
-        text_fusion_layers = [
-            text_fusion_layers[
-                i * fusion_stack_size : (i + 1) * fusion_stack_size
-            ]
+        grouped_text_fusion_layers = [
+            text_fusion_layers[i : i + fusion_stack_size]
             for i in range(
-                (len(text_fusion_layers) + fusion_stack_size - 1)
-                // fusion_stack_size
+                0,
+                len(text_fusion_layers),
+                fusion_stack_size,
             )
         ]
-        vit_fusion_layers = [
-            vit_fusion_layers[
-                i * fusion_stack_size : (i + 1) * fusion_stack_size
-            ]
+        grouped_vit_fusion_layers = [
+            vit_fusion_layers[i : i + fusion_stack_size]
             for i in range(
-                (len(vit_fusion_layers) + fusion_stack_size - 1)
-                // fusion_stack_size
+                0,
+                len(vit_fusion_layers),
+                fusion_stack_size,
             )
         ]
+        assert len(grouped_text_fusion_layers) == len(grouped_vit_fusion_layers)
 
         fusion_layers = nn.ModuleList(
             [
                 GraphFusionStack(text_layer, vit_layer, use_projection=False)
                 for text_layer, vit_layer in zip(
-                    text_fusion_layers, vit_fusion_layers
+                    grouped_text_fusion_layers, grouped_vit_fusion_layers
                 )
             ]
         )
+
         return fusion_layers
 
     def build_vit_encoder(
@@ -357,7 +352,7 @@ class DiscussionTransformer(nn.Module):
                 attn_implementation="sdpa",
                 # hidden_dropout_prob=activation_dropout,
                 # attention_probs_dropout_prob=attention_dropout,
-            )
+            ).train()
             if hasattr(vit_model, "vision_model"):
                 vit_model = vit_model.vision_model
 
@@ -422,7 +417,7 @@ class DiscussionTransformer(nn.Module):
                 attn_implementation="sdpa",
                 # hidden_dropout_prob=activation_dropout,
                 # attention_probs_dropout_prob=attention_dropout,
-            )
+            ).train()
             if hasattr(bert, "text_model"):
                 bert = bert.text_model
 
@@ -533,9 +528,10 @@ class DiscussionTransformer(nn.Module):
         # TODO(liamhebert): update spatial pos with new graph ids, distance for
         # each of those nodes.
 
-        assert (
-            graph_ids.shape == graph_x.shape[:1]
-        ), f"Expected same shape, got {graph_ids.shape=} and {graph_x.shape[:1]=}"
+        assert graph_ids.shape == graph_x.shape[:1], (
+            f"Expected same shape, got {graph_ids.shape=} and"
+            f" {graph_x.shape[:1]=}"
+        )
 
         if self.emb_layer_norm is not None:
             graph_x = self.emb_layer_norm(graph_x)
@@ -545,6 +541,7 @@ class DiscussionTransformer(nn.Module):
             spatial_pos,
             max_spatial_distance=10,
             num_heads=self.graphormer_layers[0].num_heads,
+            block_size=self.block_size,
         )
 
         # account for padding while computing the representation
@@ -584,6 +581,7 @@ class DiscussionTransformer(nn.Module):
         graph_x = self.graphormer_layers[-1](
             graph_x,
             mask=flex_block_mask,
+            spatial_pos=rotary_pos,
         )
 
         global_embedding = graph_x[:num_total_graphs, :]

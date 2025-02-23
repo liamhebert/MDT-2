@@ -46,7 +46,7 @@ def test_build_discussion_transformer(
 
 
 def test_build_bert_encoder(
-    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
 ):
     """
     Tests to ensure the BERT encoder is built correctly.
@@ -84,7 +84,7 @@ def test_build_bert_encoder(
 
 
 def test_build_vit_encoder(
-    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
 ):
     """
     Tests to ensure the ViT encoder is built correctly.

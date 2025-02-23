@@ -210,7 +210,7 @@ def generic_collator(
 
     padding_1d = torch.zeros((num_padding,), dtype=torch.long)
     in_degree = torch.cat([in_degree, padding_1d])
-    image_padding = torch.cat([image_padding, padding_1d])
+    image_padding = torch.cat([image_padding, padding_1d.bool()])
 
     padding_graph_index = torch.full(
         (num_padding,), PADDING_GRAPH_ID, dtype=torch.long

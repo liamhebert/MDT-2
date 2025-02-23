@@ -6,10 +6,10 @@ defaults:
   - override dataset: debug_contrastive
   - _self_
 
-trainer:
-  fast_dev_run: True
-  detect_anomaly: true
-
 model:
   loss:
     num_classes: 2
+  encoder:
+    graph_stack_factory:
+      graph_tfmr_factory:
+        use_rope: True

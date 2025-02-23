@@ -5,7 +5,6 @@ Collator functions to merge data samples into a batch.
 from typing import List
 
 import torch
-from torch_geometric.data import Data
 from transformers import BatchEncoding
 
 from data.types import GraphFeatures
@@ -189,7 +188,7 @@ InputFeatures = dict[str, List[torch.Tensor]]
 
 
 def extract_and_merge_features(
-    graphs: List[Data],
+    graphs: List[dict],
 ) -> tuple[InputFeatures, InputFeatures, InputFeatures]:
     """Extracts and merges features from a list of graphs."""
     graph_features: InputFeatures = {
@@ -217,14 +216,16 @@ def extract_and_merge_features(
         # to be manually inserted here. It might be nice to change this to
         # instead iterate over the keys of the enums and insert them.
 
-        graph_features[GraphFeatures.AttnBias].append(graph.attn_bias)
-        graph_features[GraphFeatures.InDegree].append(graph.in_degree)
-        graph_features[GraphFeatures.ImageMask].append(graph.image_mask)
-        graph_features[GraphFeatures.Distance].append(graph.distance)
-        graph_features[GraphFeatures.DistanceIndex].append(graph.distance_index)
-        graph_features[GraphFeatures.RotaryPos].append(graph.rotary_position)
+        graph_features[GraphFeatures.AttnBias].append(graph["attn_bias"])
+        graph_features[GraphFeatures.InDegree].append(graph["in_degree"])
+        graph_features[GraphFeatures.ImageMask].append(graph["image_mask"])
+        graph_features[GraphFeatures.Distance].append(graph["distance"])
+        graph_features[GraphFeatures.DistanceIndex].append(
+            graph["distance_index"]
+        )
+        graph_features[GraphFeatures.RotaryPos].append(graph["rotary_position"])
 
-        text: BatchEncoding = graph.text
+        text: BatchEncoding = graph["text"]
         for feature in [
             TextFeatures.AttentionMask,
             TextFeatures.InputIds,
@@ -237,9 +238,9 @@ def extract_and_merge_features(
         if TextFeatures.PositionIds in text:
             text_features[TextFeatures.PositionIds].append(text.position_ids)
 
-        if hasattr(graph, "image"):
+        if graph["images"] is not None:
             image_features[ImageFeatures.PixelValues].append(
-                graph.image.pixel_values
+                graph["images"].pixel_values
             )
 
     for extra_feat in [TextFeatures.TokenTypeIds, TextFeatures.PositionIds]:

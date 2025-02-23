@@ -7,3 +7,4 @@ accelerator: gpu
 devices: 2
 num_nodes: 1
 sync_batchnorm: True
+use_distributed_sampler: False  # We handle this

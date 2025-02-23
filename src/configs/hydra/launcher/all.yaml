@@ -5,3 +5,4 @@ defaults:
 tasks_per_node: 2
 partition: ALL
 gres: gpu:2
+timeout_min: 1440  # Since preemption does not work rn.

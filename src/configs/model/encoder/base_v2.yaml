@@ -4,7 +4,7 @@ embedding_dim: 768
 
 graph_node_feature:
   _target_: components.v2.feature_layers.GraphNodeFeature
-  num_out_degree: 6
+  num_out_degree: 10
   hidden_dim: "${model.encoder.embedding_dim}"
 
 graph_stack_factory:
@@ -19,6 +19,8 @@ graph_stack_factory:
     dim: "${model.encoder.embedding_dim}"
     ffn_dim: 3072
     differential_attention: False
+    use_rope: False
+    rope_mixed: True
 
 
 text_model_config:
@@ -44,3 +46,5 @@ embed_scale: None
 num_graph_layers_to_freeze: 0
 
 freeze_initial_encoders: False
+
+block_size: 128

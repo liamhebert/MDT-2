@@ -110,7 +110,10 @@ class RoPE(nn.Module):
             # Precomputed freqs should already have the dim for the heads
             # TODO(liamhebert): Add an assert to check the shape of self.freqs to
             # match the input dim we have
-            assert self.freqs.shape == (2, E * 2)
+            assert self.freqs.shape == (
+                2,
+                (H * E) / 2,
+            ), f"{self.freqs.shape} != {2, int((H * E) / 2)}"
 
             freqs_cis = compute_mixed_cis(
                 freqs=self.freqs, t_x=t_x, t_y=t_y, num_heads=H

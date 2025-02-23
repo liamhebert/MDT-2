@@ -6,5 +6,9 @@ defaults:
   - override modality_encoder: debug
   - override model: debug
   - override dataset: debug_node
-  - override trainer: cpu
+  - override trainer: ddp_sim
   - _self_
+
+trainer:
+  fast_dev_run: 2
+  detect_anomaly: true

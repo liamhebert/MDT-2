@@ -35,14 +35,13 @@ class TestCleanTest:
 
     def test_clean_text_combined(self):
         """Test that clean_text handles a combination of all cases."""
-        assert dut.clean_text(
-            (
-                "  Hello, World! Visit https://example.com/hello for more info. "
-                "😂 Café [link](https://example.com) Some text with non-ascii "
-                "characters: ñ, ü, å.  "
+        assert (
+            dut.clean_text(
+                "  Hello, World! Visit https://example.com/hello for more info."
+                " 😂 Café [link](https://example.com) Some text with non-ascii"
+                " characters: ñ, ü, å.  "
             )
-        ) == (
-            "Hello, World! Visit [LINK1] example.com [LINK2] for more info. "
+            == "Hello, World! Visit [LINK1] example.com [LINK2] for more info. "
             ":face_with_tears_of_joy: Cafe [LINK1] link [LINK2] Some text with "
             "non-ascii characters: n, u, a."
         )

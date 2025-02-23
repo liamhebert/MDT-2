@@ -22,7 +22,6 @@ from utils import log_hyperparameters
 from utils import RankedLogger
 from utils import task_wrapper
 
-
 log = RankedLogger(__name__, rank_zero_only=True)
 
 torch.set_float32_matmul_precision("medium")
@@ -79,9 +78,8 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     if cfg.get("train"):
         log.info("Starting training!")
-        trainer.fit(
-            model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path")
-        )
+        torch.set_float32_matmul_precision("medium")
+        trainer.fit(model=model, datamodule=datamodule)
 
     train_metrics = trainer.callback_metrics
 

@@ -1,7 +1,7 @@
 defaults:
 - base_v2
 
-embedding_dim: 1152
+embedding_dim: 1024
 
 graph_stack_factory:
   graph_tfmr_factory:
