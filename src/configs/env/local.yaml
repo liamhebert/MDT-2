@@ -1,0 +1,6 @@
+# @package _global_
+
+defaults:
+  - override /hydra/launcher: basic
+  - override /paths: default
+  - _self_
