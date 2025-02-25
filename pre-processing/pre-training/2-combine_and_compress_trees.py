@@ -32,6 +32,7 @@ def main():
         # print(subreddit)
         path = f"{DATA_PATH_RAW}/{CATEGORY}/{subreddit}"
         if not os.path.isdir(path):
+            print(f"{path} is not a directory")
             return  # Not a directory. Abort
         os.makedirs(f"{DATA_PATH_PROCESSED}/{CATEGORY}", exist_ok=True)
         for postid in os.listdir(path):
@@ -42,18 +43,16 @@ def main():
                 invalid_dir = f"{path}/{postid}"
                 if os.path.isdir(invalid_dir):
                     # Remove the entire folder
+                    print(f"{path} doesn't contain a POST.txt. Removing...")
                     shutil.rmtree(invalid_dir, ignore_errors=True)
                 continue
 
             with open(sub, "r") as f:
                 raw_file = f.read().strip()
-                if len(raw_file.split("\n")) >= 2:
-                    print(sub)
                 data = json.loads(raw_file)
                 # This filters out all discussions with a score less than 25
                 if data["score"] < 25:
                     continue
-                link_id = data["id"]
 
                 graph = [data]
 

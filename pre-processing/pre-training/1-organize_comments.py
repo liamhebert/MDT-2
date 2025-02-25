@@ -244,9 +244,7 @@ def main():
 
                 if subreddit is None:
                     # If subreddit_id is null, assume it's an ad
-                    if subreddit_null_regex.search(line) is None:
-                        print("Subreddit doesn't exist")
-                        print(line)
+                    # In which case we can skip this post
                     continue
                 subreddit = subreddit.group(1)
                 if len(postids) != 1:
