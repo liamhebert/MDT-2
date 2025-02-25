@@ -69,7 +69,7 @@ class TaskDataset(Dataset, ABC):
         strict: bool = False,
         max_distance_length: int = 10,
         force_reload: bool = False,
-        debug: bool = False,
+        debug: int | bool | None = None,
     ):
         """Initializes the TaskDataset.
 
@@ -137,6 +137,12 @@ class TaskDataset(Dataset, ABC):
 
         self.force_reload = force_reload
         self.debug = debug
+        if isinstance(debug, bool) and debug:
+            self.debug = 10
+
+        if self.debug:
+            self.output_graph_path = self.output_graph_path + "_debug"
+            self.force_reload = True
 
         self._processed_file_names = None
 
@@ -495,7 +501,8 @@ class TaskDataset(Dataset, ABC):
             log.info(f"Processing file {file_name}")
             if self.debug:
                 log.warning(
-                    "Debug mode enabled, only processing first 10 graphs"
+                    "Debug mode enabled, only processing first"
+                    f" {self.debug} graphs"
                 )
             file_name = file_name.removesuffix("-data.json")
             os.makedirs(
@@ -505,7 +512,7 @@ class TaskDataset(Dataset, ABC):
 
             with open(file, "r") as f:
                 for idx, line in tqdm(enumerate(f)):
-                    if self.debug and idx == 10:
+                    if self.debug and idx == self.debug:
                         break
 
                     if (
@@ -544,7 +551,7 @@ class TaskDataset(Dataset, ABC):
                             f"graph-{idx}.pt",
                         )
 
-        Parallel(n_jobs=6)(
+        Parallel(n_jobs=1)(
             delayed(process_file)(file)
             for file in tqdm(self.raw_paths, desc="Files")
         )
@@ -915,6 +922,7 @@ class TaskDataset(Dataset, ABC):
         Returns:
             Data: The processed torch_geometric Data object at the given index.
         """
+
         if self._graph_cache is None:
             data = torch.load(
                 self.processed_file_names[idx], weights_only=False

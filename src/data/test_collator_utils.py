@@ -8,7 +8,10 @@ from data import collator_utils as cut
 from data import collator_utils_v2 as cut_v2
 from data.types import ImageFeatures
 from data.types import TextFeatures
-from components.v2.graph_attention_mask import PADDING_GRAPH_ID
+from components.v2.graph_attention_mask import (
+    PADDING_GRAPH_ID,
+    generate_graph_attn_mask_tensor,
+)
 from pytest import mark
 
 
@@ -439,18 +442,16 @@ def test_collator_v2(with_token_type_ids: bool):
         torch.full((2, 2), DummyValues.DISTANCE_INDEX * 2 + 1),
         torch.full((1, 1), 0),  # Padding
     ]
+    spatial_pos = torch.block_diag(*non_block_spatial_pos)
+    graph_ids = torch.tensor([0, 1, 0, 0, 0, 1, 1, PADDING_GRAPH_ID])
+    graph_mask = generate_graph_attn_mask_tensor(
+        graph_ids=graph_ids,
+        spatial_distance_matrix=spatial_pos,
+        max_spatial_distance=10,
+        block_size=4,
+    )
     expected = {
-        "spatial_pos": torch.block_diag(*non_block_spatial_pos),
-        "in_degree": torch.tensor(
-            [
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 2 + 1,
-                DummyValues.IN_DEGREE * 2 + 1,
-                0,
-            ]
-        ),
+        "graph_mask": graph_mask,
         "out_degree": torch.tensor(
             [
                 DummyValues.IN_DEGREE * 3 + 1,
@@ -494,16 +495,6 @@ def test_collator_v2(with_token_type_ids: bool):
         },
         "image_padding_mask": torch.tensor(
             [True, True, False, True, False, False]
-        ),
-        "graph_ids": torch.tensor(
-            [
-                0,
-                0,
-                0,
-                1,
-                1,
-                PADDING_GRAPH_ID,
-            ]
         ),
     }
 

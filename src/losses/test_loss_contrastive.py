@@ -268,7 +268,7 @@ def test_contrastive_loss_value():
     # test.assert_close(metrics["weighted_f1"], torch.tensor(0.66667))
     # test.assert_close(metrics["weighted_accuracy"], torch.tensor(0.66667))
 
-    test.assert_close(returned_metrics["loss"], expected_loss.item())
+    test.assert_close(returned_metrics["loss"], expected_loss)
     del returned_metrics["loss"]
 
     # # Formatting the metrics to match each other
@@ -340,7 +340,7 @@ def test_contrastive_loss_value():
     # test.assert_close(metrics["weighted_f1"], torch.tensor(0.66667))
     # test.assert_close(metrics["weighted_accuracy"], torch.tensor(0.66667))
 
-    test.assert_close(returned_metrics["loss"], expected_loss.item())
+    test.assert_close(returned_metrics["loss"], expected_loss)
     del returned_metrics["loss"]
 
 

@@ -22,6 +22,10 @@ class Model(L.LightningModule):
     encoder: nn.Module
     loss: Loss
 
+    @torch.compiler.disable
+    def log(self, *args, **kwargs):
+        super().log(*args, **kwargs)
+
     def __init__(
         self,
         optimizer: optim.Optimizer,
@@ -39,6 +43,7 @@ class Model(L.LightningModule):
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.encoder = encoder
+
         self.loss = loss
 
         self.metrics = {
@@ -82,7 +87,12 @@ class Model(L.LightningModule):
             The loss value for that batch, using self.loss.
         """
         x, y = batch["x"], batch["y"]
+
         node_embeddings, graph_embeddings = self.forward(x)
+
+        for key, metric in metrics.items():
+            metric.to(self.device)
+
         loss, metrics = self.loss(node_embeddings, graph_embeddings, y, metrics)
         return loss, metrics
 
@@ -114,16 +124,20 @@ class Model(L.LightningModule):
         """
         loss, metrics = self.model_step(batch, self.metrics["train"]["batch"])
 
-        weight: int = metrics["weight"]
+        weight = metrics["weight"]
         for key, metric in metrics.items():
             self.log(
                 f"train/{key}",
                 metric,
-                on_step=True,
+                on_step=(
+                    True
+                    if any(x in key for x in ["loss", "temperature", "bias"])
+                    else False
+                ),
                 on_epoch=True,
-                prog_bar=True if "loss" in key else False,
+                prog_bar=False,
                 batch_size=weight,
-                sync_dist=False,
+                sync_dist=True,
             )
 
         self.log("train/lr", self.scheduler.get_last_lr()[0], on_step=True)
@@ -142,8 +156,9 @@ class Model(L.LightningModule):
             self.log(
                 f"train/{key}",
                 val,
-                prog_bar=True,
+                prog_bar=False,
                 on_epoch=True,
+                sync_dist=True,
             )
 
         self.encoder.eval()
@@ -167,8 +182,9 @@ class Model(L.LightningModule):
                 metric,
                 on_step=True if "loss" in key else False,
                 on_epoch=True,
-                prog_bar=True if "loss" in key else False,
+                prog_bar=False,
                 batch_size=weight,
+                sync_dist=True,
             )
         return loss
 
@@ -185,7 +201,8 @@ class Model(L.LightningModule):
                 val,
                 on_epoch=True,
                 on_step=False,
-                prog_bar=True,
+                prog_bar=False,
+                sync_dist=True,
             )
 
     def test_step(
@@ -207,10 +224,11 @@ class Model(L.LightningModule):
             self.log(
                 f"test/{key}",
                 metric,
-                on_step=True if "loss" in key else False,
+                on_step=False,
                 on_epoch=True,
-                prog_bar=True if "loss" in key else False,
+                prog_bar=False,
                 batch_size=batch_size,
+                sync_dist=True,
             )
         return loss
 
@@ -225,9 +243,10 @@ class Model(L.LightningModule):
             self.log(
                 f"test/{key}",
                 val,
-                prog_bar=True,
+                prog_bar=False,
                 on_epoch=True,
                 on_step=False,
+                sync_dist=True,
             )
 
     def setup(self, stage: str) -> None:
@@ -241,8 +260,9 @@ class Model(L.LightningModule):
         Args:
             stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
-        if self.hparams.compile and stage == "fit":
-            self.encoder = torch.compile(self.encoder)
+        ...
+        # if stage == "fit" and self.hparams.compile:
+        #     self.encoder = torch.compile(self.encoder)
 
     def configure_optimizers(self):
         """Choose what optimizers and learning-rate schedulers to use in your
@@ -261,7 +281,9 @@ class Model(L.LightningModule):
             params=self.trainer.model.parameters()
         )
         if self.hparams.scheduler is not None:
-            epochs = 10
+            epochs = self.trainer.max_epochs
+            assert epochs is not None
+            dataset_size = 380_000
             steps_per_epoch = 10_839
             total_steps = epochs * steps_per_epoch  # Hard coded, sry.
             warmup = int(0.2 * total_steps)

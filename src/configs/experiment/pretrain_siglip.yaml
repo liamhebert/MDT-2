@@ -35,3 +35,10 @@ model:
     num_classes: 12
     learnable_temperature: True
     adaptive_soft_negative_weight: True
+  encoder:
+    block_size: 258
+
+dataset:
+  train_batch_size: 36
+  max_total_length: 400
+  test_batch_size: 36

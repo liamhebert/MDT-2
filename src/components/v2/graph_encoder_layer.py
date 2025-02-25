@@ -184,16 +184,18 @@ class GraphTransformerBlock(nn.Module):
         self,
         x: torch.Tensor,
         # freq_cis: torch.Tensor,
-        mask: BlockMask | None = None,
+        mask: BlockMask | torch.Tensor | None = None,
         spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        h = x + self.attention(
+
+        attn_out = self.attention(
             self.attention_norm(x),
-            # freq_cis,
             mask=mask,
             spatial_pos=spatial_pos,
         )
-        out = h + self.feed_forward(self.ffn_norm(h))
+        h = x + attn_out.type_as(x)
+
+        out = h + self.feed_forward(self.ffn_norm(h)).type_as(h)
         return out
 
     def init_weights(self, init_std=None, factor=1.0):
@@ -237,7 +239,7 @@ class BaseGraphTransformer(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        mask: BlockMask | None = None,
+        mask: BlockMask | torch.Tensor | None = None,
         spatial_pos: torch.Tensor | None = None,
     ):
         """Computes the forward pass of the transformer.

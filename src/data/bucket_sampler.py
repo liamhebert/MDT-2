@@ -144,6 +144,7 @@ class LengthGroupedSampler(BatchSampler):
         )
 
         item_count_in_batches = [0] * num_batches
+        indices_to_check = list(range(num_batches))
 
         for index in tqdm(
             sorted_indices,
@@ -151,16 +152,14 @@ class LengthGroupedSampler(BatchSampler):
         ):
             example_length = example_lengths[index]
             added_to_batch = False
-            for batch_idx in range(num_batches):
-                if (
-                    item_count_in_batches[batch_idx] < items_per_batch
-                    and batch_lengths[batch_idx] + example_length
-                    <= target_length
-                ):
+            for i, batch_idx in enumerate(indices_to_check):
+                if batch_lengths[batch_idx] + example_length <= target_length:
                     batches[batch_idx].append(index)
                     batch_lengths[batch_idx] += example_length
                     item_count_in_batches[batch_idx] += 1
                     added_to_batch = True
+                    if item_count_in_batches[batch_idx] == items_per_batch:
+                        indices_to_check.pop(i)
                     break  # Placed in the first suitable batch
 
             if not added_to_batch:
@@ -172,18 +171,21 @@ class LengthGroupedSampler(BatchSampler):
                 # that still has space in terms of item count.
 
                 best_batch_idx = -1
+                best_i = -1
                 min_batch_length = float("inf")
-                for batch_idx in range(num_batches):
-                    if item_count_in_batches[batch_idx] < items_per_batch:
-                        if batch_lengths[batch_idx] < min_batch_length:
-                            min_batch_length = batch_lengths[batch_idx]
-                            best_batch_idx = batch_idx
+                for i, batch_idx in enumerate(indices_to_check):
+                    if batch_lengths[batch_idx] < min_batch_length:
+                        min_batch_length = batch_lengths[batch_idx]
+                        best_batch_idx = batch_idx
+                        best_i = i
 
                 if best_batch_idx != -1:
                     batches[best_batch_idx].append(index)
                     batch_lengths[best_batch_idx] += example_length
                     item_count_in_batches[best_batch_idx] += 1
                     added_to_batch = True
+                    if item_count_in_batches[best_batch_idx] == items_per_batch:
+                        indices_to_check.pop(best_i)
                 else:
                     # As a last resort, if still not added and all batches are
                     # full in item count (should not happen if drop_last is True
@@ -193,20 +195,21 @@ class LengthGroupedSampler(BatchSampler):
                     # Place in the first batch that is not yet item_per_batch
                     # full, even if it goes over max_total_length
                     # (we are prioritizing fixed batch count and size).
-                    for batch_idx in range(num_batches):
-                        if item_count_in_batches[batch_idx] < items_per_batch:
-                            batches[batch_idx].append(index)
-                            batch_lengths[batch_idx] += example_length
-                            item_count_in_batches[batch_idx] += 1
-                            added_to_batch = True
-                            log.warning(
-                                f"Item {index} with length"
-                                f" {example_length} added to batch"
-                                f" {batch_idx} potentially exceeding"
-                                " max_total_length, or due to fallback when no"
-                                " suitable batch was found."
-                            )
-                            break
+                    for i, batch_idx in enumerate(indices_to_check):
+                        batches[batch_idx].append(index)
+                        batch_lengths[batch_idx] += example_length
+                        item_count_in_batches[batch_idx] += 1
+                        added_to_batch = True
+                        log.warning(
+                            f"Item {index} with length"
+                            f" {example_length} added to batch"
+                            f" {batch_idx} potentially exceeding"
+                            " max_total_length, or due to fallback when no"
+                            " suitable batch was found."
+                        )
+                        if item_count_in_batches[batch_idx] == items_per_batch:
+                            indices_to_check.pop(i)
+                        break
                     if not added_to_batch:
                         # This should really not happen if drop_last=True and
                         # logic is correct.
@@ -215,6 +218,11 @@ class LengthGroupedSampler(BatchSampler):
                             "should not happen with drop_last=True and correct "
                             "logic."
                         )
+
+        length_first = item_count_in_batches[0]
+        assert all(
+            item_count == length_first for item_count in item_count_in_batches
+        ), (item_count_in_batches, length_first)
 
         average_batch_length = sum(batch_lengths) / len(batch_lengths)
         min_batch_length = min(batch_lengths)

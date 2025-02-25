@@ -255,6 +255,7 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
+            snapshot_every_n_steps=1000,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -271,6 +272,7 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
+            snapshot_every_n_steps=1000,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -287,4 +289,5 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
+            snapshot_every_n_steps=1000,
         )

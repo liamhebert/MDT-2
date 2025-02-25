@@ -1,0 +1,9 @@
+defaults:
+  - fsdp
+  - _self_
+
+profiler:
+  _target_: lightning.pytorch.profilers.PyTorchProfiler
+  filename: profiler_output
+  export_to_chrome: True
+  record_module_names: True

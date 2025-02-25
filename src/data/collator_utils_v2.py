@@ -12,6 +12,9 @@ from data.types import TextFeatures
 from utils.pylogger import RankedLogger
 from components.v2.graph_attention_mask import PADDING_GRAPH_ID
 from torch.nn.attention.flex_attention import _DEFAULT_SPARSE_BLOCK_SIZE
+from components.v2.graph_attention_mask import (
+    generate_graph_attn_mask_tensor,
+)
 
 log = RankedLogger(__name__)
 
@@ -244,15 +247,23 @@ def generic_collator(
         (virtual_distance_graph.T, spatial_pos, virtual_distance_pad.T), dim=1
     )
 
+    num_graphs = len(in_degrees)
+    graph_ids = torch.cat((torch.arange(0, num_graphs), graph_ids), dim=0)
+
+    flex_block_mask = generate_graph_attn_mask_tensor(
+        graph_ids,
+        spatial_pos,
+        max_spatial_distance=10,
+        block_size=block_size,
+    )
+
     return {
-        "spatial_pos": spatial_pos,
         # Since we are using undirected graphs, in_degree == out_degree
-        "in_degree": in_degree,
         "out_degree": in_degree,
         "text_input": collated_text_features,
         "image_inputs": {"pixel_values": filtered_image},
         "image_padding_mask": image_padding,
-        "graph_ids": graph_ids,
         "num_total_graphs": len(in_degrees),
         "rotary_pos": rotary_pos,
+        "graph_mask": flex_block_mask,
     }

@@ -15,6 +15,9 @@ from torchmetrics import MinMetric
 from torchmetrics import Precision
 from torchmetrics import Recall
 from typing import Literal, Mapping
+from utils import RankedLogger
+
+logger = RankedLogger(__name__)
 
 
 class ContrastiveLoss(Loss):
@@ -89,11 +92,9 @@ class ContrastiveLoss(Loss):
             torch.tensor([bias]).float(), requires_grad=learnable_temperature
         )
         self.num_classes = num_classes
-        self.use_all_gather = (
-            torch.distributed.is_initialized() or force_all_gather
-        )
-        print("USE ALL GATHER", self.use_all_gather)
+        self.force_all_gather = force_all_gather
 
+    @torch.compiler.disable
     def forward(
         self,
         node_embeddings: torch.Tensor | None,
@@ -129,16 +130,11 @@ class ContrastiveLoss(Loss):
 
         device_targets = ys[ContrastiveLabels.Ys]
         device_hard_targets = ys[ContrastiveLabels.HardYs]
+        use_all_gather = (
+            self.force_all_gather or torch.distributed.is_initialized()
+        )
 
-        if self.use_all_gather:
-            print("ALL GATHER", flush=True)
-            print(
-                device_targets.shape,
-                device_hard_targets.shape,
-                normalized_A.shape,
-                flush=True,
-            )
-
+        if use_all_gather:
             all_targets, all_hard_targets, all_graph_embeddings = (
                 self.all_gather(x)
                 for x in (device_targets, device_hard_targets, normalized_A)
@@ -246,21 +242,19 @@ class ContrastiveLoss(Loss):
 
         if batch_metrics is not None:
             with torch.no_grad():
-                metric_sim = sim.clone().detach()
-                pred_sim = metric_sim.fill_diagonal_(-1e9)
+                sim.fill_diagonal_(-1e9)
 
-                pred_sim[padding_mask] = -1e9
+                sim[padding_mask] = -1e9
 
                 metrics = self.compute_batch_metrics(
-                    metric_sim,
-                    targets.clone().detach(),
-                    loss.clone().detach(),
+                    sim,
+                    targets.detach(),
+                    loss.detach(),
                     batch_metrics,
                 )
             # metrics = {"weight": sim.shape[0]}
         else:
             metrics = {}
-        print(loss)
         return loss, metrics
 
 
@@ -279,7 +273,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
         """
 
         def make_metric_group(
-            average: Literal["micro", "macro", "weighted", "none"],
+            average: Literal["micro", "macro", "weighted"],
         ) -> MetricCollection:
             return MetricCollection(
                 (
@@ -325,7 +319,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
                 [
                     make_metric_group("macro"),  # type: ignore
                     make_metric_group("weighted"),  # type: ignore
-                    make_metric_group("none"),  # type: ignore
+                    # make_metric_group("none"),  # type: ignore
                 ]
             ),
             "loss": MeanMetric(),
@@ -343,12 +337,13 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
         return {
             f"best_{metric_type}_{metric}": MaxMetric()
             for metric_type in ["macro", "weighted"]
-            + [f"class_{i}" for i in range(self.num_classes)]
+            # + [f"class_{i}" for i in range(self.num_classes)]
             for metric in ["f1", "recall", "precision", "accuracy"]
         } | {
             "best_loss": MinMetric(),
         }
 
+    @torch.compiler.disable
     def compute_batch_metrics(
         self,
         logits: torch.Tensor,
@@ -379,18 +374,19 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
         return_metrics = {}
 
-        metrics["classification"].to(preds.device).update(preds, targets)
-        metrics["loss"].to(loss.device).update(loss)
+        metrics["classification"].update(preds, targets)
+        metrics["loss"].update(loss)
 
-        return_metrics["loss"] = loss.item()
+        return_metrics["loss"] = loss
 
-        effective_batch_size = (targets != -100).sum()
-        return_metrics["weight"] = effective_batch_size.item()
-        return_metrics["bias"] = self.bias.item()
-        return_metrics["temperature"] = self.temperature.exp().item()
+        effective_batch_size = (targets != -100).float().sum()
+        return_metrics["weight"] = effective_batch_size
+        return_metrics["bias"] = self.bias
+        return_metrics["temperature"] = self.temperature.exp()
 
         return return_metrics
 
+    @torch.compiler.disable
     def compute_epoch_metrics(
         self,
         batch_metrics: dict[str, Metric | MetricCollection],
@@ -412,9 +408,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
         ret_metrics = {}
 
-        device = batch_metrics["classification"]["macro_f1"].device
-        assert isinstance(device, torch.device)
-        metrics = batch_metrics["classification"].to(device).compute()
+        metrics = batch_metrics["classification"].compute()
         for metric_type in ["macro", "weighted"]:
             metric_ids = ["f1", "recall", "precision"]
             if metric_type == "weighted":
@@ -424,27 +418,21 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
                 metric_value = metrics[f"{metric_type}_{metric}"]
                 ret_metrics[f"{metric_type}_{metric}"] = metric_value
-                ret_metrics[key] = (
-                    epoch_metrics[key].to(device).forward(metric_value)
-                )
+                ret_metrics[key] = epoch_metrics[key].forward(metric_value)
 
-        for metric in ["f1", "recall", "precision"]:
-            metric_values = metrics["none_" + metric]
-            for class_id in range(self.num_classes):
-                key = f"best_class_{class_id}_{metric}"
-                ret_metrics[f"class_{class_id}_{metric}"] = metric_values[
-                    class_id
-                ]
-                ret_metrics[key] = (
-                    epoch_metrics[key]
-                    .to(device)
-                    .forward(metric_values[class_id])
-                )
+        # for metric in ["f1", "recall", "precision"]:
+        #     metric_values = metrics["none_" + metric]
+        #     for class_id in range(self.num_classes):
+        #         key = f"best_class_{class_id}_{metric}"
+        #         ret_metrics[f"class_{class_id}_{metric}"] = metric_values[
+        #             class_id
+        #         ]
+        #         ret_metrics[key] = epoch_metrics[key].forward(
+        #             metric_values[class_id]
+        #         )
 
-        ret_metrics["best_loss"] = (
-            epoch_metrics["best_loss"]
-            .to(device)
-            .forward(batch_metrics["loss"].compute())
+        ret_metrics["best_loss"] = epoch_metrics["best_loss"].forward(
+            batch_metrics["loss"].compute()
         )
 
         for metric_obj in batch_metrics.values():

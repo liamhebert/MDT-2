@@ -83,4 +83,3 @@ def test_end_to_end(yaml: str, tmp_path: Path) -> None:
     trainer = hydra.utils.instantiate(cfg.trainer)
 
     trainer.fit(model=model, datamodule=data, ckpt_path=None)
-    assert False

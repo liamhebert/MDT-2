@@ -43,6 +43,10 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         A tuple with metrics and dict with all instantiated objects.
     """
     # set seed for random number generators in pytorch, numpy and python.random
+
+    log.info("Instantiating loggers...")
+    logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
+
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
 
@@ -50,13 +54,11 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.dataset)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
+    torch.set_float32_matmul_precision("medium")
     model: LightningModule = hydra.utils.instantiate(cfg.model)
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
-
-    log.info("Instantiating loggers...")
-    logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(
@@ -72,13 +74,16 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         "trainer": trainer,
     }
 
+    if cfg.model.compile:
+        log.info("Compiling model!")
+        model = torch.compile(model)
+
     if logger:
         log.info("Logging hyperparameters!")
         log_hyperparameters(object_dict)
 
     if cfg.get("train"):
         log.info("Starting training!")
-        torch.set_float32_matmul_precision("medium")
         trainer.fit(model=model, datamodule=datamodule)
 
     train_metrics = trainer.callback_metrics

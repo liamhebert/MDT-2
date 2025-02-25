@@ -27,4 +27,4 @@ scheduler:
       eta_min: 0.0
 
 # compile model for faster training with pytorch 2.0
-compile: False
+compile: True

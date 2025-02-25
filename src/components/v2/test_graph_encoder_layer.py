@@ -77,7 +77,6 @@ def test_graph_transformer(diff_attn: bool, use_rope: bool):
         graph_ids=graph_ids,
         spatial_distance_matrix=spatial_distance_matrix,
         max_spatial_distance=max_spatial_distance,
-        num_heads=n_heads,
         block_size=4,
     )
     out = graph_tfmr(x, mask, rotary_pos)

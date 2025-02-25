@@ -117,8 +117,8 @@ class CollatedDataset(TaskDataset):
                 image_features,
                 self.block_size,
             )
-            batch_size = collated_output["graph_ids"].max() + 1
-            num_nodes = collated_output["in_degree"].shape[0]
+            batch_size = collated_output["num_total_graphs"]
+            num_nodes = collated_output["out_degree"].shape[0]
         else:
             collated_output = collator_utils.generic_collator(
                 graph_features,

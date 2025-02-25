@@ -32,9 +32,6 @@ def graph_node_feature_input(
     return {
         "x": torch.rand(batch_size, config.hidden_dim),
         "out_degree": torch.randint(0, config.num_out_degree, (batch_size,)),
-        "graph_ids": (
-            torch.Tensor([0, 1]).repeat_interleave(torch.Tensor([7, 3]).int())
-        ),
         "num_total_graphs": 2,
     }
 
@@ -54,7 +51,7 @@ class TestGraphNodeFeature:
         """
         model, _ = graph_node_feature_fixture
         with torch.no_grad():
-            output_x, output_graph_ids = model(**graph_node_feature_input)
+            output_x = model(**graph_node_feature_input)
 
         expected_shape = (
             graph_node_feature_input["x"].shape[0] + 2,  # Two graph tokens
@@ -66,7 +63,6 @@ class TestGraphNodeFeature:
         # Test that the two graph global token are added at the start
         graph_global_token = model.graph_token.weight.repeat(2, 1)
         torch.testing.assert_close(output_x[:2, :], graph_global_token)
-        torch.testing.assert_close(output_graph_ids[:2], torch.Tensor([0, 1]))
 
 
 @pytest.mark.skip(

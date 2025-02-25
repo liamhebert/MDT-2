@@ -152,7 +152,7 @@ class NodeCrossEntropyLoss(Loss):
         return_metrics["loss"] = metrics["loss"].forward(loss)
 
         effective_batch_size = (targets != -100).sum()
-        return_metrics["weight"] = effective_batch_size.item()
+        return_metrics["weight"] = effective_batch_size
 
         return return_metrics
 

@@ -80,6 +80,7 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
             self.bert_projection = nn.Identity()
             self.vit_projection = nn.Identity()
 
+    @torch.compiler.disable
     def forward(
         self,
         bert_hidden_states: torch.Tensor,

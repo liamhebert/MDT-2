@@ -30,7 +30,6 @@ from components.graph_fusion_layer import GraphFusionStack
 from components.v2.graph_encoder_layer import BaseGraphTransformer
 from components.v2.feature_layers import GraphAttnBias
 from components.v2.feature_layers import GraphNodeFeature
-from components.v2.graph_attention_mask import generate_graph_attn_mask_mod
 from utils.pylogger import RankedLogger
 
 from data.types import TextFeatures
@@ -69,9 +68,10 @@ def freeze_module_params(m: nn.Module, freeze: bool = True):
     Args:
         m (nn.Module): Module to freeze
     """
+    logger.info(f"Setting grad for {m.__class__.__name__} to {not freeze}")
     if m is not None:
         for p in m.parameters():
-            p.requires_grad = freeze
+            p.requires_grad = not freeze
 
 
 class DiscussionTransformer(nn.Module):
@@ -212,10 +212,20 @@ class DiscussionTransformer(nn.Module):
             **vit_model_config,
         )  # type: ignore[misc]
 
+        self.vit_model = self.vit_model
+
         self.text_model, text_fusion_layers = self.build_bert_encoder(
             num_fusion_layers=total_fusion_layers,
             **text_model_config,
         )  # type: ignore[misc]
+        self.text_model = self.text_model
+
+        if freeze_initial_encoders:
+            freeze_module_params(self.text_model, freeze=True)
+            freeze_module_params(self.vit_model, freeze=True)
+
+        freeze_module_params(text_fusion_layers, freeze=False)
+        freeze_module_params(vit_fusion_layers, freeze=False)
 
         assert len(text_fusion_layers) == len(vit_fusion_layers)
         assert (
@@ -241,9 +251,6 @@ class DiscussionTransformer(nn.Module):
         self.num_bottle_neck = num_bottle_neck
         self.bottle_neck = nn.Embedding(num_bottle_neck, self.embedding_dim)
         self.block_size = block_size
-
-        freeze_module_params(self.text_model, freeze=freeze_initial_encoders)
-        freeze_module_params(self.vit_model, freeze=freeze_initial_encoders)
 
         for layer in range(num_graph_layers_to_freeze):
             freeze_module_params(self.graphormer_layers[layer])
@@ -442,12 +449,10 @@ class DiscussionTransformer(nn.Module):
         text_input: dict[str, torch.Tensor],
         image_inputs: dict[str, torch.Tensor],
         image_padding_mask: torch.Tensor,
-        graph_ids: torch.Tensor,
-        spatial_pos: torch.Tensor,
         rotary_pos: torch.Tensor,
-        in_degree: torch.Tensor,
         out_degree: torch.Tensor,
         num_total_graphs: int,
+        graph_mask: torch.Tensor | None = None,
         **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """The forward function of the Discussion Transformer model.
@@ -497,6 +502,9 @@ class DiscussionTransformer(nn.Module):
         """
         # Ideally, we keep a consistent shape and just flatten here, rather then
         # having to dynamically index here. Attention mask should handle this.
+
+        assert rotary_pos.is_pinned()
+
         bert_output = self.text_model(**text_input).last_hidden_state
         text_attention_mask = text_input[TextFeatures.AttentionMask]
 
@@ -521,43 +529,34 @@ class DiscussionTransformer(nn.Module):
         assert graph_x.size() == (flattened_batch, hidden_dim)
 
         # This does
-        graph_x, graph_ids = self.graph_node_feature(
-            graph_x, out_degree, graph_ids, num_total_graphs
-        )
+        # graph_x, graph_ids = self.graph_node_feature(
+        #     graph_x, out_degree, graph_ids, num_total_graphs
+        # )
+        graph_x = self.graph_node_feature(graph_x, out_degree, num_total_graphs)
 
         # TODO(liamhebert): update spatial pos with new graph ids, distance for
         # each of those nodes.
 
-        assert graph_ids.shape == graph_x.shape[:1], (
-            f"Expected same shape, got {graph_ids.shape=} and"
-            f" {graph_x.shape[:1]=}"
-        )
+        # assert graph_ids.shape == graph_x.shape[:1], (
+        #     f"Expected same shape, got {graph_ids.shape=} and"
+        #     f" {graph_x.shape[:1]=}"
+        # )
 
         if self.emb_layer_norm is not None:
             graph_x = self.emb_layer_norm(graph_x)
-
-        flex_block_mask = generate_graph_attn_mask_mod(
-            graph_ids,
-            spatial_pos,
-            max_spatial_distance=10,
-            num_heads=self.graphormer_layers[0].num_heads,
-            block_size=self.block_size,
-        )
 
         # account for padding while computing the representation
 
         graph_tokens = graph_x[:num_total_graphs, :]
         node_tokens = graph_x[num_total_graphs:, :]
-
         for g_layer, f_layer in zip(
             self.graphormer_layers[:-1], self.fusion_layers[1:]
         ):
-
             graph_x = torch.cat((graph_tokens, node_tokens), dim=0)
 
             graph_x = g_layer(
                 graph_x,
-                mask=flex_block_mask,
+                mask=graph_mask,
                 spatial_pos=rotary_pos,
             )
 
@@ -580,7 +579,7 @@ class DiscussionTransformer(nn.Module):
         graph_x = torch.cat((graph_tokens, node_tokens), dim=0)
         graph_x = self.graphormer_layers[-1](
             graph_x,
-            mask=flex_block_mask,
+            mask=graph_mask,
             spatial_pos=rotary_pos,
         )
 

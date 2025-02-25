@@ -61,8 +61,8 @@ class RMSNorm(nn.Module):
 
     def forward(self, x: torch.Tensor):
         """Applies the RMSNorm normalization to the input tensor."""
-        output = self._norm(x.float())
-        return (output * self.weight.float()).type_as(x)
+        output = self._norm(x)
+        return (output * self.weight).type_as(x)
 
     def reset_parameters(self):
         """Resets the scaling parameter to 1."""
@@ -111,7 +111,6 @@ class Attention(nn.Module):
             dim,
             bias=False,
         )
-        self.use_biased_attention = use_biased_attention
 
         if use_rope:
             self.rope = RoPE(
@@ -177,9 +176,7 @@ class Attention(nn.Module):
         # H S D -> 1 H S D
         xq, xk, xv = xq.unsqueeze(0), xk.unsqueeze(0), xv.unsqueeze(0)
 
-        if self.use_biased_attention:
-            assert mask is None or isinstance(mask, torch.Tensor)
-
+        if isinstance(mask, torch.Tensor):
             output = F.scaled_dot_product_attention(
                 xq,
                 xk,
@@ -187,8 +184,7 @@ class Attention(nn.Module):
                 is_causal=False,
                 attn_mask=mask,
             )
-        else:
-            assert isinstance(mask, BlockMask)
+        elif isinstance(mask, BlockMask):
 
             if xq.is_cuda:
                 divide = 2
@@ -208,6 +204,8 @@ class Attention(nn.Module):
                 xq, xk, xv, block_mask=mask, kernel_options=kernel_options
             )
             assert isinstance(output, torch.Tensor)
+        else:
+            raise ValueError("Mask must be a BlockMask or a torch.Tensor")
 
         # 1 H S D -> H S D
         xq, xk, xv = xq.squeeze(0), xk.squeeze(0), xv.squeeze(0)
@@ -272,24 +270,16 @@ class DifferentialAttention(nn.Module):
 
         self.lambda_init = 0.8 - 0.6 * math.exp(-0.3 * depth)
         self.lambda_q1 = nn.Parameter(
-            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
-                mean=0, std=0.1
-            )
+            torch.zeros(self.head_dim).normal_(mean=0, std=0.1)
         )
         self.lambda_k1 = nn.Parameter(
-            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
-                mean=0, std=0.1
-            )
+            torch.zeros(self.head_dim).normal_(mean=0, std=0.1)
         )
         self.lambda_q2 = nn.Parameter(
-            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
-                mean=0, std=0.1
-            )
+            torch.zeros(self.head_dim).normal_(mean=0, std=0.1)
         )
         self.lambda_k2 = nn.Parameter(
-            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
-                mean=0, std=0.1
-            )
+            torch.zeros(self.head_dim).normal_(mean=0, std=0.1)
         )
 
         self.subln = RMSNorm(2 * self.head_dim, eps=1e-5)
@@ -308,34 +298,47 @@ class DifferentialAttention(nn.Module):
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
-        mask: BlockMask,
+        mask: BlockMask | torch.Tensor,
     ) -> torch.Tensor:
         """Utility to compute attention."""
 
-        if q.is_cuda:
-            divide = 2
-            kernel_options = {
-                "BLOCK_M": int(64 / divide),
-                "BLOCK_N": int(64 / divide),
-                "BLOCK_M1": int(32 / divide),
-                "BLOCK_N1": int(64 / divide),
-                "BLOCK_M2": int(64 / divide),
-                "BLOCK_N2": int(32 / divide),
-            }
-            # kernel_options = None
-        else:
-            kernel_options = None
+        if isinstance(mask, torch.Tensor):
+            output = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                is_causal=False,
+                attn_mask=mask,
+            )
+        elif isinstance(mask, BlockMask):
 
-        output = flex_attention_comp(
-            q, k, v, block_mask=mask, kernel_options=kernel_options
-        )
-        assert isinstance(output, torch.Tensor)
+            if q.is_cuda:
+                divide = 2
+                kernel_options = {
+                    "BLOCK_M": int(64 / divide),
+                    "BLOCK_N": int(64 / divide),
+                    "BLOCK_M1": int(32 / divide),
+                    "BLOCK_N1": int(64 / divide),
+                    "BLOCK_M2": int(64 / divide),
+                    "BLOCK_N2": int(32 / divide),
+                }
+                # kernel_options = None
+            else:
+                kernel_options = None
+
+            output = flex_attention_comp(
+                q, k, v, block_mask=mask, kernel_options=kernel_options
+            )
+            assert isinstance(output, torch.Tensor)
+        else:
+            raise ValueError("Mask must be a BlockMask or a torch.Tensor")
+
         return output
 
     def forward(
         self,
         x: torch.Tensor,
-        mask: BlockMask,
+        mask: BlockMask | torch.Tensor | None = None,
         spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Computes the differential multi-head scaled dot-product attention.
@@ -355,9 +358,8 @@ class DifferentialAttention(nn.Module):
             torch.Tensor: Output tensor of shape `(S, D)`.
         """
         # TODO(liamhebert): Maybe add support for sdpa.
-        assert isinstance(
-            mask, BlockMask
-        ), "Differentiable attention requires block mask"
+        assert mask is not None
+
         seq_len, dim = x.shape
         xq = self.wq(x.view_as(x))
         xk = self.wk(x.view_as(x))
@@ -386,10 +388,10 @@ class DifferentialAttention(nn.Module):
         attn2 = self._attn_forward(q2, k2, xv, mask)
 
         lambda_1 = torch.exp(
-            torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1).float()
+            torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1)
         ).type_as(xq)
         lambda_2 = torch.exp(
-            torch.sum(self.lambda_q2 * self.lambda_k2, dim=-1).float()
+            torch.sum(self.lambda_q2 * self.lambda_k2, dim=-1)
         ).type_as(xq)
         lambda_full = lambda_1 - lambda_2 + self.lambda_init
         attn = attn1 - lambda_full * attn2
