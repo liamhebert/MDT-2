@@ -9,6 +9,10 @@ from glob import glob
 import os
 import re
 
+# The pattern for the months of archives to look for.
+ARCHIVE_MONTHS = "2017-1*"
+DATA_PATH = "/mnt/DATA/reddit_share/data_test/raw"
+
 
 def main():
     """Entry point to process the files."""
@@ -198,11 +202,18 @@ def main():
                     subreddit_to_topic[sub] = []
                 subreddit_to_topic[sub] += [topic]
 
-    path = "./"
+    path = "/mnt/DATA/reddit_share/"
     counts = {key: 0 for key in subreddit_to_topic.keys()}
     subreddit_regex = re.compile('"subreddit":"([^"]+)"')
+    subreddit_null_regex = re.compile('"subreddit_id":null')
+    postid_regex = re.compile('"id":"([^"]+)"')
+    linkid_regex = re.compile('"link_id":"([^"]+)"')
+    crosspost_regex = re.compile('"crosspost_parent":".._([^"]+)"')
     for file in tqdm(
-        list(glob(path + "RC_2017*.zst") + list(glob(path + "RS_2017*.zst"))),
+        list(
+            glob(path + f"RC_{ARCHIVE_MONTHS}.zst")
+            + list(glob(path + f"RS_{ARCHIVE_MONTHS}.zst"))
+        ),
         desc="Files",
         position=0,
     ):
@@ -219,27 +230,55 @@ def main():
             ):
                 # find the first subreddit mentioned
                 subreddit = subreddit_regex.search(line)
+                postids = postid_regex.findall(line)
+                crosspost_ids = crosspost_regex.findall(line)
+                # Filter out crosspost ids from a list of possible ids
+                for crosspost_id in crosspost_ids:
+                    if crosspost_id in postids:
+                        postids.remove(crosspost_id)
+                # Assume post IDs have length less than 8. If not, it's not
+                # postid and we can remove it
+                for i in reversed(range(len(postids))):
+                    if len(postids[i]) > 8:
+                        postids.pop(i)
+
                 if subreddit is None:
+                    # If subreddit_id is null, assume it's an ad
+                    # In which case we can skip this post
                     continue
                 subreddit = subreddit.group(1)
+                if len(postids) != 1:
+                    print(f"Incorrect IDs: {postids}")
+                    print(line)
+                    continue
+                postid = postids[0]
+                if "RC" in file:
+                    # Comments have link IDs as a field. Use that.
+                    linkid = linkid_regex.search(line)
+                    linkid = linkid.group(1)[3:]
+                else:
+                    # Original posts don't have link IDs, so we just use
+                    # the post ID as the link ID
+                    linkid = postid
                 if subreddit in subreddit_to_topic:
                     counts[subreddit] += 1
                     # write line to topic.txt file
                     for topic in subreddit_to_topic[subreddit]:
-                        os.makedirs("data/raw/" + topic, exist_ok=True)
+                        os.makedirs(
+                            f"{DATA_PATH}/{topic}/{subreddit}/{linkid}",
+                            exist_ok=True,
+                        )
                         if "RC" in file:
                             with open(
-                                "data/raw/"
-                                + topic
-                                + "/"
-                                + subreddit
-                                + "-RC.txt",
+                                f"{DATA_PATH}/{topic}/{subreddit}"
+                                + f"/{linkid}/RC.txt",
                                 "a+",
                             ) as topic_file:
                                 topic_file.write(line)
                         else:
                             with open(
-                                "data/raw/" + topic + "/" + subreddit + ".txt",
+                                f"{DATA_PATH}/{topic}/{subreddit}"
+                                + f"/{linkid}/POST.txt",
                                 "a+",
                             ) as topic_file:
                                 topic_file.write(line)

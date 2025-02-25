@@ -42,6 +42,7 @@ def combine_nodes_to_tree(data_list: list[dict], max_depth=None) -> dict | None:
         node_map[node_id] = node
 
         if parent_id is not None:
+            parent_id = parent_id[3:]
             if parent_id not in children_map:
                 children_map[parent_id] = []
             children_map[parent_id].append(node)
