@@ -4,48 +4,77 @@ from glob import glob
 from tqdm import tqdm
 import os
 from joblib import Parallel, delayed
+from heapq import heappush, heappop
+
+ROOT_PATH = "/mnt/DATA/reddit_share"
+DATA_PROCESSED = ROOT_PATH + "/data_test/processed"
+DATA_PRUNED = ROOT_PATH + "/data_test/pruned"
+
+KEEP_COUNT = 20000
 
 
 def main():
     # NOTE: This is currently hard coded to only access files in Test-LocalCity
     # but it can be generalized to access all files in data/processed
+    """
+    Get all trees inside DATA_PROCESSED and prune them,
+    output them in DATA_PRUNED
+    """
     Parallel(n_jobs=-1)(
         delayed(process)(file)
-        for file in tqdm(list(glob("data/processed/Test-LocalCity/*.json")))
+        for file in tqdm(list(glob(DATA_PROCESSED + "/Test-LocalCity/*.json")))
     )
 
 
 def process(file):
+    """
+    Read all trees from file and output the top KEEP_COUNT trees by score.
+    All trees have to have a min size of 10 and min score of 25.
+    Trees are pruned before added.
+    """
     path = os.path.dirname(file)
     file_name = os.path.basename(file)
-    os.makedirs("data/pruned/" + path.split("/")[2], exist_ok=True)
+    os.makedirs(DATA_PRUNED + "/" + path.split("/")[2], exist_ok=True)
     size = 0
     count = 0
     total = 0
     with open(path + "/" + file_name, "r") as read, open(
-        "data/pruned/" + path.split("/")[2] + "/" + file_name, "w"
+        DATA_PRUNED + "/" + path.split("/")[2] + "/" + file_name, "w"
     ) as write:
+        # A heap that stores the top KEEP_COUNT comments by score
+        # This is a min heap, with the top element being the smallest score
+        # When the size of the heap exceeds KEEP_COUNT, we pop the top element
+        data_heap = []
         for line in read:
             data = json.loads(line)
             size = count_size_of_tree(data)
-            # TODO: This condition currently says to keep all posts with a size
+            # We only keep posts with a size
             # greater then 10 and a score greater than 25.
-            # Instead, we should keep the top 20,000 submissions, which also
-            # abide by these conditions.
+            # After that, the top KEEP_COUNT comments by score is selected
             if size > 10 and data["data"]["score"] > 25:
                 count += 1
                 trim_and_get_size(data)
-                write.write(json.dumps(data) + "\n")
+                heappush(data_heap, (data["data"]["score"], json.dumps(data)))
+                if len(data_heap) > KEEP_COUNT:
+                    heappop(data_heap)
             total += 1
+        for score, data_str in data_heap:
+            write.write(data_str + "\n")
 
     print(f"{file_name} {count} {total}")
 
 
 def count_size_of_tree(x):
+    """
+    Recursively count the size of the tree x
+    """
     return sum([count_size_of_tree(y) for y in x["tree"]]) + 1
 
 
 def trim_and_get_size(comment: dict, depth=0):
+    """
+    Trim the tree so that branching factor is limited to 2
+    """
     sizes = []  # (size, index)
     infs = 0
     for i, child in enumerate(comment["tree"]):
