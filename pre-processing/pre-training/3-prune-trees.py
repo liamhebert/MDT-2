@@ -73,7 +73,10 @@ def count_size_of_tree(x):
 
 def trim_and_get_size(comment: dict, depth=0):
     """
-    Trim the tree so that branching factor is limited to 2
+    Trim the tree so that branching factor is limited to 2.
+    For each node, the "top" two child are selected (and others are ignored)
+    We prefer children with greater score. If there's a tie, we prefer
+    children with larger tree size.
     """
     scores = []  # (score, size, index)
     infs = 0
