@@ -75,27 +75,27 @@ def trim_and_get_size(comment: dict, depth=0):
     """
     Trim the tree so that branching factor is limited to 2
     """
-    sizes = []  # (size, index)
+    scores = []  # (score, size, index)
     infs = 0
     for i, child in enumerate(comment["tree"]):
         if depth + 1 < 4:
             res = trim_and_get_size(child, depth + 1)
-            sizes += [(res, i)]
+            scores += [(comment["data"]["score"], res, i)]
             if res == math.inf:
                 infs += 1
         else:
             child["tree"] = []
-            sizes += [(0, i)]
+            scores += [(comment["data"]["score"], 0, i)]
 
     # NOTE: This makes sure that the branching factor is 2. We keep only the
-    # branches with the most nodes. This is a heuristic to only keep branches
-    # with active conversations, but it is not perfect.
-    # TODO: We should factor in upvotes and downvotes to determine the most
-    # promising branches. (comment['data']['score'])
+    # branches with the best score, then the most nodes. This is a heuristic to
+    # only keep branches with active conversations, but it is not perfect.
     trimed_size = max(2, infs)
-    sizes = sorted(sizes, key=lambda x: x[0], reverse=True)[:trimed_size]
-    new_size = sum([s[0] for s in sizes])
-    comment["tree"] = [comment["tree"][x[1]] for x in sizes]
+    scores = sorted(scores, key=lambda x: (x[0], x[1]), reverse=True)[
+        :trimed_size
+    ]
+    new_size = sum([s[1] for s in scores])
+    comment["tree"] = [comment["tree"][x[2]] for x in scores]
     return new_size
 
 
