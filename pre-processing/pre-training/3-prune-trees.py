@@ -45,21 +45,22 @@ def process(file):
         # This is a min heap, with the top element being the smallest score
         # When the size of the heap exceeds KEEP_COUNT, we pop the top element
         data_heap = []
-        for line in read:
+        for i, line in enumerate(read):
             data = json.loads(line)
-            size = count_size_of_tree(data)
             # We only keep posts with a size
             # greater then 10 and a score greater than 25.
             # After that, the top KEEP_COUNT comments by score is selected
-            if size > 10 and data["data"]["score"] > 25:
-                count += 1
-                trim_and_get_size(data)
-                heappush(data_heap, (data["data"]["score"], json.dumps(data)))
+            if data["data"]["score"] > 25:
+                heappush(data_heap, (data["data"]["score"], -i, data))
                 if len(data_heap) > KEEP_COUNT:
                     heappop(data_heap)
             total += 1
-        for score, data_str in data_heap:
-            write.write(data_str + "\n")
+        for score, idx, data in data_heap:
+            size = count_size_of_tree(data)
+            if size > 10:
+                count += 1
+                trim_and_get_size(data)
+                write.write(json.dumps(data) + "\n")
 
     print(f"{file_name} {count} {total}")
 
