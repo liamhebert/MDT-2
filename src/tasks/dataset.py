@@ -12,7 +12,6 @@ from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import Dataset
 from torch_geometric import utils as pyg_utils
-from torch_geometric.data import Data
 from tqdm import tqdm
 from transformers import AutoImageProcessor
 from transformers import AutoTokenizer
@@ -49,7 +48,7 @@ class TaskDataset(Dataset, ABC):
 
     spatial_pos_max: int = 100
 
-    _graph_cache: dict[int, Data] | None = None
+    _graph_cache: dict[int, dict[str, torch.Tensor]] | None = None
     graph_sizes: dict[int, int] | None = None
 
     _splits: dict[str, list[int]] | None
@@ -145,6 +144,9 @@ class TaskDataset(Dataset, ABC):
             self.force_reload = True
 
         self._processed_file_names = None
+        self.hdf5_path = os.path.join(
+            self.output_graph_path, "processed_data.h5"
+        )
 
     def get_idx_mapping(self) -> dict[str, dict[int, list[int]]]:
         """Creates a mapping for each graph index to a list of processed graphs.
@@ -761,7 +763,7 @@ class TaskDataset(Dataset, ABC):
             ), f"Missing {feature=}, {tokenized_text.keys()=}"
 
         if self.text_config["add_position_ids"]:
-            tokenized_text[TextFeatures.PositionIds] = torch.tile(
+            tokenized_text["position_ids"] = torch.tile(
                 torch.arange(tokenized_text[TextFeatures.InputIds].shape[1]),
                 (tokenized_text[TextFeatures.InputIds].shape[0], 1),
             )
@@ -793,13 +795,15 @@ class TaskDataset(Dataset, ABC):
             mapped_distance = sorted(mapped_distance, key=lambda x: x[0])
             combined_distance.append([x[1] for x in mapped_distance])
 
-        rotary_pos = torch.tensor(flattened_graph["rotary_position"])
+        rotary_pos = torch.tensor(
+            flattened_graph["rotary_position"], dtype=torch.uint8
+        )
         assert rotary_pos.shape == (
             len(flattened_graph["id"]),
             2,
         ), rotary_pos.shape
 
-        distance_tensor = torch.tensor(combined_distance)
+        distance_tensor = torch.tensor(combined_distance, dtype=torch.uint8)
 
         # Since each node only has one directional edge, we know that the number
         # of nodes is the same as the number of edges.
@@ -811,28 +815,24 @@ class TaskDataset(Dataset, ABC):
             2,
         ), distance_tensor.shape
 
-        # NOTE: Leaving the global token attn_bias to be added in the model code
-        # TODO(liamhebert): Technically this is no-op since we don't ever set
-        # dataset specific attn_biases. The only spot where we do is in the
-        # collator to mask out nodes according to distance. We should probably
-        # remove this.
-        attn_bias = torch.zeros((num_nodes, num_nodes))
-
         assert all(isinstance(x, dict) for x in flattened_graph["y"])
         ys: list[dict[str, int | bool]] = flattened_graph["y"]  # type: ignore
-        y = {key: torch.tensor([x[key] for x in ys]) for key in ys[0].keys()}
+        y = {
+            key: torch.tensor([x[key] for x in ys], dtype=torch.int8)
+            for key in ys[0].keys()
+        }
 
-        distance_clamped = torch.clamp(
-            distance_tensor,
-            min=0,
-            max=self.max_distance_length,
-        )
+        # distance_clamped = torch.clamp(
+        #     distance_tensor,
+        #     min=0,
+        #     max=self.max_distance_length,
+        # )
 
         # Slightly faster then indexing a table, esp if we use a gpu.
-        distance_index = (
-            distance_clamped[..., 0] * self.max_distance_length
-            + distance_clamped[..., 1]
-        )
+        # distance_index = (
+        #     distance_clamped[..., 0] * self.max_distance_length
+        #     + distance_clamped[..., 1]
+        # )
 
         degree_out = pyg_utils.degree(
             edges[0][1:], num_nodes=num_nodes, dtype=torch.long
@@ -848,15 +848,11 @@ class TaskDataset(Dataset, ABC):
 
         data = dict(
             text=tokenized_text,
-            edge_index=edges,
             y=y,
             image_mask=image_mask,
             images=tokenized_images,
             distance=distance_tensor,  # NOTE: this distance is not clamped
-            distance_index=distance_index,
             rotary_position=rotary_pos,
-            attn_bias=attn_bias,
-            in_degree=degree,
             out_degree=degree,
         )
 
@@ -900,7 +896,7 @@ class TaskDataset(Dataset, ABC):
                     self.processed_file_names[idx], weights_only=False
                 )
                 if not has_counts:
-                    self.graph_sizes[int(idx)] = len(data["in_degree"])
+                    self.graph_sizes[int(idx)] = len(data["out_degree"])
                 if not counts_only:
                     self._graph_cache[idx] = data
 
@@ -910,7 +906,7 @@ class TaskDataset(Dataset, ABC):
             with open(f"{self.output_graph_path}/counts.json", "w") as f:
                 json.dump(self.graph_sizes, f)
 
-    def __getitem__(self, idx: int) -> Data:
+    def __getitem__(self, idx: int) -> dict:
         """Loads the processed graph from disk at the given index.
 
         Args:

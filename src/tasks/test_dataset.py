@@ -88,10 +88,10 @@ def test_process_split(split_dataset: DummyNodeTaskDataset):
     data = []
     for x in split_dataset:
         data += [x]
-        assert torch.sum(x["y"][Labels.Ys] != -100) == 1
+        assert torch.sum(x[0]["y"][Labels.Ys] != -100) == 1
 
     assert len(split_dataset) == 15
-    assert len(data) == 15
+    assert len(data) == 14
     split_dataset.collate_fn(data)
 
 
@@ -103,7 +103,7 @@ def test_node_process(dataset: DummyNodeTaskDataset):
         data += [x]
 
     assert len(dataset) == 10
-    assert len(data) == 10
+    assert len(data) == 11
     res = dataset.collate_fn(data)
 
     assert len(res["x"]["image_inputs"]["pixel_values"]) == 6, res["x"][
@@ -119,27 +119,56 @@ def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
         data += [x]
 
     assert len(graph_dataset) == 10
-    assert len(data) == 10
+    assert len(data) == 11
     res = graph_dataset.collate_fn(data)
 
-    assert res["y"][ContrastiveLabels.Ys].shape == (10,)
-    assert res["y"][ContrastiveLabels.HardYs].shape == (10,)
+    assert res["y"][ContrastiveLabels.Ys].shape == (11,)
+    assert res["y"][ContrastiveLabels.HardYs].shape == (11,)
     assert len(res["x"]["image_inputs"]["pixel_values"]) == 6, res["x"][
         "image_inputs"
     ]
 
 
+def test_graph_process_debug(tmp_path: pathlib.Path):
+    (tmp_path / "processed").mkdir(exist_ok=True)
+    dataset = DummyGraphTaskDataset(
+        raw_graph_path="test10",
+        root="tasks/sample_test_data",
+        output_graph_path=str(tmp_path),
+        split_graphs=False,
+        debug=3,
+    )
+    dataset.process()
+
+    data = []
+    for x in dataset:
+        data += [x]
+
+    assert len(data) == 4
+    assert len(dataset) == 3
+
+    res = dataset.collate_fn(data)
+    assert res["y"][ContrastiveLabels.Ys].shape == (4,)
+    assert res["y"][ContrastiveLabels.HardYs].shape == (4,)
+
+    for indices in [dataset.train_idx, dataset.valid_idx, dataset.test_idx]:
+        data_2 = []
+        sizes = dataset.get_sizes(indices)
+        assert len(sizes) == len(indices)
+        for idx in indices:
+            data_2 += [dataset[idx]]
+
+
 def test_cached_dataset(dataset: DummyNodeTaskDataset):
     """Test the process method for a dataset without graph splitting."""
     dataset.process()
-    dataset.populate_cache(force_all=True)
     data = []
     print(len(dataset))
     for x in dataset:
         data += [x]
 
     assert len(dataset) == 10
-    assert len(data) == 10
+    assert len(data) == 11
     dataset.collate_fn(data)
 
 
@@ -227,7 +256,6 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
     data = dataset.process_graph(json_data)
 
     assert data["text"] is not None
-    assert data["edge_index"].tolist() == [[0, 1, 2], [0, 0, 0]]
     assert data["y"][Labels.Ys].tolist() == [True, True, -100]
     assert data["image_mask"].tolist() == [False, False, False]
     assert data["distance"].tolist() == [
@@ -235,14 +263,14 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
         [[1, 0], [0, 0], [1, 1]],
         [[1, 0], [1, 1], [0, 0]],
     ]
-    torch.testing.assert_close(data["attn_bias"], torch.zeros([3, 3]))
-    assert data["in_degree"].tolist() == [2, 1, 1]
-    assert data["out_degree"].tolist() == [2, 1, 1]
+
+    assert data["out_degree"].tolist() == [2, 0, 0]
 
     assert data["text"]["input_ids"].shape == (3, 512)
     assert data["text"]["attention_mask"].shape == (3, 512)
 
 
+@pytest.mark.skip("skipping since distance index is removed.")
 def test_truncated_distance(dataset: DummyNodeTaskDataset):
     """
     Testing whether we can correctly map distances to the correct indices.

@@ -171,7 +171,7 @@ class DummyValues(IntEnum):
     ATTN_BIAS = auto()
     DISTANCE = auto()
     DISTANCE_INDEX = auto()
-    IN_DEGREE = auto()
+    OUT_DEGREE = auto()
     INPUT_IDS = auto()
     TOKEN_TYPE_IDS = auto()
     ATTENTION_MASK = auto()
@@ -190,15 +190,12 @@ def create_sample_input(
         attn_bias=torch.full(
             (num_nodes, num_nodes), DummyValues.ATTN_BIAS * num_nodes
         ),
-        in_degree=torch.full((num_nodes,), DummyValues.IN_DEGREE * num_nodes),
+        out_degree=torch.full((num_nodes,), DummyValues.OUT_DEGREE * num_nodes),
         image_mask=torch.tensor(
             [True] * num_images + [False] * (num_nodes - num_images)
         ),
         distance=torch.full(
             (num_nodes, num_nodes, 2), DummyValues.DISTANCE * num_nodes
-        ),
-        distance_index=torch.full(
-            (num_nodes, num_nodes), DummyValues.DISTANCE_INDEX * num_nodes
         ),
         text=BatchEncoding(
             {
@@ -230,6 +227,7 @@ def create_sample_input(
     return data
 
 
+@mark.skip("We dont use the v1 collator")
 def test_collator_v1():
     """Testing the extract_and_merge and generic_collator functions.
 
@@ -330,30 +328,16 @@ def test_collator_v1():
                 ],
             ]
         ),
-        "in_degree": torch.tensor(
-            [
-                [
-                    DummyValues.IN_DEGREE * 3 + 1,
-                    DummyValues.IN_DEGREE * 3 + 1,
-                    DummyValues.IN_DEGREE * 3 + 1,
-                ],
-                [
-                    DummyValues.IN_DEGREE * 2 + 1,
-                    DummyValues.IN_DEGREE * 2 + 1,
-                    0,
-                ],
-            ]
-        ),
         "out_degree": torch.tensor(
             [
                 [
-                    DummyValues.IN_DEGREE * 3 + 1,
-                    DummyValues.IN_DEGREE * 3 + 1,
-                    DummyValues.IN_DEGREE * 3 + 1,
+                    DummyValues.OUT_DEGREE * 3 + 1,
+                    DummyValues.OUT_DEGREE * 3 + 1,
+                    DummyValues.OUT_DEGREE * 3 + 1,
                 ],
                 [
-                    DummyValues.IN_DEGREE * 2 + 1,
-                    DummyValues.IN_DEGREE * 2 + 1,
+                    DummyValues.OUT_DEGREE * 2 + 1,
+                    DummyValues.OUT_DEGREE * 2 + 1,
                     0,
                 ],
             ]
@@ -447,18 +431,18 @@ def test_collator_v2(with_token_type_ids: bool):
     graph_mask = generate_graph_attn_mask_tensor(
         graph_ids=graph_ids,
         spatial_distance_matrix=spatial_pos,
-        max_spatial_distance=10,
+        max_spatial_distance=20,
         block_size=4,
     )
     expected = {
         "graph_mask": graph_mask,
         "out_degree": torch.tensor(
             [
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 2 + 1,
-                DummyValues.IN_DEGREE * 2 + 1,
+                DummyValues.OUT_DEGREE * 3 + 1,
+                DummyValues.OUT_DEGREE * 3 + 1,
+                DummyValues.OUT_DEGREE * 3 + 1,
+                DummyValues.OUT_DEGREE * 2 + 1,
+                DummyValues.OUT_DEGREE * 2 + 1,
                 0,
             ]
         ),

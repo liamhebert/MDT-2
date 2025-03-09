@@ -61,8 +61,8 @@ class RMSNorm(nn.Module):
 
     def forward(self, x: torch.Tensor):
         """Applies the RMSNorm normalization to the input tensor."""
-        output = self._norm(x)
-        return (output * self.weight).type_as(x)
+        output = self._norm(x.float())
+        return (output * self.weight.float()).type_as(x)
 
     def reset_parameters(self):
         """Resets the scaling parameter to 1."""
@@ -270,16 +270,24 @@ class DifferentialAttention(nn.Module):
 
         self.lambda_init = 0.8 - 0.6 * math.exp(-0.3 * depth)
         self.lambda_q1 = nn.Parameter(
-            torch.zeros(self.head_dim).normal_(mean=0, std=0.1)
+            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
+                mean=0, std=0.1
+            )
         )
         self.lambda_k1 = nn.Parameter(
-            torch.zeros(self.head_dim).normal_(mean=0, std=0.1)
+            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
+                mean=0, std=0.1
+            )
         )
         self.lambda_q2 = nn.Parameter(
-            torch.zeros(self.head_dim).normal_(mean=0, std=0.1)
+            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
+                mean=0, std=0.1
+            )
         )
         self.lambda_k2 = nn.Parameter(
-            torch.zeros(self.head_dim).normal_(mean=0, std=0.1)
+            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
+                mean=0, std=0.1
+            )
         )
 
         self.subln = RMSNorm(2 * self.head_dim, eps=1e-5)
@@ -388,10 +396,10 @@ class DifferentialAttention(nn.Module):
         attn2 = self._attn_forward(q2, k2, xv, mask)
 
         lambda_1 = torch.exp(
-            torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1)
+            torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1).float()
         ).type_as(xq)
         lambda_2 = torch.exp(
-            torch.sum(self.lambda_q2 * self.lambda_k2, dim=-1)
+            torch.sum(self.lambda_q2 * self.lambda_k2, dim=-1).float()
         ).type_as(xq)
         lambda_full = lambda_1 - lambda_2 + self.lambda_init
         attn = attn1 - lambda_full * attn2

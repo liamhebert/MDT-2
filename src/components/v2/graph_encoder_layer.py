@@ -216,7 +216,7 @@ class BaseGraphTransformer(nn.Module):
         graph_tfmr_factory: Callable[[int], GraphTransformerBlock],
         depth: int = 0,
         init_base_std: float | None = None,
-        init_std_factor: str | InitStdFactor = "disabled",
+        init_std_factor: str | InitStdFactor = "current_depth",
     ):
         super().__init__()
         self.init_base_std = init_base_std

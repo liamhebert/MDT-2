@@ -30,6 +30,7 @@ from components.graph_fusion_layer import GraphFusionStack
 from components.v2.graph_encoder_layer import BaseGraphTransformer
 from components.v2.feature_layers import GraphAttnBias
 from components.v2.feature_layers import GraphNodeFeature
+from components.v2.graph_attention_layers import RMSNorm
 from utils.pylogger import RankedLogger
 
 from data.types import TextFeatures
@@ -72,6 +73,68 @@ def freeze_module_params(m: nn.Module, freeze: bool = True):
     if m is not None:
         for p in m.parameters():
             p.requires_grad = not freeze
+
+
+class DiscussionTransformerBlock(nn.Module):
+    ...
+
+    graph_layer: BaseGraphTransformer
+    fusion_layer: GraphFusionStack
+    norm: RMSNorm
+
+    def __init__(
+        self,
+        graph_layer: BaseGraphTransformer,
+        bert_layer_stack: list[BertLayer],
+        vit_layer_stack: list[ViTLayer],
+        embedding_dim: int = 768,
+    ):
+        super().__init__()
+        self.fusion_layer = GraphFusionStack(
+            bert_layer_stack, vit_layer_stack, use_projection=False
+        )
+        self.pre_norm = RMSNorm(embedding_dim)
+        self.graph_layer = graph_layer
+        self.post_norm = RMSNorm(embedding_dim)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        num_total_graphs: int,
+        graph_mask: torch.Tensor,
+        rotary_pos: torch.Tensor,
+        bert_output: torch.Tensor,
+        vit_output: torch.Tensor,
+        bottle_neck: torch.Tensor,
+        image_padding_mask: torch.Tensor,
+        text_attention_mask: torch.Tensor,
+    ):
+        graph_x = self.graph_layer(
+            x,
+            mask=graph_mask,
+            spatial_pos=rotary_pos,
+        )
+
+        # extract bottle_neck tokens
+        graph_tokens = graph_x[:num_total_graphs, :]
+        node_tokens = graph_x[num_total_graphs:, :]
+        # TODO(liamhebert): Experiment adding graph tokens here too
+        bottle_neck[:, 0, :] = node_tokens
+        bottle_neck = self.pre_norm(bottle_neck)
+
+        bert_output, vit_output, bottle_neck = self.fusion_layer(
+            bert_hidden_states=bert_output,
+            vit_hidden_states=vit_output,
+            bottle_neck=bottle_neck,
+            image_padding_mask=image_padding_mask,
+            bert_attention_mask=text_attention_mask,
+        )
+
+        node_tokens = bottle_neck[:, 0, :]
+
+        graph_x = torch.cat((graph_tokens, node_tokens), dim=0)
+        graph_x = self.post_norm(graph_x)
+        return graph_x, bert_output, vit_output, bottle_neck
 
 
 class DiscussionTransformer(nn.Module):
@@ -232,21 +295,35 @@ class DiscussionTransformer(nn.Module):
             len(text_fusion_layers) == fusion_stack_size * num_fusion_stack
         ), f"Expected {total_fusion_layers=}, got {len(text_fusion_layers)=}"
 
-        self.fusion_layers = self.build_fusion_layers(
+        grouped_text_layers, grouped_vit_layers = self.group_layers_for_fusion(
             text_fusion_layers, vit_fusion_layers, fusion_stack_size
         )
-        assert (
-            len(self.fusion_layers) == num_fusion_stack
-        ), f"Expected {num_fusion_stack=}, got {len(self.fusion_layers)=}"
 
-        num_fusion_layers = len(self.fusion_layers)
+        self.first_fusion_layer = GraphFusionStack(
+            grouped_text_layers[0], grouped_vit_layers[0], use_projection=False
+        )
 
-        self.graphormer_layers = nn.ModuleList(
+        self.blocks = nn.ModuleList(
             [
-                graph_stack_factory(depth=i)
-                for i in range(num_fusion_layers + 1)  # type: ignore
+                DiscussionTransformerBlock(
+                    graph_layer=graph_stack_factory(depth=i),  # type: ignore
+                    bert_layer_stack=text,
+                    vit_layer_stack=vit,
+                    embedding_dim=self.embedding_dim,
+                )
+                for i, (text, vit) in enumerate(
+                    zip(grouped_text_layers[1:], grouped_vit_layers[1:])
+                )
             ]
         )
+
+        self.final_graphormer_layer = graph_stack_factory(
+            depth=len(self.blocks) + 1  # type: ignore
+        )
+
+        assert (
+            len(self.blocks) + 1 == num_fusion_stack
+        ), f"Expected {num_fusion_stack=}, got {len(self.blocks) + 1=}"
 
         self.num_bottle_neck = num_bottle_neck
         self.bottle_neck = nn.Embedding(num_bottle_neck, self.embedding_dim)
@@ -255,18 +332,16 @@ class DiscussionTransformer(nn.Module):
         for layer in range(num_graph_layers_to_freeze):
             freeze_module_params(self.graphormer_layers[layer])
 
-    def build_fusion_layers(
+    def group_layers_for_fusion(
         self,
         text_fusion_layers: list[BertLayer],
         vit_fusion_layers: list[ViTLayer],
         fusion_stack_size: int,
-    ) -> nn.ModuleList:
+    ) -> tuple[list[list[BertLayer]], list[list[ViTLayer]]]:
         """Fuses the lists of modality layers into a list of fusion layers.
 
         Here, we group the layers into groups of `fusion_stack_size` layers,
-        where each layer will process the output of the previous layer. We use
-        num_bottle_neck to assist the fusion layers to know where the bottleneck
-        tokens are.
+        where each layer will process the output of the previous layer.
 
         NOTE: the number of text and vision layers must be equal and divisible
         by `fusion_stack_size`.
@@ -276,10 +351,10 @@ class DiscussionTransformer(nn.Module):
             vit_fusion_layers (list[ViTLayer]): List of vision layers to fuse.
             fusion_stack_size (int): Number of consecutive fusion layers to
                 stack.
-            num_bottle_neck (int): Number of bottleneck tokens we will be using.
 
         Returns:
-            nn.ModuleList[GraphFusionStack]: The list of stacked fusion layers.
+            list[list[BertLayer]], list[list[ViTLayer]]: Grouped lists of layers
+                to be used for fusion.
         """
 
         # TODO(liamhebert): Consider using itertools.zip_longest to handle
@@ -302,16 +377,16 @@ class DiscussionTransformer(nn.Module):
         ]
         assert len(grouped_text_fusion_layers) == len(grouped_vit_fusion_layers)
 
-        fusion_layers = nn.ModuleList(
-            [
-                GraphFusionStack(text_layer, vit_layer, use_projection=False)
-                for text_layer, vit_layer in zip(
-                    grouped_text_fusion_layers, grouped_vit_fusion_layers
-                )
-            ]
-        )
+        # fusion_layers = nn.ModuleList(
+        #     [
+        #         GraphFusionStack(text_layer, vit_layer, use_projection=False)
+        #         for text_layer, vit_layer in zip(
+        #             grouped_text_fusion_layers, grouped_vit_fusion_layers
+        #         )
+        #     ]
+        # )
 
-        return fusion_layers
+        return grouped_text_fusion_layers, grouped_vit_fusion_layers
 
     def build_vit_encoder(
         self,
@@ -503,8 +578,6 @@ class DiscussionTransformer(nn.Module):
         # Ideally, we keep a consistent shape and just flatten here, rather then
         # having to dynamically index here. Attention mask should handle this.
 
-        assert rotary_pos.is_pinned()
-
         bert_output = self.text_model(**text_input).last_hidden_state
         text_attention_mask = text_input[TextFeatures.AttentionMask]
 
@@ -517,7 +590,7 @@ class DiscussionTransformer(nn.Module):
 
         bottle_neck = self.bottle_neck.weight.repeat(flattened_batch, 1, 1)
 
-        bert_output, vit_output, bottle_neck = self.fusion_layers[0](
+        bert_output, vit_output, bottle_neck = self.first_fusion_layer(
             bert_hidden_states=bert_output,
             vit_hidden_states=vit_output,
             bottle_neck=bottle_neck,
@@ -534,9 +607,6 @@ class DiscussionTransformer(nn.Module):
         # )
         graph_x = self.graph_node_feature(graph_x, out_degree, num_total_graphs)
 
-        # TODO(liamhebert): update spatial pos with new graph ids, distance for
-        # each of those nodes.
-
         # assert graph_ids.shape == graph_x.shape[:1], (
         #     f"Expected same shape, got {graph_ids.shape=} and"
         #     f" {graph_x.shape[:1]=}"
@@ -547,37 +617,20 @@ class DiscussionTransformer(nn.Module):
 
         # account for padding while computing the representation
 
-        graph_tokens = graph_x[:num_total_graphs, :]
-        node_tokens = graph_x[num_total_graphs:, :]
-        for g_layer, f_layer in zip(
-            self.graphormer_layers[:-1], self.fusion_layers[1:]
-        ):
-            graph_x = torch.cat((graph_tokens, node_tokens), dim=0)
-
-            graph_x = g_layer(
+        for block in self.blocks:
+            graph_x, bert_output, vit_output, bottle_neck = block(
                 graph_x,
-                mask=graph_mask,
-                spatial_pos=rotary_pos,
+                num_total_graphs,
+                graph_mask,
+                rotary_pos,
+                bert_output,
+                vit_output,
+                bottle_neck,
+                image_padding_mask,
+                text_attention_mask,
             )
 
-            # extract bottle_neck tokens
-            graph_tokens = graph_x[:num_total_graphs, :]
-            node_tokens = graph_x[num_total_graphs:, :]
-            # TODO(liamhebert): Experiment adding graph tokens here too
-            bottle_neck[:, 0, :] = node_tokens
-
-            bert_output, vit_output, bottle_neck = f_layer(
-                bert_hidden_states=bert_output,
-                vit_hidden_states=vit_output,
-                bottle_neck=bottle_neck,
-                image_padding_mask=image_padding_mask,
-                bert_attention_mask=text_attention_mask,
-            )
-
-            node_tokens = bottle_neck[:, 0, :]
-
-        graph_x = torch.cat((graph_tokens, node_tokens), dim=0)
-        graph_x = self.graphormer_layers[-1](
+        graph_x = self.final_graphormer_layer(
             graph_x,
             mask=graph_mask,
             spatial_pos=rotary_pos,

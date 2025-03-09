@@ -21,8 +21,8 @@ def test_build_discussion_transformer(
     # Test individual fusion stack size
     assert all(
         [
-            len(layer) == config.fusion_stack_size
-            for layer in model.fusion_layers
+            len(block.fusion_layer) == config.fusion_stack_size
+            for block in model.blocks
         ]
     ), (
         f"Expected {config.fusion_stack_size=}."
@@ -30,15 +30,12 @@ def test_build_discussion_transformer(
     )
 
     # Test number of fusion stacks
-    assert len(model.fusion_layers) == config.num_fusion_stack
-
-    # Test number of graphormer layers
-    assert len(model.graphormer_layers) == config.num_fusion_stack + 1
+    assert len(model.blocks) == config.num_fusion_stack - 1
 
     # Test individual graphormer stack size
     assert all(
-        len(layer) == config.graph_stack_factory.num_layers
-        for layer in model.graphormer_layers
+        len(block.graph_layer) == config.graph_stack_factory.num_layers
+        for block in model.blocks
     )
 
     # Test number of bottleneck embeddings

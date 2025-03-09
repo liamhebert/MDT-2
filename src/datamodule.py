@@ -77,7 +77,7 @@ class DataModule(LightningDataModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.master_dataset = dataset
-        self.save_hyperparameters(logger=False)
+        self.save_hyperparameters(logger=False, ignore="dataset")
 
     def prepare_data(self):
         """Prepare the data for the dataset.
@@ -86,6 +86,10 @@ class DataModule(LightningDataModule):
         memory are not replicated across gpus. This is useful for downloading.
         """
         self.master_dataset.process()
+
+    def teardown(self, stage):
+        if self.master_dataset._hdf5_file is not None:
+            self.master_dataset._hdf5_file.close()
 
     def build_sampler(self, dataset: Iterable) -> DistributedSampler | None:
         """Build a distributed sampler for the dataset."""
@@ -151,14 +155,13 @@ class DataModule(LightningDataModule):
             self._train_device_batch_size = train_batch_size
             self._test_device_batch_size = test_batch_size
 
-        flag_cache_later = False
-        if (
-            self._train_dataset is None
-            and self._val_dataset is None
-            and self._test_dataset is None
-        ):
-            if self.hparams.cache_dataset:  # type: ignore
-                self.master_dataset.populate_cache(counts_only=False)
+        # if (
+        #     self._train_dataset is None
+        #     and self._val_dataset is None
+        #     and self._test_dataset is None
+        # ):
+        #     if self.hparams.cache_dataset:  # type: ignore
+        #         self.master_dataset.populate_cache(counts_only=False)
 
         if self._train_dataset is None:
             # make training dataset
@@ -168,9 +171,8 @@ class DataModule(LightningDataModule):
                     self.master_dataset.train_idx,
                 )
                 indices = self._train_dataset.indices
-                all_lengths = self.master_dataset.graph_sizes
-                assert all_lengths is not None, "Graph sizes not loaded"
-                example_lengths = [all_lengths[i] for i in indices]
+                example_lengths = self.master_dataset.get_sizes(indices)
+                assert example_lengths is not None, "Graph sizes not loaded"
                 multiplier = self.hparams.max_length_multiplier  # type: ignore
                 if multiplier is not None:
                     max_total_length = int(
@@ -181,8 +183,8 @@ class DataModule(LightningDataModule):
                 self.batch_sampler = LengthGroupedSampler(
                     example_lengths=example_lengths,
                     batch_size=self._train_device_batch_size,  # type: ignore
-                    shuffle=False,
-                    shuffle_every_epoch=False,
+                    shuffle=True,
+                    shuffle_every_epoch=True,
                     drop_last=True,
                     max_total_length=max_total_length,
                 )
@@ -218,32 +220,31 @@ class DataModule(LightningDataModule):
                 self.master_dataset.test_idx
             )
 
-        if flag_cache_later:
-            log.info("Finally caching dataset into memory...")
+        # if flag_cache_later:
+        #     log.info("Finally caching dataset into memory...")
 
-            # assert self._val_sampler is not None
-            # assert self._test_sampler is not None
+        #     # assert self._val_sampler is not None
+        #     # assert self._test_sampler is not None
 
-            # # Since we are distributed, we selectively load things in cache.
-            # if self.hparams.use_length_grouped_sampler:  # type: ignore
-            #     assert self.batch_sampler is not None
-            #     assert self.batch_sampler.sampler is not None
-            #     train_idx = set(chain.from_iterable(self.batch_sampler))
-            # else:
-            #     assert self._train_sampler is not None
-            #     train_idx = set(self._train_sampler)
+        #     # # Since we are distributed, we selectively load things in cache.
+        #     # if self.hparams.use_length_grouped_sampler:  # type: ignore
+        #     #     assert self.batch_sampler is not None
+        #     #     assert self.batch_sampler.sampler is not None
+        #     #     train_idx = set(chain.from_iterable(self.batch_sampler))
+        #     # else:
+        #     #     assert self._train_sampler is not None
+        #     #     train_idx = set(self._train_sampler)
 
-            # valid_idx = set(self._val_sampler)
-            # test_idx = set(self._test_sampler)
-            # total_indices = train_idx | valid_idx | test_idx
-            self.master_dataset.populate_cache(counts_only=False)
+        #     # valid_idx = set(self._val_sampler)
+        #     # test_idx = set(self._test_sampler)
+        #     # total_indices = train_idx | valid_idx | test_idx
+        #     self.master_dataset.populate_cache(counts_only=False)
 
     def train_dataloader(self) -> DataLoader:
         """
         Return the training dataloader.
         """
         assert self._train_dataset is not None, "Train dataset not loaded"
-
         return StatefulDataLoader(
             self._train_dataset,
             batch_size=(
@@ -255,7 +256,7 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
-            snapshot_every_n_steps=1000,
+            prefetch_factor=20,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -272,7 +273,6 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
-            snapshot_every_n_steps=1000,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -289,5 +289,4 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
-            snapshot_every_n_steps=1000,
         )

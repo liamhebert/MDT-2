@@ -6,6 +6,6 @@ defaults:
   - _self_
 
 dataset:
-  train_batch_size: 42
-  max_total_length: 342
-  test_batch_size: 42
+  train_batch_size: 52
+  max_total_length: null
+  test_batch_size: 52

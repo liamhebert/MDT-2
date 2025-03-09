@@ -2,7 +2,7 @@ _target_: datamodule.DataModule
 
 train_batch_size: 24
 use_length_grouped_sampler: True
-max_total_length: 360 # Note this is per gpu, so 42 / 2 = 21 graphs, same length
+max_total_length: 384 # Note this is per gpu, so 42 / 2 = 21 graphs, same length
 
 test_batch_size: 24
 num_workers: 6

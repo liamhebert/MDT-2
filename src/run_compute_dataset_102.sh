@@ -9,4 +9,4 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodelist=watgpu102
 
-python compute_dataset.py "$@" hydra.launcher=local
+python compute_dataset.py "$@" env=rcohen hydra.launcher=local

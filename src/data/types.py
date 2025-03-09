@@ -11,7 +11,7 @@ class GraphFeatures(StrEnum):
     """Graph feature names used as inputs."""
 
     AttnBias = "attn_biases"
-    InDegree = "in_degree"
+    OutDegree = "out_degree"
     ImageMask = "image_mask"
     Distance = "distance"
     DistanceIndex = "distance_index"

@@ -34,7 +34,7 @@ def graph_fusion_stack_fixture(
     Fixture to build the graph fusion stack.
     """
     model, config = discussion_transformer_fixture
-    return model.fusion_layers[0], config
+    return model.first_fusion_layer, config
 
 
 @pytest.fixture(scope="module")

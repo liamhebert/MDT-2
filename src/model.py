@@ -54,6 +54,11 @@ class Model(L.LightningModule):
             for state in ["train", "val", "test"]
         }
 
+        for state, metrics in self.metrics.items():
+            for type, metric_set in metrics.items():
+                for metric_name, metric in metric_set.items():
+                    self.add_module(f"{state}_{type}_{metric_name}", metric)
+
         # for averaging loss across batches
 
     # TODO(liamhebert): Implement model logic
@@ -90,9 +95,6 @@ class Model(L.LightningModule):
 
         node_embeddings, graph_embeddings = self.forward(x)
 
-        for key, metric in metrics.items():
-            metric.to(self.device)
-
         loss, metrics = self.loss(node_embeddings, graph_embeddings, y, metrics)
         return loss, metrics
 
@@ -105,6 +107,11 @@ class Model(L.LightningModule):
         # store results from these checks
 
         self.encoder.train()
+
+        # for metrics in self.metrics.values():
+        #     for metric_set in metrics.values():
+        #         for metric in metric_set.values():
+        #             metric.to(self.device)
 
         for metric in self.metrics["val"]["epoch"].values():
             metric.reset()
@@ -284,9 +291,9 @@ class Model(L.LightningModule):
             epochs = self.trainer.max_epochs
             assert epochs is not None
             dataset_size = 380_000
-            steps_per_epoch = 10_839
+            steps_per_epoch = 6670
             total_steps = epochs * steps_per_epoch  # Hard coded, sry.
-            warmup = int(0.2 * total_steps)
+            warmup = int(0.1 * total_steps)
 
             self.scheduler = lr_scheduler.SequentialLR(
                 optimizer=optimizer,

@@ -5,7 +5,6 @@ Collator functions to merge data samples into a batch.
 from typing import List
 
 import torch
-from transformers import BatchEncoding
 
 from data.types import GraphFeatures
 from data.types import ImageFeatures
@@ -188,15 +187,13 @@ InputFeatures = dict[str, List[torch.Tensor]]
 
 
 def extract_and_merge_features(
-    graphs: List[dict],
+    graphs: list[dict],
 ) -> tuple[InputFeatures, InputFeatures, InputFeatures]:
     """Extracts and merges features from a list of graphs."""
     graph_features: InputFeatures = {
-        GraphFeatures.AttnBias: [],
-        GraphFeatures.InDegree: [],
+        GraphFeatures.OutDegree: [],
         GraphFeatures.ImageMask: [],
         GraphFeatures.Distance: [],
-        GraphFeatures.DistanceIndex: [],
         GraphFeatures.RotaryPos: [],
     }
 
@@ -216,31 +213,30 @@ def extract_and_merge_features(
         # to be manually inserted here. It might be nice to change this to
         # instead iterate over the keys of the enums and insert them.
 
-        graph_features[GraphFeatures.AttnBias].append(graph["attn_bias"])
-        graph_features[GraphFeatures.InDegree].append(graph["in_degree"])
+        graph_features[GraphFeatures.OutDegree].append(graph["out_degree"])
         graph_features[GraphFeatures.ImageMask].append(graph["image_mask"])
         graph_features[GraphFeatures.Distance].append(graph["distance"])
-        graph_features[GraphFeatures.DistanceIndex].append(
-            graph["distance_index"]
-        )
         graph_features[GraphFeatures.RotaryPos].append(graph["rotary_position"])
 
-        text: BatchEncoding = graph["text"]
+        text: dict[str, torch.Tensor] = graph["text"]
         for feature in [
             TextFeatures.AttentionMask,
             TextFeatures.InputIds,
         ]:
             assert feature in text, f"Missing {feature} in text, {text.keys()}"
-        text_features[TextFeatures.InputIds].append(text.input_ids)
-        text_features[TextFeatures.AttentionMask].append(text.attention_mask)
+
+        text_features[TextFeatures.InputIds].append(text["input_ids"])
+        text_features[TextFeatures.AttentionMask].append(text["attention_mask"])
         if TextFeatures.TokenTypeIds in text:
-            text_features[TextFeatures.TokenTypeIds].append(text.token_type_ids)
+            text_features[TextFeatures.TokenTypeIds].append(
+                text["token_type_ids"]
+            )
         if TextFeatures.PositionIds in text:
-            text_features[TextFeatures.PositionIds].append(text.position_ids)
+            text_features[TextFeatures.PositionIds].append(text["position_ids"])
 
         if graph["images"] is not None:
             image_features[ImageFeatures.PixelValues].append(
-                graph["images"].pixel_values
+                graph["images"]["pixel_values"]
             )
 
     for extra_feat in [TextFeatures.TokenTypeIds, TextFeatures.PositionIds]:
@@ -341,7 +337,7 @@ def generic_collator(
     """
 
     attn_biases: list[torch.Tensor] = graph_features[GraphFeatures.AttnBias]
-    in_degrees: list[torch.Tensor] = graph_features[GraphFeatures.InDegree]
+    in_degrees: list[torch.Tensor] = graph_features[GraphFeatures.OutDegree]
     image_masks: list[torch.Tensor] = graph_features[GraphFeatures.ImageMask]
     distances: list[torch.Tensor] = graph_features[GraphFeatures.Distance]
     distance_indices: list[torch.Tensor] = graph_features[

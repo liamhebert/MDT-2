@@ -4,5 +4,5 @@ defaults:
 
 tasks_per_node: 1
 gres: gpu:1
-mem_gb: 72
-timeout_min: 240  # Since preemption does not work rn.
+mem_gb: 64
+timeout_min: 1440  # Since preemption does not work rn.

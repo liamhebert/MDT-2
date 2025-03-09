@@ -179,15 +179,18 @@ class ContrastiveLoss(Loss):
             target_matrix.eq(0), hard_target_metrix.eq(0)
         )
 
+        num_hard_labels = (
+            torch.logical_or(target_matrix.eq(1), hard_target_metrix.eq(1))
+        ).sum(dim=1)
+        # print("NUM_HARD_LABELS", num_hard_labels)
+        num_hard_labels = torch.clamp(num_hard_labels, min=1)
+
         if self.adaptive_soft_negative_weight:
             # soft_negs are proportionally weighted to the number of hard_negs
             # and hard_pos
-            # num_hard_labels = (
-            #     torch.logical_or(target_matrix.eq(1), hard_target_metrix.eq(1))
-            # ).sum(dim=1)
-            # print("NUM_HARD_LABELS", num_hard_labels)
-            # num_hard_labels = torch.clamp(num_hard_labels, min=1)
-            extra_weight = 1 / torch.clamp(soft_labels.sum(dim=1), min=1)
+            extra_weight = num_hard_labels / torch.clamp(
+                soft_labels.sum(dim=1), min=1
+            )
             extra_weight = extra_weight.reshape(-1, 1)
         else:
             extra_weight = self.soft_negative_weight
@@ -206,43 +209,36 @@ class ContrastiveLoss(Loss):
         # Normalize the weights to sum to the number of valid labels
         soft_matrix = F.normalize(soft_matrix, p=1, dim=1)
 
-        if (
-            self.adaptive_soft_negative_weight
-            or (self.soft_negative_weight != 0).all()
-        ):
-            num_valid_labels = torch.clamp((~padding).sum(), min=1)
-            num_valid_labels = num_valid_labels - 1
-        else:
-            num_valid_labels = torch.clamp(
-                (soft_matrix != 0).int().sum(dim=0), min=1
-            )
+        # if (
+        #    self.adaptive_soft_negative_weight
+        #    or (self.soft_negative_weight != 0).all()
+        # ):
+        #    num_valid_labels = num_hard_labels * 2
+        # else:
+        #    num_valid_labels = torch.clamp(
+        #        (soft_matrix != 0).int().sum(dim=0), min=1
+        #     )
 
-        soft_matrix = soft_matrix * (num_valid_labels)
+        # soft_matrix = soft_matrix * (num_valid_labels)
 
         # compute loss
         # Map 0, 1 labels to -1, 1
         target_matrix = (target_matrix * 2) - 1
 
         loss = torch.einsum(
-            "ij, ij -> i", -F.logsigmoid(sim * target_matrix), soft_matrix
+            "ij, ij -> ", -F.logsigmoid(sim * target_matrix), soft_matrix
         )
 
-        if (
-            self.adaptive_soft_negative_weight
-            or (self.soft_negative_weight != 0).all()
-        ):
-            loss = loss.sum() / (num_valid_labels + 1)
-        else:
-            loss = loss / num_valid_labels
+        # loss = loss / num_valid_labels
 
-            loss = loss.sum()
+        # loss = loss.sum()
 
         # Since the loss will eventually be all_gathered summed anyway.
-        loss = loss
+        loss = loss  # / <some gpu number>
 
         if batch_metrics is not None:
             with torch.no_grad():
-                sim.fill_diagonal_(-1e9)
+                sim = sim.fill_diagonal_(-1e9)
 
                 sim[padding_mask] = -1e9
 
@@ -343,7 +339,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
             "best_loss": MinMetric(),
         }
 
-    @torch.compiler.disable
+    # @torch.compiler.disable
     def compute_batch_metrics(
         self,
         logits: torch.Tensor,
@@ -386,7 +382,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
         return return_metrics
 
-    @torch.compiler.disable
+    # @torch.compiler.disable
     def compute_epoch_metrics(
         self,
         batch_metrics: dict[str, Metric | MetricCollection],
@@ -418,7 +414,8 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
                 metric_value = metrics[f"{metric_type}_{metric}"]
                 ret_metrics[f"{metric_type}_{metric}"] = metric_value
-                ret_metrics[key] = epoch_metrics[key].forward(metric_value)
+                epoch_metrics[key].update(metric_value)
+                ret_metrics[key] = epoch_metrics[key]
 
         # for metric in ["f1", "recall", "precision"]:
         #     metric_values = metrics["none_" + metric]

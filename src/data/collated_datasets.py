@@ -8,11 +8,12 @@ from torch_geometric.data import Data
 from data import collator_utils, collator_utils_v2
 from data.types import ContrastiveLabels
 from data.types import Labels
-from tasks.dataset import TaskDataset
+from tasks.dataset_2 import TaskDataset as TaskDataset_2
 from torch.nn.attention.flex_attention import _DEFAULT_SPARSE_BLOCK_SIZE
+from itertools import chain
 
 
-class CollatedDataset(TaskDataset):
+class CollatedDataset(TaskDataset_2):
     """
     Dataset wrapper to include a function to collate multiple graphs of various
     sizes into a single batch.
@@ -105,9 +106,10 @@ class CollatedDataset(TaskDataset):
             added but they are not needed for general processing.
         """
         graphs = [item for item in batch if item is not None]
+        flattened_graphs = list(chain(*graphs))
 
         graph_features, text_features, image_features = (
-            collator_utils.extract_and_merge_features(graphs)
+            collator_utils.extract_and_merge_features(flattened_graphs)
         )
 
         if self.use_flattened_collator:
@@ -133,7 +135,7 @@ class CollatedDataset(TaskDataset):
         # features beyond just the labels.
         return {
             "x": collated_output,
-            "y": self.label_collate_fn(graphs, batch_size, num_nodes),
+            "y": self.label_collate_fn(flattened_graphs, batch_size, num_nodes),
         }
 
 

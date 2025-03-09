@@ -47,4 +47,4 @@ num_graph_layers_to_freeze: 0
 
 freeze_initial_encoders: False
 
-block_size: 192
+block_size: 1
