@@ -15,6 +15,12 @@ from requests_ratelimiter import LimiterAdapter
 from requests.adapters import HTTPAdapter, Retry
 import requests
 
+ROOT_PATH = "/mnt/DATA/reddit_share"
+
+ADDED_IMAGES_PATH = ROOT_PATH + "/data_test/added_images"
+IMAGE_FILES_PATH = ROOT_PATH + "/data_test/images_files"
+PRUNED_PATH = ROOT_PATH + "/data_test/pruned"
+
 
 def allowed_gai_family():
     """Forcing requests to use ipv4, which caused issues on some systems."""
@@ -60,10 +66,13 @@ deleted_img_url = (
 deleted_img = Image.open(
     BytesIO(image_session.get(deleted_img_url, timeout=3).result().content)
 ).getdata()
-other_deleted_img = Image.open("deleted_imgur.png").getdata()
+other_deleted_img = Image.open(ROOT_PATH + "/deleted_imgur.png").getdata()
 
 
 def main(file):
+    """
+    Extract images from file
+    """
     processed_data_records = []
     image_links = []
     # print('finding images')
@@ -71,9 +80,9 @@ def main(file):
     # for file in list(glob('data/pruned/*/*.json')):
     path = os.path.dirname(file)
     file_name = os.path.basename(file)
-    topic = path.split("/")[2]
-    os.makedirs("data/added_images/" + topic, exist_ok=True)
-    os.makedirs("data/images_files/" + topic, exist_ok=True)
+    topic = path.split("/")[-1]
+    os.makedirs(ADDED_IMAGES_PATH + "/" + topic, exist_ok=True)
+    os.makedirs(IMAGE_FILES_PATH + "/" + topic, exist_ok=True)
 
     with open(path + "/" + file_name, "r") as read:
         for line in tqdm(read, position=1, desc="finding images"):
@@ -83,7 +92,7 @@ def main(file):
             processed_data_records += [data]
 
     futures = []
-    images_known = list(glob("data/images_files/*/*/*"))
+    images_known = list(glob(IMAGE_FILES_PATH + "/*/*/*"))
     valid_formats = [".jpg", ".jpeg", ".png", ".svg"]
     # print('queuing downloads')
 
@@ -92,7 +101,7 @@ def main(file):
     ):
         images = [x for x in images if any([y in x for y in valid_formats])]
         for i, image in enumerate(images):
-            path = "data/images_files/" + topic + "/" + parent_id
+            path = IMAGE_FILES_PATH + "/" + topic + "/" + parent_id
             if path + f"/{id}-{i}.png" not in images_known:
                 # futures += [(id, path, i)]
                 # file.write(','.join([image, id, path, str(i)]) + '\n')
@@ -152,7 +161,7 @@ def main(file):
             continue
         progress.set_postfix(stat)
 
-    images_known = list(glob("data/images_files/*/*"))
+    images_known = list(glob(IMAGE_FILES_PATH + "/*/*"))
 
     def check_images(comment):
         # Flag is used to filter out comments that do not have images
@@ -168,7 +177,7 @@ def main(file):
             check_images(x)
 
     # print('writing results')
-    with open("data/added_images/" + topic + "/" + file_name, "w") as write:
+    with open(ADDED_IMAGES_PATH + "/" + topic + "/" + file_name, "w") as write:
         for x in processed_data_records:
             check_images(x)
             write.write(json.dumps(x) + "\n")
@@ -177,6 +186,10 @@ def main(file):
 
 
 def hook_factory(name, path, i):
+    """
+    A factory function that returns a function formatting the saved image
+    """
+
     def format_save_image(response, *args, **args_kwargs):
 
         try:
@@ -238,6 +251,9 @@ https = "https://"
 
 # prepend https:// to all urls in match_urls
 def parse_images(body):
+    """
+    Scrape for image links in the body text and return them
+    """
     # TODO: This currently does not find images that are reddit media hosted.
     # For instance, it would not find
     # https://i.redditmedia.com/rvSomf8la2uI9H6Su6v1TNga5ZP37Lo32izk_iQ8Ykc.jpg?s=bac5c203a7aa004b504f2e05ceb121f7
@@ -251,7 +267,9 @@ def parse_images(body):
 
 
 def get_images(link_id, comment, topic):
-
+    """
+    Get a list of all image links from a comment.
+    """
     if "body" in comment["data"]:
         image_urls = parse_images(comment["data"]["body"])
     else:
@@ -283,7 +301,7 @@ def get_images(link_id, comment, topic):
 if __name__ == "__main__":
     # NOTE: edit me to be all the files you want to process
     for file in tqdm(
-        list(glob("data/pruned/Test-LocalCity/*.json")),
+        list(glob(PRUNED_PATH + "/Test-LocalCity/*.json")),
         position=0,
         desc="Files",
     ):
