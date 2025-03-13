@@ -32,6 +32,7 @@ urllib_cn.allowed_gai_family = allowed_gai_family
 
 s = requests.Session()
 s_imgur = requests.Session()
+s_redditmedia = requests.Session()
 
 # retry once
 retries = Retry(
@@ -41,6 +42,7 @@ retries = Retry(
 # the per_minute limiter ensures we dont get banned from imgur.
 # Experiment with this at your own risk.
 imgur_adaptor = LimiterAdapter(per_minute=100)
+redditmedia_adaptor = LimiterAdapter(per_minute=100)
 
 
 # s.mount('http://', HTTPAdapter(max_retries=retries))
@@ -50,6 +52,7 @@ s.mount("https://", HTTPAdapter())
 s_imgur.mount("https://i.imgur.com/", imgur_adaptor)
 s_imgur.mount("http://i.imgur.com/", imgur_adaptor)
 s_imgur.mount("http://imgur.com/", imgur_adaptor)
+s_redditmedia.mount("https://i.redditmedia.com/", redditmedia_adaptor)
 # TODO: we should set one of these for redditmedia links that are separate from
 # the imgur ones.
 image_session = FuturesSession(
@@ -58,6 +61,7 @@ image_session = FuturesSession(
 imgur_session = FuturesSession(
     max_workers=20, session=s_imgur
 )  # one worker per cpu core
+redditmedia_session = FuturesSession(max_workers=20, session=s_redditmedia)
 deleted_img_url = (
     "https://i.redd.it/EwG5Emc9PelOE-9TdeB2JlFwOK47ilV_bv0OWJXbpeY.jpg?"
     "auto=webp&amp;s=87d44a717eba5831e219c9a88b6d91c9f74cc333"
@@ -122,6 +126,14 @@ def main(file):
                 ):
                     futures += [
                         imgur_session.get(
+                            image,
+                            hooks={"response": hook_factory(id, path, 0)},
+                            timeout=3,
+                        )
+                    ]
+                elif image.startswith("https://i.redditmedia.com/"):
+                    futures += [
+                        redditmedia_session.get(
                             image,
                             hooks={"response": hook_factory(id, path, 0)},
                             timeout=3,
@@ -266,7 +278,7 @@ def parse_images(body):
     return image_urls
 
 
-def get_images(link_id, comment, topic):
+def get_images(link_id, comment, topic, is_root=True):
     """
     Get a list of all image links from a comment.
     """
@@ -278,6 +290,18 @@ def get_images(link_id, comment, topic):
 
     if "url" in comment["data"]:
         image_urls += parse_images(comment["data"]["url"])
+    if "preview" in comment["data"] and "images" in comment["data"]["preview"]:
+        for image_data in comment["data"]["preview"]["images"]:
+            if not image_data["source"]["url"].startswith(
+                "https://i.redditmedia.com/"
+            ):
+                print("Image URL not start with redditmedia")
+                print(image_data["source"]["url"])
+            if is_root:
+                image_urls.append(image_data["source"]["url"])
+            else:
+                print("Found image in non-root:")
+                print(image_data["source"]["url"])
     # image_urls = [x for x in image_urls if 'i.imgur.com' in x]
     if len(image_urls) != 0:
         res = [(link_id, comment["id"], image_urls)]
@@ -291,7 +315,7 @@ def get_images(link_id, comment, topic):
         comment["images"] = []
 
     for child in comment["tree"]:
-        res += get_images(link_id, child, topic)
+        res += get_images(link_id, child, topic, is_root=False)
     # res = [x for x in res if 'i.imgur.com' not in x[-1]]
     # for x in tree['tree']['children']:
     #     res = res + get_images(parent_id, x)
