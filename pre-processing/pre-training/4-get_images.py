@@ -34,6 +34,13 @@ s = requests.Session()
 s_imgur = requests.Session()
 s_redditmedia = requests.Session()
 
+s_imgur.headers.update(
+    {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit"
+        + "/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+    }
+)
+
 # retry once
 retries = Retry(
     total=1, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504]
@@ -53,8 +60,7 @@ s_imgur.mount("https://i.imgur.com/", imgur_adaptor)
 s_imgur.mount("http://i.imgur.com/", imgur_adaptor)
 s_imgur.mount("http://imgur.com/", imgur_adaptor)
 s_redditmedia.mount("https://i.redditmedia.com/", redditmedia_adaptor)
-# TODO: we should set one of these for redditmedia links that are separate from
-# the imgur ones.
+
 image_session = FuturesSession(
     max_workers=18, session=s
 )  # one worker per cpu core
