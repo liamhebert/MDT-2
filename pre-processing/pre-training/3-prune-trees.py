@@ -34,12 +34,12 @@ def process(file):
     """
     path = os.path.dirname(file)
     file_name = os.path.basename(file)
-    os.makedirs(DATA_PRUNED + "/" + path.split("/")[2], exist_ok=True)
+    os.makedirs(DATA_PRUNED + "/" + path.split("/")[-1], exist_ok=True)
     size = 0
     count = 0
     total = 0
     with open(path + "/" + file_name, "r") as read, open(
-        DATA_PRUNED + "/" + path.split("/")[2] + "/" + file_name, "w"
+        DATA_PRUNED + "/" + path.split("/")[-1] + "/" + file_name, "w"
     ) as write:
         # A heap that stores the top KEEP_COUNT comments by score
         # This is a min heap, with the top element being the smallest score

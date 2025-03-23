@@ -14,7 +14,6 @@ DATA_PATH_PROCESSED = ROOT_PATH + "/data_test/processed"
 
 
 def main():
-    CATEGORY = "Test-LocalCity"
     # output should be year-month-combined.json
     # json with
     """
@@ -24,6 +23,7 @@ def main():
         tree: [<>]
     }
     """
+    CATEGORY = "Test-LocalCity"
 
     def process_file(subreddit):
         # this includes the topic prefix
@@ -43,7 +43,9 @@ def main():
                 invalid_dir = f"{path}/{postid}"
                 if os.path.isdir(invalid_dir):
                     # Remove the entire folder
-                    print(f"{path} doesn't contain a POST.txt. Removing...")
+                    print(
+                        f"{invalid_dir} doesn't contain a POST.txt. Removing..."
+                    )
                     shutil.rmtree(invalid_dir, ignore_errors=True)
                 continue
 
