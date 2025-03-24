@@ -9,7 +9,7 @@ def test_empty_data_list():
 
 def test_single_root_node():
     data = [{"id": "1", "parent_id": None}]
-    expected = {"id": "1", "tree": [], "data": {"id": "1", "parent_id": None}}
+    expected = {"id": "1", "tree": [], "parent_id": None}
     assert combine_nodes_to_tree(data) == expected
 
 
@@ -17,10 +17,8 @@ def test_simple_parent_child():
     data = [{"id": "1", "parent_id": None}, {"id": "2", "parent_id": "t1_1"}]
     expected = {
         "id": "1",
-        "tree": [
-            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "t1_1"}}
-        ],
-        "data": {"id": "1", "parent_id": None},
+        "tree": [{"id": "2", "tree": [], "parent_id": "t1_1"}],
+        "parent_id": None,
     }
     assert combine_nodes_to_tree(data) == expected
 
@@ -34,10 +32,10 @@ def test_multiple_children():
     expected = {
         "id": "1",
         "tree": [
-            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "t1_1"}},
-            {"id": "3", "tree": [], "data": {"id": "3", "parent_id": "t1_1"}},
+            {"id": "2", "tree": [], "parent_id": "t1_1"},
+            {"id": "3", "tree": [], "parent_id": "t1_1"},
         ],
-        "data": {"id": "1", "parent_id": None},
+        "parent_id": None,
     }
     assert combine_nodes_to_tree(data) == expected
 
@@ -50,10 +48,8 @@ def test_max_depth_limit():
     ]
     expected = {
         "id": "1",
-        "tree": [
-            {"id": "2", "tree": [], "data": {"id": "2", "parent_id": "t1_1"}}
-        ],
-        "data": {"id": "1", "parent_id": None},
+        "tree": [{"id": "2", "tree": [], "parent_id": "t1_1"}],
+        "parent_id": None,
     }
     assert combine_nodes_to_tree(data, max_depth=2) == expected
 
@@ -65,7 +61,7 @@ def test_no_root_node():
 
 def test_node_with_missing_id():
     data = [{"parent_id": None}, {"id": "1", "parent_id": None}]
-    expected = {"id": "1", "tree": [], "data": {"id": "1", "parent_id": None}}
+    expected = {"id": "1", "tree": [], "parent_id": None}
     assert combine_nodes_to_tree(data) == expected
 
 
@@ -90,13 +86,13 @@ def test_complex_tree():
                             {
                                 "id": "6",
                                 "tree": [],
-                                "data": {"id": "6", "parent_id": "t1_4"},
+                                "parent_id": "t1_4",
                             }
                         ],
-                        "data": {"id": "4", "parent_id": "t1_2"},
+                        "parent_id": "t1_2",
                     }
                 ],
-                "data": {"id": "2", "parent_id": "t1_1"},
+                "parent_id": "t1_1",
             },
             {
                 "id": "3",
@@ -104,13 +100,13 @@ def test_complex_tree():
                     {
                         "id": "5",
                         "tree": [],
-                        "data": {"id": "5", "parent_id": "t1_3"},
+                        "parent_id": "t1_3",
                     }
                 ],
-                "data": {"id": "3", "parent_id": "t1_1"},
+                "parent_id": "t1_1",
             },
         ],
-        "data": {"id": "1", "parent_id": None},
+        "parent_id": None,
     }
     assert combine_nodes_to_tree(data) == expected
 
@@ -120,7 +116,8 @@ def test_data_field_preserved():
     expected = {
         "id": "1",
         "tree": [],
-        "data": {"id": "1", "parent_id": None, "name": "Root"},
+        "parent_id": None,
+        "name": "Root",
     }
     assert combine_nodes_to_tree(data) == expected
 
