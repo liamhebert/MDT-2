@@ -1,4 +1,4 @@
-import json
+import orjson
 from tqdm import tqdm
 import re
 from PIL import Image
@@ -15,11 +15,10 @@ from requests_ratelimiter import LimiterAdapter
 from requests.adapters import HTTPAdapter, Retry
 import requests
 
-ROOT_PATH = "/mnt/DATA/reddit_share"
+IMAGE_FILES_PATH = "/mnt/DATA/reddit_share/images_files"
 
-ADDED_IMAGES_PATH = ROOT_PATH + "/data_test/added_images"
-IMAGE_FILES_PATH = ROOT_PATH + "/data_test/images_files"
-PRUNED_PATH = ROOT_PATH + "/data_test/pruned"
+ADDED_IMAGES_PATH = "./added_images"
+PROCESSED_FILES_PATH = "./processed"
 
 
 def allowed_gai_family():
@@ -76,7 +75,9 @@ deleted_img_url = (
 deleted_img = Image.open(
     BytesIO(image_session.get(deleted_img_url, timeout=3).result().content)
 ).getdata()
-other_deleted_img = Image.open(ROOT_PATH + "/deleted_imgur.png").getdata()
+other_deleted_img = Image.open(
+    "/mnt/DATA/reddit_share/" + "/deleted_imgur.png"
+).getdata()
 
 
 def main(file):
@@ -90,19 +91,22 @@ def main(file):
     # for file in list(glob('data/pruned/*/*.json')):
     path = os.path.dirname(file)
     file_name = os.path.basename(file)
+    subreddit = file_name.split(".")[0]
     topic = path.split("/")[-1]
     os.makedirs(ADDED_IMAGES_PATH + "/" + topic, exist_ok=True)
-    os.makedirs(IMAGE_FILES_PATH + "/" + topic, exist_ok=True)
+    os.makedirs(f"{IMAGE_FILES_PATH}/{topic}/{subreddit}", exist_ok=True)
 
     with open(path + "/" + file_name, "r") as read:
         for line in tqdm(read, position=1, desc="finding images"):
-            data = json.loads(line)
+            data = orjson.loads(line)
             link_id = data["id"]
-            image_links += get_images(link_id, data, topic)
+            image_links += get_images(subreddit, link_id, data, topic)
             processed_data_records += [data]
 
     futures = []
-    images_known = list(glob(IMAGE_FILES_PATH + "/*/*/*"))
+    prefix = f"{IMAGE_FILES_PATH}/{topic}/{subreddit}/"
+    images_known = list(glob(f"{prefix}/*/*"))
+    images_known = [x.replace(prefix, "") for x in images_known]
     valid_formats = [".jpg", ".jpeg", ".png", ".svg"]
     # print('queuing downloads')
 
@@ -111,48 +115,47 @@ def main(file):
     ):
         images = [x for x in images if any([y in x for y in valid_formats])]
         for i, image in enumerate(images):
-            path = IMAGE_FILES_PATH + "/" + topic + "/" + parent_id
-            if path + f"/{id}-{i}.png" not in images_known:
-                # futures += [(id, path, i)]
-                # file.write(','.join([image, id, path, str(i)]) + '\n')
+            path = f"{prefix}/{parent_id}"
+            if f"{parent_id}/{id}-{i}.png" in images_known:
+                continue
+            # futures += [(id, path, i)]
+            # file.write(','.join([image, id, path, str(i)]) + '\n')
 
-                # if the link does not start with 'i.imgur.com' but has
-                # 'i.imgur.com' in it, use imgur session find the i.imgur.com
-                # link and use that
-                if (
-                    not image.startswith("https://i.imgur.com/")
-                    and "i.imgur.com/" in image
-                ):  # some weird websites have imgur links but not direct links
-                    image = (
-                        "https://i.imgur.com/" + image.split("i.imgur.com/")[-1]
+            # if the link does not start with 'i.imgur.com' but has
+            # 'i.imgur.com' in it, use imgur session find the i.imgur.com
+            # link and use that
+            if (
+                not image.startswith("https://i.imgur.com/")
+                and "i.imgur.com/" in image
+            ):  # some weird websites have imgur links but not direct links
+                image = "https://i.imgur.com/" + image.split("i.imgur.com/")[-1]
+
+            if image.startswith("https://i.imgur.com/") or image.startswith(
+                "http://i.imgur.com/"
+            ):
+                futures += [
+                    imgur_session.get(
+                        image,
+                        hooks={"response": hook_factory(id, path, 0)},
+                        timeout=3,
                     )
-
-                if image.startswith("https://i.imgur.com/") or image.startswith(
-                    "http://i.imgur.com/"
-                ):
-                    futures += [
-                        imgur_session.get(
-                            image,
-                            hooks={"response": hook_factory(id, path, 0)},
-                            timeout=3,
-                        )
-                    ]
-                elif image.startswith("https://i.redditmedia.com/"):
-                    futures += [
-                        redditmedia_session.get(
-                            image,
-                            hooks={"response": hook_factory(id, path, 0)},
-                            timeout=3,
-                        )
-                    ]
-                else:
-                    futures += [
-                        image_session.get(
-                            image,
-                            hooks={"response": hook_factory(id, path, 0)},
-                            timeout=3,
-                        )
-                    ]
+                ]
+            elif image.startswith("https://i.redditmedia.com/"):
+                futures += [
+                    redditmedia_session.get(
+                        image,
+                        hooks={"response": hook_factory(id, path, 0)},
+                        timeout=3,
+                    )
+                ]
+            else:
+                futures += [
+                    image_session.get(
+                        image,
+                        hooks={"response": hook_factory(id, path, 0)},
+                        timeout=3,
+                    )
+                ]
 
     # print('waiting for results...')
     progress = tqdm(futures, miniters=1, position=1, desc="waiting for images")
@@ -160,13 +163,13 @@ def main(file):
     for future in progress:
         try:
             res = future.result()
-            # if not res.success[0]:
-            #   print(res.success)
-            # print(res.success)
             if res.success[0]:
                 stat["got"] += 1
             else:
-                if "imgur" in res.success[-1]:
+                if (
+                    "imgur" in res.success[-1]
+                    or "redditmedia" in res.success[-1]
+                ):
                     print(res.success)
                 if (
                     not res.success[3] is None
@@ -179,7 +182,9 @@ def main(file):
             continue
         progress.set_postfix(stat)
 
-    images_known = list(glob(IMAGE_FILES_PATH + "/*/*"))
+    # Updated images known after processing
+    images_known = list(glob(f"{IMAGE_FILES_PATH}/{topic}/{subreddit}/*/*"))
+    images_known = [x.replace(prefix, "") for x in images_known]
 
     def check_images(comment):
         # Flag is used to filter out comments that do not have images
@@ -188,17 +193,23 @@ def main(file):
         # if len(comment['images']) != 0:
         #     #print(comment['images'])
         #     flag = True
-        comment["images"] = [x for x in comment["images"] if x in images_known]
+        corrected = []
+        for image in comment["images"]:
+            link_id = image.split("/")[-2]
+            img_path = link_id + "/" + image.split("/")[-1]
+            if img_path in images_known:
+                corrected += [image]
+        comment["images"] = corrected
         # if len(comment['images']) == 0 and flag:
         #     print('none there!')
         for x in comment["tree"]:
             check_images(x)
 
     # print('writing results')
-    with open(ADDED_IMAGES_PATH + "/" + topic + "/" + file_name, "w") as write:
+    with open(ADDED_IMAGES_PATH + "/" + topic + "/" + file_name, "wb") as write:
         for x in processed_data_records:
             check_images(x)
-            write.write(json.dumps(x) + "\n")
+            write.write(orjson.dumps(x, option=orjson.OPT_APPEND_NEWLINE))
 
     # print('done!')
 
@@ -284,36 +295,30 @@ def parse_images(body):
     return image_urls
 
 
-def get_images(link_id, comment, topic, is_root=True):
+def get_images(
+    subreddit: str, link_id: str, comment: str, topic: str, is_root=True
+):
     """
     Get a list of all image links from a comment.
     """
-    if "body" in comment["data"]:
-        image_urls = parse_images(comment["data"]["body"])
-    else:
-        image_urls = []
-        comment["data"]["body"] = "NA"
+    image_urls = parse_images(comment["body"])
 
-    if "url" in comment["data"]:
-        image_urls += parse_images(comment["data"]["url"])
-    if "preview" in comment["data"] and "images" in comment["data"]["preview"]:
-        for image_data in comment["data"]["preview"]["images"]:
-            if not image_data["source"]["url"].startswith(
-                "https://i.redditmedia.com/"
-            ):
-                print("Image URL not start with redditmedia")
-                print(image_data["source"]["url"])
-            if is_root:
-                image_urls.append(image_data["source"]["url"])
-            else:
-                print("Found image in non-root:")
-                print(image_data["source"]["url"])
+    if "preview" in comment and comment["preview"]:
+        image_data = comment["preview"]
+        if not image_data["url"].startswith("https://i.redditmedia.com/"):
+            print("Image URL not start with redditmedia")
+            print(image_data["url"])
+        if is_root:
+            image_urls.append(image_data["url"])
+        else:
+            print("Found image in non-root:")
+            print(image_data["url"])
     # image_urls = [x for x in image_urls if 'i.imgur.com' in x]
     if len(image_urls) != 0:
         res = [(link_id, comment["id"], image_urls)]
         id = comment["id"]
         comment["images"] = [
-            f"images_files/{topic}/{link_id}/{id}-{i}.png"
+            f"images_files/{topic}/{subreddit}/{link_id}/{id}-{i}.png"
             for i, x in enumerate(res)
         ]
     else:
@@ -321,7 +326,7 @@ def get_images(link_id, comment, topic, is_root=True):
         comment["images"] = []
 
     for child in comment["tree"]:
-        res += get_images(link_id, child, topic, is_root=False)
+        res += get_images(subreddit, link_id, child, topic, is_root=False)
     # res = [x for x in res if 'i.imgur.com' not in x[-1]]
     # for x in tree['tree']['children']:
     #     res = res + get_images(parent_id, x)
@@ -331,7 +336,7 @@ def get_images(link_id, comment, topic, is_root=True):
 if __name__ == "__main__":
     # NOTE: edit me to be all the files you want to process
     for file in tqdm(
-        list(glob(PRUNED_PATH + "/Test-LocalCity/*.json")),
+        list(glob(PROCESSED_FILES_PATH + "/*/*.json")),
         position=0,
         desc="Files",
     ):

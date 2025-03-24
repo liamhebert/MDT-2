@@ -3,26 +3,27 @@ Processes .zst archives of Reddit comments and sorts them into
 topic-specific files.
 """
 
-import orjson 
+import orjson
 from tqdm import tqdm
 from glob import glob
 import os
 import re
 from heapq import heappush, heappop
 import threading
-
+from typing import Callable
 
 # The pattern for the months of archives to look for.
-ARCHIVE_MONTHS = "2018-*"
+ARCHIVE_MONTHS = "2018-01"
 DATA_PATH = "./raw"
 KEEP_COUNT = 20000
 
+
 def extract_data(data: str, is_root: bool) -> dict:
-    """Extracts the data from a line of the Reddit comment file."""
+    """Extracts only the relevant fields that we need from a line of data."""
     data: dict = orjson.loads(data)
     # print(data)
     assert "data" not in data, data
-    
+
     if not is_root:
         # print(data)
         # meta: dict = data["data"]
@@ -30,7 +31,7 @@ def extract_data(data: str, is_root: bool) -> dict:
             "subreddit": data["subreddit"],
             "id": data["id"],
             "parent_id": data["parent_id"],
-            "link_id": data["link_id"],
+            "link_id": data["link_id"][3:],
             "score": data["score"],
             "body": data["body"],
         }
@@ -47,8 +48,38 @@ def extract_data(data: str, is_root: bool) -> dict:
             "preview": preview,
         }
 
+
 def thread_decompress(index: int, file: str):
+    """Decompresses a file in a separate thread."""
     return os.system(f"zstd -d --long=31 -o ./tmp-{index} " + file)
+
+
+def parallel_process(
+    path_pattern: str, process_fn: Callable, heaps: dict = None
+):
+    files = list(enumerate(glob(path_pattern)))
+    current_thread = threading.Thread(target=thread_decompress, args=files[0])
+    current_thread.start()
+    print(f"Reading {path_pattern}")
+
+    for (i, file), (j, next_file) in tqdm(
+        zip(files, files[1:]),
+        desc=f"Reading {path_pattern}",
+        position=0,
+    ):
+        current_thread.join()
+
+        current_thread = threading.Thread(
+            target=thread_decompress, args=(j, next_file)
+        )
+        current_thread.start()
+
+        process_fn(file, i, heaps)
+
+    current_thread.join()
+    # process the last file
+    process_fn(files[-1][0], files[-1][1])
+
 
 def main():
     """Entry point to process the files."""
@@ -242,15 +273,11 @@ def main():
     # path = "./"
     linkid_regex = re.compile('"link_id":"([^"]+)"')
     subreddit_regex = re.compile('"subreddit":"([^"]+)"')
-    
-    data_heaps = {sub: [] for sub in subreddit_to_topic.keys()}
-    current_thread = None
-    
-    files = list(enumerate(glob(path + f"RS_{ARCHIVE_MONTHS}.zst")))
-    current_thread = threading.Thread(target=thread_decompress, args=files[0])
-    current_thread.start()
 
-    def process_submissions(file: str, index: int):
+    data_heaps = {sub: [] for sub in subreddit_to_topic.keys()}
+
+    def process_submissions(index: int, file: str, data_heaps: dict[str, list]):
+        """Processes the submissions in the file, keeping the top 20k."""
         date = os.path.basename(file).split("_")[-1].split(".")[0]
         year = int(date[:4])
         month = int(date[5:]) + (year * 12)
@@ -277,22 +304,9 @@ def main():
                     heappop(data_heaps[subreddit])
         os.remove(f"./tmp-{index}")
 
-    for (i, file), (j, next_file) in tqdm(
-        zip(files, files[1:]),
-        desc="Reading submissions",
-        position=0,
-    ):
-        current_thread.join()
-
-        current_thread = threading.Thread(target=thread_decompress, args=(j, next_file))
-        current_thread.start()
-        
-        process_submissions(file, i)
-    
-    current_thread.join()
-    # process the last file
-    process_submissions(files[-1][0], files[-1][1])
-    
+    parallel_process(
+        path + f"RS_{ARCHIVE_MONTHS}.zst", process_submissions, data_heaps
+    )
 
     # get link_ids from heap for each subreddit that survived
     ids_to_keep = {sub: set() for sub in subreddit_to_topic.keys()}
@@ -301,55 +315,42 @@ def main():
         topic = subreddit_to_topic[sub][0]
         # Start from a clean slate each time
         if os.path.isdir(f"{DATA_PATH}/{topic}/{sub}"):
-            os.system(f"rm -r {DATA_PATH}/{topic}/{sub}")
-        
+            os.system(f'rm -r "{DATA_PATH}/{topic}/{sub}"')
+
         os.makedirs(f"{DATA_PATH}/{topic}/{sub}", exist_ok=True)
 
         with open(f"{DATA_PATH}/{topic}/{sub}/POST.txt", "wb") as f:
             for _, _, _, data in heap:
                 ids_to_keep[sub].add(data["id"])
                 f.write(orjson.dumps(data, option=orjson.OPT_APPEND_NEWLINE))
-    
+
     del data_heaps
+
     # now we can read the comments
-
-    files = list(enumerate(glob(path + f"RC_{ARCHIVE_MONTHS}.zst")))
-    current_thread = threading.Thread(target=thread_decompress, args=files[0])
-    current_thread.start()
-
-    def process_comments(index: int):
+    def process_comments(
+        index: int, file: str, data_heaps: dict[str, list] | None
+    ):
+        """Processes the comments in the file."""
         with open(f"./tmp-{index}", "r") as f:
             for line in tqdm(f, position=1):
                 subreddit = subreddit_regex.search(line).group(1)
-                if not subreddit in subreddit_to_topic:
+                if subreddit not in subreddit_to_topic:
                     continue
 
                 link_id = linkid_regex.search(line).group(1)[3:]
-                
+
                 if link_id in ids_to_keep[subreddit]:
                     topic = subreddit_to_topic[subreddit][0]
                     data = extract_data(line, is_root=False)
-                    with open(f"{DATA_PATH}/{topic}/{subreddit}/RC.txt", "ab") as f:
-                        f.write(orjson.dumps(data, option=orjson.OPT_APPEND_NEWLINE))
+                    with open(
+                        f"{DATA_PATH}/{topic}/{subreddit}/RC.txt", "ab"
+                    ) as f:
+                        f.write(
+                            orjson.dumps(data, option=orjson.OPT_APPEND_NEWLINE)
+                        )
         os.remove(f"./tmp-{index}")
-    
 
-    for (i, file), (j, next_file) in tqdm(
-        zip(files, files[1:]),
-        desc="Reading comments",
-        position=0,
-    ):
-        current_thread.join()
-
-        current_thread = threading.Thread(target=thread_decompress, args=(j, next_file))
-        current_thread.start()
-        
-        process_comments(i)
-    
-    current_thread.join()
-    # process the last file
-    process_comments(files[-1][0])
-
+    parallel_process(path + f"RC_{ARCHIVE_MONTHS}.zst", process_comments)
 
 
 if __name__ == "__main__":
