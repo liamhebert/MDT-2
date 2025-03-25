@@ -13,7 +13,7 @@ import threading
 from typing import Callable
 
 # The pattern for the months of archives to look for.
-ARCHIVE_MONTHS = "2018-01"
+ARCHIVE_MONTHS = "20*"
 DATA_PATH = "./raw"
 KEEP_COUNT = 20000
 
@@ -78,7 +78,8 @@ def parallel_process(
 
     current_thread.join()
     # process the last file
-    process_fn(files[-1][0], files[-1][1])
+    (i, file) = files[-1]
+    process_fn(file, i, heaps)
 
 
 def main():
@@ -276,7 +277,7 @@ def main():
 
     data_heaps = {sub: [] for sub in subreddit_to_topic.keys()}
 
-    def process_submissions(index: int, file: str, data_heaps: dict[str, list]):
+    def process_submissions(file: str, index: int, data_heaps: dict[str, list]):
         """Processes the submissions in the file, keeping the top 20k."""
         date = os.path.basename(file).split("_")[-1].split(".")[0]
         year = int(date[:4])
@@ -328,7 +329,7 @@ def main():
 
     # now we can read the comments
     def process_comments(
-        index: int, file: str, data_heaps: dict[str, list] | None
+        file: str, index: int, data_heaps: dict[str, list] | None
     ):
         """Processes the comments in the file."""
         with open(f"./tmp-{index}", "r") as f:
