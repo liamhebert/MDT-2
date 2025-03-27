@@ -6,7 +6,6 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 import os
 from combine_utils import combine_nodes_to_tree
-import math
 
 ROOT_PATH = "./"
 DATA_PATH_RAW = ROOT_PATH + "/raw"
@@ -101,7 +100,7 @@ def main():
                 new_size = trim_and_get_size(processed_graph)
                 if new_size < 9:
                     continue
-                
+
                 if not processed_graph:
                     print("Invalid processed graph")
 
