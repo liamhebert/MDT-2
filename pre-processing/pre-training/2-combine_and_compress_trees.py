@@ -28,13 +28,10 @@ def trim_and_get_size(comment: dict, depth=0):
     children with larger tree size.
     """
     scores = []  # (score, size, index)
-    infs = 0
     for i, child in enumerate(comment["tree"]):
-        if depth + 1 < 4:
+        if depth + 1 < 5:
             res = trim_and_get_size(child, depth + 1)
             scores += [(comment["score"], res, i)]
-            if res == math.inf:
-                infs += 1
         else:
             child["tree"] = []
             scores += [(comment["score"], 0, i)]
@@ -42,7 +39,7 @@ def trim_and_get_size(comment: dict, depth=0):
     # NOTE: This makes sure that the branching factor is 2. We keep only the
     # branches with the best score, then the most nodes. This is a heuristic to
     # only keep branches with active conversations, but it is not perfect.
-    trimed_size = max(2, infs)
+    trimed_size = 2
     scores = sorted(scores, key=lambda x: (x[0], x[1]), reverse=True)[
         :trimed_size
     ]
@@ -61,7 +58,6 @@ def main():
         tree: [<>]
     }
     """
-    CATEGORY = "Test-LocalCity"
 
     def process_file(path):
         print(f"Processing {path}")
@@ -98,12 +94,14 @@ def main():
             f"{DATA_PATH_PROCESSED}/{category}/{subreddit}.json", "wb"
         ) as write:
             for post_id, graph in graphs.items():
-                if len(graph) < 10:
+                if len(graph) < 9:
                     continue
 
-                processed_graph = combine_nodes_to_tree(graph)
-                trim_and_get_size(processed_graph)
-
+                processed_graph = combine_nodes_to_tree(graph, max_depth=5)
+                new_size = trim_and_get_size(processed_graph)
+                if new_size < 9:
+                    continue
+                
                 if not processed_graph:
                     print("Invalid processed graph")
 
@@ -118,7 +116,7 @@ def main():
     # multiple subreddits at once. (data/raw/*/*-RC.txt, for example)
 
     dirs_to_process = glob(f"{DATA_PATH_RAW}/*/*")
-    Parallel(n_jobs=1)(
+    Parallel(n_jobs=20)(
         delayed(process_file)(file)
         for file in tqdm(dirs_to_process, total=len(dirs_to_process))
     )

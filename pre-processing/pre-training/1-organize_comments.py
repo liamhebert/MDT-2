@@ -215,32 +215,32 @@ def main():
                 "pearljam",
             ],
         },
-        "Edgy": {
-            "a": [
-                "memes",
-                "watchpeoplesurvive",
-                "MissingPersons",
-                "twinpeaks",
-                "pickuplines",
-                "texts",
-                "startrekgifs",
-                "subredditoftheday",
-                "peeling",
-                "rapbattles",
-            ],
-            "b": [
-                "ImGoingToHellForThis",
-                "watchpeopledie",
-                "MorbidReality",
-                "TrueDetective",
-                "MeanJokes",
-                "FiftyFifty",
-                "DaystromInstitute",
-                "SRSsucks",
-                "Gore",
-                "bestofworldstar",
-            ],
-        },
+        # "Edgy": {
+        #     "a": [
+        #         "memes",
+        #         "watchpeoplesurvive",
+        #         "MissingPersons",
+        #         "twinpeaks",
+        #         "pickuplines",
+        #         "texts",
+        #         "startrekgifs",
+        #         "subredditoftheday",
+        #         "peeling",
+        #         "rapbattles",
+        #     ],
+        #     "b": [
+        #         "ImGoingToHellForThis",
+        #         "watchpeopledie",
+        #         "MorbidReality",
+        #         "TrueDetective",
+        #         "MeanJokes",
+        #         "FiftyFifty",
+        #         "DaystromInstitute",
+        #         "SRSsucks",
+        #         "Gore",
+        #         "bestofworldstar",
+        #     ],
+        # },
     }
 
     # groups = {
@@ -270,7 +270,7 @@ def main():
                     subreddit_to_topic[sub] = []
                 subreddit_to_topic[sub] += [topic]
 
-    path = "/mnt/DATA/reddit_share/"
+    path = "/mnt/DATA/reddit/"
     # path = "./"
     linkid_regex = re.compile('"link_id":"([^"]+)"')
     subreddit_regex = re.compile('"subreddit":"([^"]+)"')
@@ -285,7 +285,11 @@ def main():
 
         with open(f"tmp-{index}", "r") as f:
             for i, line in tqdm(enumerate(f), position=1):
-                subreddit = subreddit_regex.search(line).groups()
+                subreddit = subreddit_regex.search(line)
+                if subreddit is None:
+                    # Here, it is likely an ad post, so we skip it
+                    continue
+                subreddit = subreddit.groups()
                 is_valid = any(sub in subreddit_to_topic for sub in subreddit)
                 if not is_valid:
                     continue

@@ -15,7 +15,7 @@ from requests_ratelimiter import LimiterAdapter
 from requests.adapters import HTTPAdapter, Retry
 import requests
 
-IMAGE_FILES_PATH = "/mnt/DATA/reddit_share/images_files"
+IMAGE_FILES_PATH = "/mnt/DATA/reddit/images_files"
 
 ADDED_IMAGES_PATH = "./added_images"
 PROCESSED_FILES_PATH = "./processed"
@@ -35,8 +35,10 @@ s_redditmedia = requests.Session()
 
 s_imgur.headers.update(
     {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit"
-        + "/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit"
+            + "/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+        )
     }
 )
 
@@ -76,7 +78,7 @@ deleted_img = Image.open(
     BytesIO(image_session.get(deleted_img_url, timeout=3).result().content)
 ).getdata()
 other_deleted_img = Image.open(
-    "/mnt/DATA/reddit_share/" + "/deleted_imgur.png"
+    "/mnt/DATA/reddit/" + "/deleted_imgur.png"
 ).getdata()
 
 
@@ -140,7 +142,7 @@ def main(file):
                         timeout=3,
                     )
                 ]
-            elif image.startswith("https://i.redditmedia.com/"):
+            elif "i.redd.it" in image or "i.redditmedia.com" in image:
                 futures += [
                     redditmedia_session.get(
                         image,
@@ -169,6 +171,7 @@ def main(file):
                 if (
                     "imgur" in res.success[-1]
                     or "redditmedia" in res.success[-1]
+                    or "i.redd.it" in res.success[-1]
                 ):
                     print(res.success)
                 if (
@@ -304,15 +307,22 @@ def get_images(
     image_urls = parse_images(comment["body"])
 
     if "preview" in comment and comment["preview"]:
-        image_data = comment["preview"]
-        if not image_data["url"].startswith("https://i.redditmedia.com/"):
-            print("Image URL not start with redditmedia")
-            print(image_data["url"])
-        if is_root:
-            image_urls.append(image_data["url"])
+        image_url = comment["preview"]["url"]
+        if "https://i.redditmedia.com/" in image_url:
+            image_url = image_url
+        elif "external-preview.redd.it" in image_url:
+            image_url = image_url.replace(
+                "external-preview.redd.it", "i.redditmedia.com"
+            )
+        elif "preview.redd.it" in image_url:
+            image_url = image_url.replace("preview.redd.it", "i.redd.it")
         else:
-            print("Found image in non-root:")
-            print(image_data["url"])
+            print(
+                "Found preview image in potentially unsupported url ", image_url
+            )
+
+        image_urls.append(image_url)
+
     # image_urls = [x for x in image_urls if 'i.imgur.com' in x]
     if len(image_urls) != 0:
         res = [(link_id, comment["id"], image_urls)]
