@@ -3,30 +3,31 @@ These tests validate whether components can be loaded in using Hydra.
 """
 
 from pathlib import Path
-from typing import Generator
 
 import hydra
 from hydra import compose
 from hydra import initialize
-from hydra.core.global_hydra import GlobalHydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from omegaconf import open_dict
 import pytest
 import rootutils
+from glob import glob
+import os
 
 
-@pytest.fixture(scope="package")
-def cfg_train_global() -> DictConfig:
-    """A pytest fixture for setting up a default Hydra DictConfig for training.
-
-    Returns:
-        A DictConfig object containing a default Hydra configuration for
-    training.
-    """
+def global_prepare(
+    base_yaml: str = "train.yaml", experiment_override: str | None = None
+) -> DictConfig:
     with initialize(version_base=None, config_path="configs"):
+        if experiment_override:
+            overrides = ["experiment=" + experiment_override]
+        else:
+            overrides = []
         cfg = compose(
-            config_name="train.yaml", return_hydra_config=True, overrides=[]
+            config_name=base_yaml,
+            return_hydra_config=True,
+            overrides=overrides,
         )
 
         # set defaults for all tests
@@ -35,6 +36,7 @@ def cfg_train_global() -> DictConfig:
                 rootutils.find_root(indicator=".project-root")
             )
             cfg.trainer.max_epochs = 1
+            cfg.trainer.strategy = "auto"
             cfg.trainer.limit_train_batches = 0.01
             cfg.trainer.limit_val_batches = 0.1
             cfg.trainer.limit_test_batches = 0.1
@@ -55,6 +57,32 @@ def cfg_train_global() -> DictConfig:
     return cfg
 
 
+def add_tmp_paths(cfg: DictConfig, tmp_path: Path) -> DictConfig:
+    """Augments a given test_config with temporary paths for data, logs, and
+    output.
+
+    Args:
+        cfg (DictConfig): The test configuration.
+        tmp_path (Path): The temporary path to store test files.
+    """
+    with open_dict(cfg):
+        cfg.paths.output_dir = str(tmp_path)
+        cfg.paths.log_dir = str(tmp_path)
+
+    return cfg
+
+
+@pytest.fixture(scope="package")
+def cfg_train_global() -> DictConfig:
+    """A pytest fixture for setting up a default Hydra DictConfig for training.
+
+    Returns:
+        A DictConfig object containing a default Hydra configuration for
+    training.
+    """
+    return global_prepare(base_yaml="train.yaml")
+
+
 @pytest.fixture(scope="package")
 def cfg_eval_global() -> DictConfig:
     """A pytest fixture for setting up a default Hydra DictConfig for
@@ -64,42 +92,11 @@ def cfg_eval_global() -> DictConfig:
         A DictConfig containing a default Hydra configuration for
     evaluation.
     """
-    with initialize(version_base=None, config_path="configs"):
-        cfg = compose(
-            config_name="eval.yaml",
-            return_hydra_config=True,
-            overrides=["ckpt_path=."],
-        )
-
-        # set defaults for all tests
-        with open_dict(cfg):
-            cfg.paths.root_dir = str(
-                rootutils.find_root(indicator=".project-root")
-            )
-            cfg.trainer.max_epochs = 1
-            cfg.trainer.limit_test_batches = 0.1
-            cfg.trainer.accelerator = "cpu"
-            cfg.trainer.devices = 1
-
-            cfg.dataset.num_workers = 0
-            cfg.dataset.pin_memory = False
-
-            cfg.modality_encoder.text_model_name = "bert-base-uncased"
-            cfg.modality_encoder.vision_model_name = (
-                "google/vit-base-patch16-224"
-            )
-
-            cfg.extras.print_config = False
-            cfg.extras.enforce_tags = False
-            cfg.logger = None
-
-    return cfg
+    return global_prepare(base_yaml="eval.yaml")
 
 
 @pytest.fixture(scope="function")
-def cfg_train(
-    cfg_train_global: DictConfig, tmp_path: Path
-) -> Generator[DictConfig, None, None]:
+def cfg_train(cfg_train_global: DictConfig, tmp_path: Path) -> DictConfig:
     """A pytest fixture built on top of the `cfg_train_global()` fixture, which
     accepts a temporary logging path `tmp_path` for generating a temporary
     logging path.
@@ -117,19 +114,11 @@ def cfg_train(
     """
     cfg = cfg_train_global.copy()
 
-    with open_dict(cfg):
-        cfg.paths.output_dir = str(tmp_path)
-        cfg.paths.log_dir = str(tmp_path)
-
-    yield cfg
-
-    GlobalHydra.instance().clear()
+    return add_tmp_paths(cfg, tmp_path)
 
 
 @pytest.fixture(scope="function")
-def cfg_eval(
-    cfg_eval_global: DictConfig, tmp_path: Path
-) -> Generator[DictConfig, None, None]:
+def cfg_eval(cfg_eval_global: DictConfig, tmp_path: Path) -> DictConfig:
     """A pytest fixture built on top of the `cfg_eval_global()` fixture, which
     accepts a temporary logging path `tmp_path` for generating a temporary
     logging path.
@@ -147,32 +136,36 @@ def cfg_eval(
     """
     cfg = cfg_eval_global.copy()
 
-    with open_dict(cfg):
-        cfg.paths.output_dir = str(tmp_path)
-        cfg.paths.log_dir = str(tmp_path)
-
-    yield cfg
-
-    GlobalHydra.instance().clear()
+    return add_tmp_paths(cfg, tmp_path)
 
 
-def test_train_config(cfg_train: DictConfig) -> None:
+experiment_yamls = [
+    os.path.basename(x).removesuffix(".yaml")
+    for x in glob("configs/experiment/*.yaml")
+]
+
+
+@pytest.mark.parametrize("experiment", experiment_yamls)
+def test_train_config(tmp_path: Path, experiment: str) -> None:
     """Tests the training configuration provided by the `cfg_train` pytest
     fixture.
 
     Args:
         cfg_train: A DictConfig containing a valid training configuration.
     """
-    assert cfg_train
-    assert cfg_train.dataset
-    assert cfg_train.model
-    assert cfg_train.trainer
+    cfg = global_prepare(base_yaml="train.yaml", experiment_override=experiment)
+    cfg = add_tmp_paths(cfg, tmp_path)
 
-    HydraConfig().set_config(cfg_train)
+    assert cfg
+    assert cfg.dataset
+    assert cfg.model
+    assert cfg.trainer
 
-    hydra.utils.instantiate(cfg_train.dataset)
-    hydra.utils.instantiate(cfg_train.model)
-    hydra.utils.instantiate(cfg_train.trainer)
+    HydraConfig().set_config(cfg)
+
+    hydra.utils.instantiate(cfg.dataset)
+    hydra.utils.instantiate(cfg.model)
+    hydra.utils.instantiate(cfg.trainer)
 
 
 def test_eval_config(cfg_eval: DictConfig) -> None:

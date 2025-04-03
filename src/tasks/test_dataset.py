@@ -106,8 +106,8 @@ def test_node_process(dataset: DummyNodeTaskDataset):
     assert len(data) == 11
     res = dataset.collate_fn(data)
 
-    assert len(res["x"]["image_inputs"]["pixel_values"]) == 6, res["x"][
-        "image_inputs"
+    assert len(res["x"]["image_input"]["pixel_values"]) == 6, res["x"][
+        "image_input"
     ]
 
 
@@ -124,8 +124,8 @@ def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
 
     assert res["y"][ContrastiveLabels.Ys].shape == (11,)
     assert res["y"][ContrastiveLabels.HardYs].shape == (11,)
-    assert len(res["x"]["image_inputs"]["pixel_values"]) == 6, res["x"][
-        "image_inputs"
+    assert len(res["x"]["image_input"]["pixel_values"]) == 6, res["x"][
+        "image_input"
     ]
 
 
@@ -150,6 +150,62 @@ def test_graph_process_debug(tmp_path: pathlib.Path):
     res = dataset.collate_fn(data)
     assert res["y"][ContrastiveLabels.Ys].shape == (4,)
     assert res["y"][ContrastiveLabels.HardYs].shape == (4,)
+
+    for indices in [dataset.train_idx, dataset.valid_idx, dataset.test_idx]:
+        data_2 = []
+        sizes = dataset.get_sizes(indices)
+        assert len(sizes) == len(indices)
+        for idx in indices:
+            data_2 += [dataset[idx]]
+
+
+@pytest.mark.parametrize("group_size", [2, 4])
+def test_grouped_graphs(tmp_path: pathlib.Path, group_size: int):
+    (tmp_path / "processed").mkdir(exist_ok=True)
+    dataset = DummyGraphTaskDataset(
+        raw_graph_path="test10",
+        root="tasks/sample_test_data",
+        output_graph_path=str(tmp_path),
+        split_graphs=False,
+        group_size=group_size,
+        train_size=6,
+        valid_size=2,
+        test_size=2,
+        debug=10,
+    )
+    dataset.process()
+
+    num_groups = 6 // group_size + 2 // group_size + 2 // group_size
+
+    data = []
+    for x in dataset:
+        data += [x]
+        assert len(x) == group_size
+
+    assert len(data) == num_groups
+    for indices in [dataset.train_idx, dataset.valid_idx, dataset.test_idx]:
+        data_2 = []
+        sizes = dataset.get_sizes(indices)
+        assert len(sizes) == len(indices)
+        for idx in indices:
+            data_2 += [dataset[idx]]
+
+
+def test_grouped_graphs_read(tmp_path: pathlib.Path):
+    (tmp_path / "processed").mkdir(exist_ok=True)
+    dataset = DummyGraphTaskDataset(
+        raw_graph_path="test10",
+        root="tasks/sample_test_data",
+        output_graph_path=str(tmp_path),
+        split_graphs=False,
+        group_size=2,
+    )
+    dataset.process()
+
+    data = []
+    for x in dataset:
+        data += [x]
+        assert len(x) == 2
 
     for indices in [dataset.train_idx, dataset.valid_idx, dataset.test_idx]:
         data_2 = []
@@ -268,6 +324,10 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
 
     assert data["text"]["input_ids"].shape == (3, 512)
     assert data["text"]["attention_mask"].shape == (3, 512)
+    torch.testing.assert_close(
+        data["rotary_position"],
+        torch.tensor([[0, 0], [0, 1], [1, 1]], dtype=torch.uint8),
+    )
 
 
 @pytest.mark.skip("skipping since distance index is removed.")

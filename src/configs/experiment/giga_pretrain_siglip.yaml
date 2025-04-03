@@ -5,7 +5,7 @@
 
 defaults:
   - override /modality_encoder: siglip-UAE
-  - override /dataset: pretrain
+  - override /dataset: giga_pretrain
   - override /model/encoder: siglip_encoder
   - override /model/loss: contrastive_loss
   - override /trainer: ddp
@@ -14,7 +14,7 @@ defaults:
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["pretrain", "v0", "siglip-UAE", "avg"]
+tags: ["GIGA-pretrain", "v1", "siglip-UAE"]
 
 seed: 12345
 
@@ -26,13 +26,13 @@ trainer:
 logger:
   wandb:
     tags: ${tags}
-    group: "pretrain"
+    group: "giga_pretrain"
   aim:
-    experiment: "pretrain"
+    experiment: "giga_pretrain"
 
 model:
   loss:
-    num_classes: 12
+    num_classes: 10
     learnable_temperature: True
     adaptive_soft_negative_weight: False
     soft_negative_weight: 1.0

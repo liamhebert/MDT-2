@@ -3,5 +3,5 @@ _target_: losses.ContrastiveLoss
 soft_negative_weight: 0.1
 adaptive_soft_negative_weight: False
 temperature: 10
-bias: 0
+bias: -10
 learnable_temperature: False

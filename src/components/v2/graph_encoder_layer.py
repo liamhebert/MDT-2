@@ -231,6 +231,7 @@ class BaseGraphTransformer(nn.Module):
 
         self.dim = self.layers[0].dim
         self.num_heads = self.layers[0].n_heads
+        self.init_weights()
 
     def __len__(self) -> int:
         """Number of layers in the transformer."""

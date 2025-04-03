@@ -6,8 +6,77 @@ from hydra.utils import instantiate
 from omegaconf import DictConfig
 from transformers import BertConfig
 from transformers import ViTConfig
+import torch
+from pytest import mark
 
+from data.types import TextFeatures, ImageFeatures
 from components.v2.discussion_transformer import DiscussionTransformer
+from components.v2.discussion_transformer_all_tokens import (
+    DiscussionTransformerAllTokens,
+)
+from components.v2.graph_attention_mask import generate_graph_attn_mask_tensor
+
+
+def discussion_transformer_input(
+    config: DictConfig,
+) -> dict[str, torch.Tensor | dict[str, torch.Tensor] | int]:
+    """
+    Fixture to build the discussion transformer input.
+    """
+
+    batch_size = 3
+    num_nodes = 4
+    total_nodes = batch_size * num_nodes
+    # Mask should be static.
+    sequence_length = 5
+
+    text_config: BertConfig = instantiate(config.text_model_config.test_config)
+    vision_config: ViTConfig = instantiate(config.vit_model_config.test_config)
+    graph_ids = torch.tensor(
+        [0, 1, 2] + [0] * num_nodes + [1] * num_nodes + [2] * num_nodes
+    )
+
+    return {
+        "text_input": {
+            TextFeatures.InputIds: torch.randint(
+                0,
+                text_config.vocab_size,
+                (total_nodes, sequence_length),
+            ),
+            TextFeatures.AttentionMask: torch.tile(
+                torch.tensor([[1, 1, 1, 0, 0]]), (total_nodes, 1)
+            ),
+            TextFeatures.TokenTypeIds: torch.zeros(
+                (total_nodes, sequence_length), dtype=torch.long
+            ),
+        },
+        # == Image inputs ==
+        "image_input": {
+            ImageFeatures.PixelValues: torch.rand(
+                5,
+                vision_config.num_channels,
+                vision_config.image_size,
+                vision_config.image_size,
+            ),
+        },
+        "image_padding_mask": (
+            torch.tensor([1] * 5 + [0] * (total_nodes - 5)).bool()
+        ),
+        # == Graph inputs ==
+        "rotary_pos": torch.randint(0, 10, (total_nodes + batch_size, 2)),
+        "out_degree": torch.randint(0, 5, (total_nodes,)),
+        "num_total_graphs": batch_size,
+        "graph_mask": generate_graph_attn_mask_tensor(
+            graph_ids,
+            torch.full(
+                (total_nodes + batch_size, total_nodes + batch_size),
+                1,
+                dtype=torch.long,
+            ),
+        ),
+        # Attention graph ids
+        "graph_ids": graph_ids,
+    }
 
 
 def test_build_discussion_transformer(
@@ -39,7 +108,7 @@ def test_build_discussion_transformer(
     )
 
     # Test number of bottleneck embeddings
-    assert model.bottle_neck.num_embeddings == config.num_bottle_neck
+    assert model.bottle_neck.shape[0] == config.num_bottle_neck
 
 
 def test_build_bert_encoder(
@@ -118,5 +187,16 @@ def test_build_vit_encoder(
     )
 
 
-# TODO(liamhebert): Add tests for the forward method of the discussion
-# transformer.
+@mark.parametrize(
+    "model_cls", [DiscussionTransformer, DiscussionTransformerAllTokens]
+)
+def test_forward(
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
+    model_cls: type[DiscussionTransformer],
+):
+    _, config = discussion_transformer_fixture
+    config._target_ = model_cls.__module__ + "." + model_cls.__name__
+
+    model: DiscussionTransformer = instantiate(config)
+
+    model.forward(**discussion_transformer_input(config))  # type: ignore

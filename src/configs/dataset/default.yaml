@@ -5,9 +5,10 @@ use_length_grouped_sampler: True
 max_total_length: 384 # Note this is per gpu, so 42 / 2 = 21 graphs, same length
 
 test_batch_size: 24
-num_workers: 6
+num_workers: 4
 pin_memory: True
 cache_dataset: True
+group_size: 2
 
 dataset:
   _target_: ???
@@ -15,6 +16,8 @@ dataset:
   raw_graph_path: ???
   output_graph_path: ${paths.data_dir}/processed_files
   block_size: ${model.encoder.block_size}
+
+  group_size: ${dataset.group_size}
 
   train_size: 0.8
   valid_size: 0.1
@@ -31,3 +34,5 @@ dataset:
   force_reload: False
   use_flattened_collator: True
   debug: False
+
+  skip_invalid_label_graphs: True

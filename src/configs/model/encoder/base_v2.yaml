@@ -39,12 +39,10 @@ num_bottle_neck: 4
 num_fusion_stack: 4
 fusion_stack_size: 2
 
-encoder_normalize_before: False
-
-embed_scale: None
-
 num_graph_layers_to_freeze: 0
 
 freeze_initial_encoders: False
 
 block_size: 1
+
+graph_token_average: False

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import copy
 from glob import glob
-import json
+import orjson
 import os
 import pprint
 from typing import Any, Dict, List
@@ -51,6 +51,9 @@ class TaskDataset(Dataset, ABC):
 
     _idx_mapping = None
 
+    # This tag will be used to differentiate between datasets
+    tag: str = "default_dataset"
+
     def __init__(
         self,
         root: str,
@@ -68,6 +71,8 @@ class TaskDataset(Dataset, ABC):
         force_reload: bool = False,
         debug: int | bool | None = None,
         group_size: int = 1,
+        skip_invalid_label_graphs: bool = False,
+        force_tag: str | None = None,
     ):
         """Initializes the TaskDataset.
 
@@ -103,6 +108,9 @@ class TaskDataset(Dataset, ABC):
         self.raw_graph_path = raw_graph_path
         self.output_graph_path = output_graph_path
         self.root = root
+        if force_tag:
+            log.warning(f"Overriding tag {self.tag=} with {force_tag=}")
+            self.tag = force_tag
 
         self.image_tokenizer_key = image_tokenizer_key
         self.text_config = text_config or {
@@ -129,15 +137,31 @@ class TaskDataset(Dataset, ABC):
 
         self.force_reload = force_reload
         self.debug = debug
+        is_prod = os.getenv("IS_PROD", False) == "1"
+        if is_prod:
+            log.warning("Force skipping invalid graphs in PROD mode")
+            self._skip_invalid_label_graphs = True
+        else:
+            if skip_invalid_label_graphs:
+                log.warning(
+                    "Skipping invalid label graphs in non-PROD mode. Make sure"
+                    " you know what you are doing!"
+                )
+            self._skip_invalid_label_graphs = skip_invalid_label_graphs
+
         if debug is True:
             self.debug = 10
+
+        if self.debug:
             self.output_graph_path += "_debug"
             self.force_reload = True
 
         os.makedirs(self.output_graph_path, exist_ok=True)
+
         self._hdf5_filename = os.path.join(
-            self.output_graph_path, "processed_graphs.hdf5"
+            self.output_graph_path, self.tag + "-processed_graphs.hdf5"
         )
+        log.info(f"Output graph path: {self._hdf5_filename}")
 
     @property
     def data_splits(self) -> dict[str, list[int]]:
@@ -146,22 +170,32 @@ class TaskDataset(Dataset, ABC):
 
         assert self.raw_paths, "No raw paths found"
         dataset_splits = {}
+        dataset_file = self.hdf5_file
 
         for path in self.raw_paths:
             dataset_name = os.path.basename(path).removesuffix("-data.json")
+            if dataset_name not in dataset_file:
+                log.warning(
+                    f"Dataset {dataset_name} not found in hdf5 dataset."
+                    " Skipping."
+                )
+                continue
+
             split_path = path.removesuffix("-data.json") + "-split.json"
             current_dataset_splits = {
                 "train_idx": [],
                 "valid_idx": [],
                 "test_idx": [],
             }
-            assert self._idx_mapping
+            if self._idx_mapping is None:
+                self._dumb_idx_mapping()
+
             dataset_mapping = self._idx_mapping[dataset_name]
 
             if os.path.exists(split_path) and not self.debug:
                 log.info(f"Loading splits from {split_path=}")
                 with open(split_path, "r") as f:
-                    loaded_splits = json.load(f)
+                    loaded_splits = orjson.loads(f.read())
                     for key in ["train_idx", "test_idx"]:
                         current_dataset_splits[key] = loaded_splits[key]
                     current_dataset_splits["valid_idx"] = loaded_splits.get(
@@ -221,16 +255,27 @@ class TaskDataset(Dataset, ABC):
             def group_indices(
                 indices: list[str],
             ) -> list[tuple[str, list[str]]]:
-                if self.group_size == 1:
-                    return [(dataset_name, [index]) for index in indices]
-                res = [
-                    indices[i : i + self.group_size]
-                    for i in range(0, len(indices), self.group_size)
-                ]
-                res = [(dataset_name, group) for group in res]
-                if len(res[-1][-1]) < self.group_size:
-                    res.pop()
-                return res
+                # Group sets of indices such that each group consists of unique
+                # indices only.
+
+                groups = []
+                current_group = set()
+                remaining_ids = list(indices)  # Create a copy to modify
+                random.shuffle(remaining_ids)
+                total_dups = 0
+                while remaining_ids:
+                    if len(current_group) < self.group_size:
+                        item = remaining_ids.pop(0)  # Take the first item
+                        if item in current_group:
+                            total_dups += 1
+                        current_group.add(item)
+                    else:
+                        groups.append((dataset_name, list(current_group)))
+                        current_group = set()  # Start a new group
+
+                if len(current_group) == self.group_size:
+                    groups.append((dataset_name, list(current_group)))
+                return groups
 
             # TODO(liamhebert): This only groups once, meaning graphs will
             # always have the same positive. Would be nice to recreate this
@@ -311,10 +356,6 @@ class TaskDataset(Dataset, ABC):
 
             found_paths = glob(os.path.expandvars(path))
             found_data_paths = [p for p in found_paths if "-data.json" in p]
-            for p in found_data_paths:
-                assert os.path.exists(
-                    p.removesuffix("-data.json") + "-split.json"
-                ), f"Missing split file for {p=}"
             assert found_data_paths, f"No files found for {path=}"
             final_paths.extend(found_data_paths)
         return final_paths
@@ -368,18 +409,30 @@ class TaskDataset(Dataset, ABC):
             log.warning("Force reloading data, deleting HDF5 file")
             os.system(f"rm -rf {self._hdf5_filename}")
 
-        self._hdf5_file = h5py.File(self._hdf5_filename, "a")
+        is_prod = os.getenv("IS_PROD", False) == "1" and not self.debug
+
+        if is_prod:
+            log.warning("In PROD mode, opening HDF5 file in read-only mode")
+            self._hdf5_file = h5py.File(self._hdf5_filename, "r")
+        else:
+            log.warning("NOT in PROD mode, opening HDF5 file in write mode")
+            self._hdf5_file = h5py.File(self._hdf5_filename, "w")
 
         def process_file(file):
             dataset_name = os.path.basename(file).removesuffix("-data.json")
             assert self._hdf5_file, "HDF5 file not open"
+            if is_prod and dataset_name not in self._hdf5_file:
+                log.warning(
+                    f"Skipping empty group {dataset_name=} due to PROD mode"
+                )
+                return (dataset_name, None)
 
             dataset_group = self._hdf5_file.require_group(dataset_name)
-
             log.info(f"Processing file: {dataset_name}")
             if self.debug:
                 log.warning(f"Debug mode: processing first {self.debug} graphs")
             index_mapping = {}
+            had_errors = 0
             with open(file, "r") as f:
                 for original_idx, line in tqdm(enumerate(f)):
                     if self.debug and original_idx == self.debug:
@@ -387,9 +440,7 @@ class TaskDataset(Dataset, ABC):
                     # TODO(liamhebert): This currently only works in graph-mode
                     # not for split nodes.
                     if f"graph_{original_idx}" in dataset_group:
-                        index_mapping[original_idx] = [
-                            (dataset_name, f"graph_{original_idx}")
-                        ]
+                        index_mapping[original_idx] = [f"graph_{original_idx}"]
                         continue
 
                     # if (
@@ -406,8 +457,13 @@ class TaskDataset(Dataset, ABC):
                     #     processed_count += 1
                     #     continue
 
-                    json_data = json.loads(line)
-                    data = self.process_graph(json_data)
+                    json_data = orjson.loads(line)
+                    try:
+                        data = self.process_graph(json_data)
+                    except ValueError as e:
+                        # Graphs that raise label errors are skipped.
+                        had_errors += 1
+                        continue
 
                     if (
                         self.split_graphs and self.has_node_labels
@@ -435,6 +491,15 @@ class TaskDataset(Dataset, ABC):
                             original_idx,
                         )
                         index_mapping[original_idx] = [graph_name]
+
+            log.info(
+                f"Had {had_errors} errors and {len(index_mapping)} success"
+                f" while processing {dataset_name}"
+            )
+            if len(index_mapping) == 0:
+                log.warning(f"No graphs processed for {dataset_name}")
+                del self._hdf5_file[dataset_name]
+                return (dataset_name, None)
             return (dataset_name, index_mapping)
 
         dataset_mappings = Parallel(n_jobs=1)(
@@ -443,11 +508,40 @@ class TaskDataset(Dataset, ABC):
         )
         assert dataset_mappings, "No data processed"
 
+        # TODO(liamhebert): This is a side-effect of process, which is REALLY bad.
+        # Ideally, there should be no side-effects and we should instead generate
+        # this live.
         self._idx_mapping = {
             dataset_name: index_mapping
             for dataset_name, index_mapping in dataset_mappings
+            if index_mapping  # drop empty mappings (skipped graphs)
         }
         self._hdf5_file = self._hdf5_file.close()
+
+    def _dumb_idx_mapping(self):
+        """
+        This only works for no-split indexing, but we need this to recreate
+        self._idx_mapping, which is only created in the master process.
+        """
+        self._idx_mapping = {}
+        log.warning(
+            "Creating dumb idx mapping. NOTE: This will break when using split"
+            " graphs."
+        )
+        dataset_file = self.hdf5_file
+        log.info(dataset_file.keys())
+        for file in self.raw_paths:
+            dataset_name = os.path.basename(file).removesuffix("-data.json")
+            if dataset_name not in dataset_file:
+                log.warning(f"Dataset {dataset_name} not found in HDF5 file")
+                continue
+            with open(file, "r") as f:
+                index_mapping = {}
+                for original_idx, line in enumerate(f):
+                    if self.debug and original_idx == self.debug:
+                        break
+                    index_mapping[original_idx] = [f"graph_{original_idx}"]
+            self._idx_mapping[dataset_name] = index_mapping
 
     def _write_graph_to_hdf5(
         self, dataset_group, data, original_index, label_index=None
@@ -479,7 +573,7 @@ class TaskDataset(Dataset, ABC):
 
         return graph_name
 
-    def flatten_graph(self, tree):
+    def flatten_graph(self, tree) -> dict:
         result = {
             "images": [],
             "distances": [],
@@ -490,6 +584,13 @@ class TaskDataset(Dataset, ABC):
             "y": [],
             "text": [],
         }
+        if self.has_graph_labels:
+            label = self.retrieve_label(tree)
+            if self._skip_invalid_label_graphs and all(
+                x == -100 for x in label.values()
+            ):
+                raise ValueError("Invalid graph")
+            result["y"].append(label)
 
         def traverse(node, parent_id=None):
             is_root = parent_id is None
@@ -507,13 +608,12 @@ class TaskDataset(Dataset, ABC):
                 result["is_root"].append(is_root)
 
                 if self.has_node_labels:
-                    result["y"].append(self.retrieve_label(node["data"]))
+                    result["y"].append(self.retrieve_label(node))
 
                 text = (
-                    f"Title: {node['data']['title']}\nBody:"
-                    f" {node['data']['body']}"
+                    f"Title: {node['title']}\nBody: {node['body']}"
                     if is_root
-                    else f"Comment: {node['data']['body']}"
+                    else f"Comment: {node['body']}"
                 )
                 result["text"].append(dut.clean_text(text))
 
@@ -525,24 +625,25 @@ class TaskDataset(Dataset, ABC):
             result["distances"][0]
         ), "Distance mismatch"
 
-        if self.has_graph_labels:
-            result["y"].append(self.retrieve_label(tree["data"]))
         return result
 
     def process_graph(self, json_data):
         dut.compute_relative_distance(json_data)
         flattened_graph = self.flatten_graph(json_data)
+        if len(flattened_graph["id"]) > 49:
+            raise ValueError("Graph too large")
+
         if all(
             y == -100 for y in flattened_graph["y"]
         ):  # Check for empty labels
             if self.strict:
                 raise ValueError(
-                    f"No valid labels in graph: {json_data['data'].get('id')=}"
+                    f"No valid labels in graph: {json_data.get('id')=}"
                 )
             else:
                 log.warning(
                     "No valid labels, skipping graph:"
-                    f" {json_data['data'].get('id')=}, strict={self.strict=},"
+                    f" {json_data.get('id')=}, strict={self.strict=},"
                     f" split_graphs={self.split_graphs=}"
                 )
 
@@ -568,15 +669,37 @@ class TaskDataset(Dataset, ABC):
             ),
         )
 
-        image_mask = torch.tensor(
-            [img is not None for img in flattened_graph["images"]],
-            dtype=torch.bool,
-        )
-        images = [
-            Image.open(os.path.join(self.root, img)).convert("RGB")
-            for img in flattened_graph["images"]
-            if img
-        ]
+        image_mask = []
+        images = []
+        for img in flattened_graph["images"]:
+            if img:
+                try:
+                    img = Image.open(os.path.join(self.root, img)).convert(
+                        "RGB"
+                    )
+                except Exception as e:
+                    log.warning(
+                        f"Error opening image {img} in {self.root}: {e}"
+                    )
+                    img = None
+
+            if img is not None:
+                images.append(img)
+                image_mask.append(True)
+            else:
+                image_mask.append(False)
+
+        image_mask = torch.tensor(image_mask, dtype=torch.bool)
+
+        # image_mask = torch.tensor(
+        #    [img is not None for img in flattened_graph["images"]],
+        #    dtype=torch.bool,
+        # )
+        # images = [
+        #    Image.open(os.path.join(self.root, img)).convert("RGB")
+        #    for img in flattened_graph["images"]
+        #    if img
+        # ]
         tokenized_images = (
             self.image_tokenizer(images, return_tensors="pt")
             if images
@@ -654,7 +777,9 @@ class TaskDataset(Dataset, ABC):
     ) -> Dict[str, Any]:
         """Loads a processed graph from the HDF5 file as a dictionary."""
         group = self.hdf5_file.get(f"{dataset_name}/{graph_index}")
-        assert isinstance(group, h5py.Group), "Invalid dataset group"
+        assert isinstance(
+            group, h5py.Group
+        ), f"Invalid dataset group {group=}, {dataset_name=}, {graph_index=}"
         text_data = {
             key: torch.from_numpy(np_array[()])
             for key, np_array in group["text"].items()
@@ -694,8 +819,11 @@ class TaskDataset(Dataset, ABC):
             _ = self.data_splits
 
         assert self._flattened_data
-        print(self._flattened_data)
-        dataset_name, graph_indices = self._flattened_data[idx]
+        try:
+            dataset_name, graph_indices = self._flattened_data[idx]
+        except Exception as e:
+            log.warning(f"Index {idx} not found in {self._flattened_data=}")
+            raise e
 
         data = [
             self._load_graph_from_hdf5(dataset_name, graph_index)

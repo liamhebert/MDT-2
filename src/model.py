@@ -138,13 +138,16 @@ class Model(L.LightningModule):
                 metric,
                 on_step=(
                     True
-                    if any(x in key for x in ["loss", "temperature", "bias"])
+                    if any(
+                        x in key
+                        for x in ["loss", "temperature", "bias", "weight"]
+                    )
                     else False
                 ),
                 on_epoch=True,
                 prog_bar=False,
                 batch_size=weight,
-                sync_dist=True,
+                sync_dist=False,
             )
 
         self.log("train/lr", self.scheduler.get_last_lr()[0], on_step=True)
@@ -165,7 +168,7 @@ class Model(L.LightningModule):
                 val,
                 prog_bar=False,
                 on_epoch=True,
-                sync_dist=True,
+                sync_dist=False,
             )
 
         self.encoder.eval()
@@ -191,7 +194,7 @@ class Model(L.LightningModule):
                 on_epoch=True,
                 prog_bar=False,
                 batch_size=weight,
-                sync_dist=True,
+                sync_dist=False,
             )
         return loss
 
@@ -209,7 +212,7 @@ class Model(L.LightningModule):
                 on_epoch=True,
                 on_step=False,
                 prog_bar=False,
-                sync_dist=True,
+                sync_dist=False,
             )
 
     def test_step(
@@ -235,7 +238,7 @@ class Model(L.LightningModule):
                 on_epoch=True,
                 prog_bar=False,
                 batch_size=batch_size,
-                sync_dist=True,
+                # sync_dist=True,
             )
         return loss
 
@@ -253,7 +256,7 @@ class Model(L.LightningModule):
                 prog_bar=False,
                 on_epoch=True,
                 on_step=False,
-                sync_dist=True,
+                # sync_dist=True,
             )
 
     def setup(self, stage: str) -> None:
@@ -291,7 +294,7 @@ class Model(L.LightningModule):
             epochs = self.trainer.max_epochs
             assert epochs is not None
             dataset_size = 380_000
-            steps_per_epoch = 6670
+            steps_per_epoch = 2886
             total_steps = epochs * steps_per_epoch  # Hard coded, sry.
             warmup = int(0.1 * total_steps)
 
@@ -300,7 +303,7 @@ class Model(L.LightningModule):
                 schedulers=[
                     lr_scheduler.LinearLR(
                         optimizer,
-                        start_factor=1e-5,
+                        start_factor=1e-4,
                         end_factor=1.0,
                         total_iters=warmup,
                     ),

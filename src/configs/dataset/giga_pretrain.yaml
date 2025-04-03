@@ -3,9 +3,9 @@ defaults:
 
 dataset:
   _target_: tasks.contrastive_learning.contrastive_dataset.ContrastivePreTrainingDataset
-  root: ${paths.root_dir}/tasks/contrastive_learning/raw_files/
+  root: ${paths.root_dir}/tasks/contrastive_learning/giga_raw_files/
   raw_graph_path: '*/*'
 
   split_graphs: False
   politics_and_gender_only: False
-  force_tag: "pretrain"
+  force_tag: "giga_pretrain"

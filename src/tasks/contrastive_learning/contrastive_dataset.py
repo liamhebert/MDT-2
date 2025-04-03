@@ -14,7 +14,7 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
     Task dataset for Contrastive DisCo Pre-Training.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, politics_and_gender_only=False, **kwargs):
         groups = {
             "Partisan A": {
                 "a": [
@@ -118,7 +118,6 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
                     "teenagers",
                     "youngatheists",
                     "teenrelationships",
-                    "AskMen",
                     "saplings",
                     "hsxc",
                     "trackandfield",
@@ -129,7 +128,6 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
                     "RedditForGrownups",
                     "TrueAtheism",
                     "relationship_advice",
-                    "AskMenOver30",
                     "eldertrees",
                     "running",
                     "trailrunning",
@@ -138,36 +136,47 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
                     "pearljam",
                 ],
             },
-            "Edgy": {
-                "a": [
-                    "memes",
-                    "watchpeoplesurvive",
-                    "MissingPersons",
-                    "twinpeaks",
-                    "pickuplines",
-                    "texts",
-                    "startrekgifs",
-                    "subredditoftheday",
-                    "peeling",
-                    "rapbattles",
-                ],
-                "b": [
-                    "ImGoingToHellForThis",
-                    "watchpeopledie",
-                    "MorbidReality",
-                    "TrueDetective",
-                    "MeanJokes",
-                    "FiftyFifty",
-                    "DaystromInstitute",
-                    "SRSsucks",
-                    "bestofworldstar",
-                ],
-            },
+            # "Edgy": {
+            #     "a": [
+            #         "memes",
+            #         "watchpeoplesurvive",
+            #         "MissingPersons",
+            #         "twinpeaks",
+            #         "pickuplines",
+            #         "texts",
+            #         "startrekgifs",
+            #         "subredditoftheday",
+            #         "peeling",
+            #         "rapbattles",
+            #     ],
+            #     "b": [
+            #         "ImGoingToHellForThis",
+            #         "watchpeopledie",
+            #         "MorbidReality",
+            #         "TrueDetective",
+            #         "MeanJokes",
+            #         "FiftyFifty",
+            #         "DaystromInstitute",
+            #         "SRSsucks",
+            #         "bestofworldstar",
+            #     ],
+            # },
         }
 
         groups["Partisan A"]["a"].extend(groups["Partisan B"]["a"])
         groups["Partisan A"]["b"].extend(groups["Partisan B"]["b"])
         del groups["Partisan B"]
+
+        if politics_and_gender_only:
+            self.tag = "politics_and_gender_pretrain"
+            groups = {
+                "Partisan A": groups["Partisan A"],
+                "Gender": groups["Gender"],
+            }
+            logging.info("Using only politics and gender subreddits.")
+        else:
+            self.tag = "all_pretrain"
+            logging.info("Using all subreddits.")
 
         # Map to convert a subreddit name to a group
         self.idx_map = {}
@@ -215,8 +224,6 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
 
         subreddit = data["subreddit"]
         if subreddit not in self.idx_map:
-            # Ideally, this should never happen.
-            logging.error("Subreddit not found: %s", subreddit)
             return {
                 ContrastiveLabels.Ys: -100,
                 ContrastiveLabels.HardYs: -100,

@@ -15,7 +15,7 @@ from utils import RankedLogger
 from typing import Iterable
 
 tqdm.pandas()
-log = RankedLogger(__name__, rank_zero_only=True)
+log = RankedLogger(__name__, rank_zero_only=False)
 
 
 class DataModule(LightningDataModule):
@@ -68,6 +68,7 @@ class DataModule(LightningDataModule):
         use_length_grouped_sampler: bool = True,
         max_total_length: int | None = None,
         max_length_multiplier: float | None = None,
+        group_size: int = 1,
     ):
         super().__init__()
         assert (
@@ -77,6 +78,8 @@ class DataModule(LightningDataModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.master_dataset = dataset
+        assert train_batch_size % group_size == 0
+        assert test_batch_size % group_size == 0
         self.save_hyperparameters(logger=False, ignore="dataset")
 
     def prepare_data(self):
@@ -98,7 +101,9 @@ class DataModule(LightningDataModule):
             if distributed_kwargs is not None:
                 log.info("Loading distributed sampler")
                 return DistributedSampler(
-                    dataset, **distributed_kwargs  # type: ignore
+                    dataset,
+                    **distributed_kwargs,
+                    drop_last=True,  # type: ignore
                 )
             else:
                 return None
@@ -154,6 +159,22 @@ class DataModule(LightningDataModule):
         else:
             self._train_device_batch_size = train_batch_size
             self._test_device_batch_size = test_batch_size
+
+        group_size = self.hparams.group_size  # type: ignore
+        updated_size = self._test_device_batch_size // group_size
+        log.info(
+            f"Setting test/val batch size {self._test_device_batch_size} ->"
+            f" {updated_size} ({group_size=})"
+        )
+        self._test_device_batch_size = updated_size
+
+        group_size = self.hparams.group_size  # type: ignore
+        updated_size = self._train_device_batch_size // group_size
+        log.info(
+            f"Setting train batch size {self._train_device_batch_size} ->"
+            f" {updated_size} ({group_size=})"
+        )
+        self._train_device_batch_size = updated_size
 
         # if (
         #     self._train_dataset is None
@@ -245,6 +266,8 @@ class DataModule(LightningDataModule):
         Return the training dataloader.
         """
         assert self._train_dataset is not None, "Train dataset not loaded"
+        log.warning(f"Has batch_sampler: {self.batch_sampler is not None}")
+        log.warning(f"Size: {len(self._train_dataset)}")
         return StatefulDataLoader(
             self._train_dataset,
             batch_size=(
@@ -256,7 +279,6 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
-            prefetch_factor=20,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -264,7 +286,7 @@ class DataModule(LightningDataModule):
         Return the validation dataloader.
         """
         assert self._val_dataset is not None, "Val dataset not loaded"
-
+        log.warning(f"Size: {len(self._val_dataset)}")
         return StatefulDataLoader(
             self._val_dataset,
             sampler=self._val_sampler,
@@ -273,6 +295,7 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
+            drop_last=True,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -280,7 +303,7 @@ class DataModule(LightningDataModule):
         Return the test dataloader.
         """
         assert self._test_dataset is not None, "Test dataset not loaded"
-
+        log.warning(f"Size: {len(self._test_dataset)}")
         return StatefulDataLoader(
             self._test_dataset,
             sampler=self._test_sampler,
@@ -289,4 +312,5 @@ class DataModule(LightningDataModule):
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
+            drop_last=True,
         )

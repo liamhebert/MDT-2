@@ -363,7 +363,7 @@ def test_collator_v1():
                 ]
             ),
         },
-        "image_inputs": {
+        "image_input": {
             "pixel_values": torch.cat(
                 [
                     torch.full((2, 3, 3, 3), DummyValues.IMAGES * 3),
@@ -436,6 +436,7 @@ def test_collator_v2(with_token_type_ids: bool):
     )
     expected = {
         "graph_mask": graph_mask,
+        "graph_ids": torch.tensor([0, 1, 0, 0, 0, 1, 1, -1]),
         "out_degree": torch.tensor(
             [
                 DummyValues.OUT_DEGREE * 3 + 1,
@@ -469,7 +470,7 @@ def test_collator_v2(with_token_type_ids: bool):
                 ]
             ),
         },
-        "image_inputs": {
+        "image_input": {
             "pixel_values": torch.cat(
                 [
                     torch.full((2, 3, 3, 3), DummyValues.IMAGES * 3),

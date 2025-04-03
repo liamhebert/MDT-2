@@ -10,6 +10,9 @@ from torchmetrics import SumMetric
 from torchmetrics import MetricCollection
 from typing import Mapping
 from torch.distributed.nn import functional as distF
+from utils import RankedLogger
+
+log = RankedLogger(__name__)
 
 
 class LastValueMetric(SumMetric):
@@ -35,11 +38,9 @@ class Loss(abc.ABC, torch.nn.Module):
     is_distributed: bool = torch.distributed.is_initialized()
 
     def all_gather(self, x: torch.Tensor) -> torch.Tensor:
-        """Dummy all-gather function that does nothing. Useful for testing."""
-        if self.is_distributed:
-            gathered = distF.all_gather(x)
-            return torch.stack(gathered, dim=0)
-        return x
+        """All gather a tensor across all processes."""
+        gathered = distF.all_gather(x)
+        return torch.stack(gathered, dim=0)
 
     @abc.abstractmethod
     def build_batch_metric_aggregators(

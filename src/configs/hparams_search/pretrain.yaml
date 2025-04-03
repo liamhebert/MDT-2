@@ -30,3 +30,4 @@ hydra:
       model.encoder.graph_stack_factory.num_layers: choice(2, 3) # choose between 2, 3
       model.encoder.graph_stack_factory.graph_tfmr_factory.use_rope: choice(False, True) # choose between True, False
       model.encoder.graph_stack_factory.graph_tfmr_factory.differential_attention: choice(False, True) # choose between True, False
+      dataset.group_size: choice(2, 4) # choose between 2, 4 positives in a graph
