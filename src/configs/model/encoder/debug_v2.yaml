@@ -10,9 +10,9 @@ graph_stack_factory:
     n_kv_heads: 2
     ffn_dim: 32
 
-# 1 fusion stack with 2 layers
-num_fusion_stack: 1
-fusion_stack_size: 2
+# 2 fusion stack with 1 layers
+num_fusion_stack: 2
+fusion_stack_size: 1
 
 text_model_config:
   # L=4, A=1, H=10
@@ -31,7 +31,7 @@ vit_model_config:
     _target_: transformers.ViTConfig
     hidden_size: "${model.encoder.embedding_dim}"
     intermediate_size: 20
-    image_size: 128
+    image_size: 224
     patch_size: 16
     encoder_stride: 16
     num_hidden_layers: 4

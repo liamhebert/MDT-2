@@ -21,8 +21,8 @@ def test_build_discussion_transformer(
     # Test individual fusion stack size
     assert all(
         [
-            len(layer) == config.fusion_stack_size
-            for layer in model.fusion_layers
+            len(block.fusion_layer) == config.fusion_stack_size
+            for block in model.blocks
         ]
     ), (
         f"Expected {config.fusion_stack_size=}."
@@ -30,15 +30,12 @@ def test_build_discussion_transformer(
     )
 
     # Test number of fusion stacks
-    assert len(model.fusion_layers) == config.num_fusion_stack
-
-    # Test number of graphormer layers
-    assert len(model.graphormer_layers) == config.num_fusion_stack + 1
+    assert len(model.blocks) == config.num_fusion_stack - 1
 
     # Test individual graphormer stack size
     assert all(
-        len(layer) == config.graph_stack_factory.num_layers
-        for layer in model.graphormer_layers
+        len(block.graph_layer) == config.graph_stack_factory.num_layers
+        for block in model.blocks
     )
 
     # Test number of bottleneck embeddings
@@ -46,7 +43,7 @@ def test_build_discussion_transformer(
 
 
 def test_build_bert_encoder(
-    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
 ):
     """
     Tests to ensure the BERT encoder is built correctly.
@@ -59,7 +56,7 @@ def test_build_bert_encoder(
     # Because we build text config objects for testing, we have to build it here.
     text_model_config = instantiate(config.text_model_config)
     test_config: BertConfig = text_model_config.test_config
-    bert_model, text_fusion_layers, text_pooler = model.build_bert_encoder(
+    bert_model, text_fusion_layers = model.build_bert_encoder(
         num_fusion_layers=total_fusion_layers, **text_model_config
     )
 
@@ -84,7 +81,7 @@ def test_build_bert_encoder(
 
 
 def test_build_vit_encoder(
-    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig]
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
 ):
     """
     Tests to ensure the ViT encoder is built correctly.
@@ -96,7 +93,7 @@ def test_build_vit_encoder(
 
     # Because we build ViT config objects for testing, we have to build it here.
     vit_model_config = instantiate(config.vit_model_config)
-    vit_model, vit_fusion_layers, vit_pooler = model.build_vit_encoder(
+    vit_model, vit_fusion_layers = model.build_vit_encoder(
         num_fusion_layers=total_fusion_layers, **vit_model_config
     )
     test_config: ViTConfig = vit_model_config.test_config

@@ -1,0 +1,33 @@
+_target_: datamodule.DataModule
+
+train_batch_size: 24
+use_length_grouped_sampler: True
+max_total_length: 384 # Note this is per gpu, so 42 / 2 = 21 graphs, same length
+
+test_batch_size: 24
+num_workers: 6
+pin_memory: True
+cache_dataset: True
+
+dataset:
+  _target_: ???
+  root: ???
+  raw_graph_path: ???
+  output_graph_path: ${paths.data_dir}/processed_files
+  block_size: ${model.encoder.block_size}
+
+  train_size: 0.8
+  valid_size: 0.1
+  test_size: 0.1
+
+  split_seed: 42
+
+  image_tokenizer_key: ${modality_encoder.vision_model_name}
+  text_config: ${modality_encoder.text_config}
+
+  split_graphs: False
+  strict: True
+  max_distance_length: 6
+  force_reload: False
+  use_flattened_collator: True
+  debug: False

@@ -1,2 +1,8 @@
-text_model_name: "google/bert_uncased_L-2_H-128_A-2"
+text_config:
+  text_model_name: "google/bert_uncased_L-2_H-128_A-2"
+  has_token_type_ids: False
+  add_position_ids: False
+  max_length: 9
+
+
 vision_model_name: "WinKawaks/vit-tiny-patch16-224"

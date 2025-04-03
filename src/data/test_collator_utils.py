@@ -2,14 +2,17 @@ from enum import auto
 from enum import IntEnum
 
 import torch
-from torch_geometric.data import Data
 from transformers import BatchEncoding
 
 from data import collator_utils as cut
 from data import collator_utils_v2 as cut_v2
 from data.types import ImageFeatures
 from data.types import TextFeatures
-from components.v2.graph_attention_mask import PADDING_GRAPH_ID
+from components.v2.graph_attention_mask import (
+    PADDING_GRAPH_ID,
+    generate_graph_attn_mask_tensor,
+)
+from pytest import mark
 
 
 def test_pad_1d_unsqueeze():
@@ -168,33 +171,31 @@ class DummyValues(IntEnum):
     ATTN_BIAS = auto()
     DISTANCE = auto()
     DISTANCE_INDEX = auto()
-    IN_DEGREE = auto()
+    OUT_DEGREE = auto()
     INPUT_IDS = auto()
     TOKEN_TYPE_IDS = auto()
     ATTENTION_MASK = auto()
     IMAGES = auto()
     NODE_MASK = auto()
     Y = auto()
+    ROTARY_POS = auto()
 
 
 def create_sample_input(
     num_nodes: int, text_length: int, num_images: int, image_length: int
-) -> Data:
+) -> dict:
     """Utility function to create a sample input for testing the collator."""
 
-    data = Data(
+    data = dict(
         attn_bias=torch.full(
             (num_nodes, num_nodes), DummyValues.ATTN_BIAS * num_nodes
         ),
-        in_degree=torch.full((num_nodes,), DummyValues.IN_DEGREE * num_nodes),
+        out_degree=torch.full((num_nodes,), DummyValues.OUT_DEGREE * num_nodes),
         image_mask=torch.tensor(
             [True] * num_images + [False] * (num_nodes - num_images)
         ),
         distance=torch.full(
             (num_nodes, num_nodes, 2), DummyValues.DISTANCE * num_nodes
-        ),
-        distance_index=torch.full(
-            (num_nodes, num_nodes), DummyValues.DISTANCE_INDEX * num_nodes
         ),
         text=BatchEncoding(
             {
@@ -211,7 +212,7 @@ def create_sample_input(
                 ),
             }
         ),
-        image=BatchEncoding(
+        images=BatchEncoding(
             {
                 ImageFeatures.PixelValues: torch.full(
                     (num_images, 3, image_length, image_length),
@@ -219,10 +220,14 @@ def create_sample_input(
                 )
             }
         ),
+        rotary_position=torch.full(
+            (num_nodes, 2), DummyValues.ROTARY_POS * num_nodes
+        ),
     )
     return data
 
 
+@mark.skip("We dont use the v1 collator")
 def test_collator_v1():
     """Testing the extract_and_merge and generic_collator functions.
 
@@ -323,30 +328,16 @@ def test_collator_v1():
                 ],
             ]
         ),
-        "in_degree": torch.tensor(
-            [
-                [
-                    DummyValues.IN_DEGREE * 3 + 1,
-                    DummyValues.IN_DEGREE * 3 + 1,
-                    DummyValues.IN_DEGREE * 3 + 1,
-                ],
-                [
-                    DummyValues.IN_DEGREE * 2 + 1,
-                    DummyValues.IN_DEGREE * 2 + 1,
-                    0,
-                ],
-            ]
-        ),
         "out_degree": torch.tensor(
             [
                 [
-                    DummyValues.IN_DEGREE * 3 + 1,
-                    DummyValues.IN_DEGREE * 3 + 1,
-                    DummyValues.IN_DEGREE * 3 + 1,
+                    DummyValues.OUT_DEGREE * 3 + 1,
+                    DummyValues.OUT_DEGREE * 3 + 1,
+                    DummyValues.OUT_DEGREE * 3 + 1,
                 ],
                 [
-                    DummyValues.IN_DEGREE * 2 + 1,
-                    DummyValues.IN_DEGREE * 2 + 1,
+                    DummyValues.OUT_DEGREE * 2 + 1,
+                    DummyValues.OUT_DEGREE * 2 + 1,
                     0,
                 ],
             ]
@@ -402,7 +393,8 @@ def test_collator_v1():
                 )
 
 
-def test_collator_v2():
+@mark.parametrize("with_token_type_ids", [True, False])
+def test_collator_v2(with_token_type_ids: bool):
     """Testing the extract_and_merge and generic_collator functions.
 
     This is effectively an end-to-end test for the v2 collator, which uses
@@ -417,6 +409,10 @@ def test_collator_v2():
         ),
     ]
 
+    if not with_token_type_ids:
+        for item in items:
+            item["text"].pop(TextFeatures.TokenTypeIds)
+
     graph_features, text_features, image_features = (
         cut.extract_and_merge_features(items)
     )
@@ -425,58 +421,28 @@ def test_collator_v2():
         graph_features, text_features, image_features, block_size=4
     )
     non_block_spatial_pos = [
-        torch.tensor(
-            [
-                [
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                ],
-                [
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                ],
-                [
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                    DummyValues.DISTANCE_INDEX * 3 + 1,
-                ],
-            ]
-        ),
-        torch.tensor(
-            [
-                [
-                    DummyValues.DISTANCE_INDEX * 2 + 1,
-                    DummyValues.DISTANCE_INDEX * 2 + 1,
-                ],
-                [
-                    DummyValues.DISTANCE_INDEX * 2 + 1,
-                    DummyValues.DISTANCE_INDEX * 2 + 1,
-                ],
-            ],
-        ),
-        torch.tensor([[0]]),
+        torch.full((2, 2), 0),  # Graph Token distance
+        torch.full((3, 3), DummyValues.DISTANCE_INDEX * 3 + 1),
+        torch.full((2, 2), DummyValues.DISTANCE_INDEX * 2 + 1),
+        torch.full((1, 1), 0),  # Padding
     ]
+    spatial_pos = torch.block_diag(*non_block_spatial_pos)
+    graph_ids = torch.tensor([0, 1, 0, 0, 0, 1, 1, PADDING_GRAPH_ID])
+    graph_mask = generate_graph_attn_mask_tensor(
+        graph_ids=graph_ids,
+        spatial_distance_matrix=spatial_pos,
+        max_spatial_distance=20,
+        block_size=4,
+    )
     expected = {
-        "spatial_pos": torch.block_diag(*non_block_spatial_pos),
-        "in_degree": torch.tensor(
-            [
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 2 + 1,
-                DummyValues.IN_DEGREE * 2 + 1,
-                0,
-            ]
-        ),
+        "graph_mask": graph_mask,
         "out_degree": torch.tensor(
             [
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 3 + 1,
-                DummyValues.IN_DEGREE * 2 + 1,
-                DummyValues.IN_DEGREE * 2 + 1,
+                DummyValues.OUT_DEGREE * 3 + 1,
+                DummyValues.OUT_DEGREE * 3 + 1,
+                DummyValues.OUT_DEGREE * 3 + 1,
+                DummyValues.OUT_DEGREE * 2 + 1,
+                DummyValues.OUT_DEGREE * 2 + 1,
                 0,
             ]
         ),
@@ -514,17 +480,10 @@ def test_collator_v2():
         "image_padding_mask": torch.tensor(
             [True, True, False, True, False, False]
         ),
-        "graph_ids": torch.tensor(
-            [
-                0,
-                0,
-                0,
-                1,
-                1,
-                PADDING_GRAPH_ID,
-            ]
-        ),
     }
+
+    if not with_token_type_ids:
+        expected["text_input"].pop("token_type_ids")
 
     for key, value in expected.items():
         if isinstance(value, torch.Tensor):

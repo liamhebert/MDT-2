@@ -56,9 +56,8 @@ class GraphNodeFeature(nn.Module):
         self,
         x: torch.Tensor,
         out_degree: torch.Tensor,
-        graph_ids: torch.Tensor,
         num_total_graphs: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """Computes additional node features for the graph.
 
         Args:
@@ -66,8 +65,6 @@ class GraphNodeFeature(nn.Module):
                 (Batch * Graph_Nodes, Hidden_Dim)
             out_degree (torch.Tensor): Tensor of out-degrees for each node in
                 the graph, with shape (Batch * Graph_Nodes).
-            graph_ids (torch.Tensor): Tensor of graph ids for each node in the
-                graph, with shape (Batch * Graph_Nodes).
             num_total_graphs (int): Total number of unique graphs in the batch.
 
         Returns:
@@ -79,25 +76,21 @@ class GraphNodeFeature(nn.Module):
 
                 Returns with shape
                 (Batch * Graph_Nodes + num_unique_graphs, Hidden_Dim)
-            torch.Tensor: Updated Graph IDs to include the new graph tokens added
-                to each graph. This tensor has shape
-                (Batch * Graph_Nodes + num_unique_graphs)
         """
         node_feature = x + self.out_degree_encoder(out_degree)
 
         graph_token_feature = self.graph_token.weight.repeat(
             num_total_graphs, 1
         )
-        graph_token_graph_ids = torch.arange(0, num_total_graphs)
+        graph_token_feature = graph_token_feature.to(x.dtype)
 
         # TODO(limahebert): Should we concat graph token to the end or
         # to the start? Keep in mind how we sample bottleneck tokens.
         graph_node_feature = torch.cat(
             [graph_token_feature, node_feature], dim=0
         )
-        graph_ids = torch.cat([graph_token_graph_ids, graph_ids], dim=0)
 
-        return graph_node_feature, graph_ids
+        return graph_node_feature
 
 
 class GraphAttnBias(nn.Module):

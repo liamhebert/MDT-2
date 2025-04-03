@@ -1,0 +1,13 @@
+defaults:
+- base_v2
+
+embedding_dim: 1024
+freeze_initial_encoders: True
+
+graph_stack_factory:
+  graph_tfmr_factory:
+    head_dim: 64
+    ffn_dim: 4096
+    n_heads: 16
+    n_kv_heads: 16
+    differential_attention: True

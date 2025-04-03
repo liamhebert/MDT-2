@@ -7,6 +7,8 @@ max_epochs: 10
 
 accelerator: cpu
 devices: 1
+precision: 'bf16-mixed'
+gradient_clip_val: 1.0
 
 # mixed precision for extra speed-up
 # precision: 16

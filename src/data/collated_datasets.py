@@ -8,18 +8,26 @@ from torch_geometric.data import Data
 from data import collator_utils, collator_utils_v2
 from data.types import ContrastiveLabels
 from data.types import Labels
-from tasks.dataset import TaskDataset
+from tasks.dataset_2 import TaskDataset as TaskDataset_2
 from torch.nn.attention.flex_attention import _DEFAULT_SPARSE_BLOCK_SIZE
+from itertools import chain
 
 
-class CollatedDataset(TaskDataset):
+class CollatedDataset(TaskDataset_2):
     """
     Dataset wrapper to include a function to collate multiple graphs of various
     sizes into a single batch.
     """
 
-    def __init__(self, *args, use_flattened_collator: bool = True, **kwargs):
+    def __init__(
+        self,
+        *args,
+        block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
+        use_flattened_collator: bool = True,
+        **kwargs,
+    ):
         self.use_flattened_collator = use_flattened_collator
+        self.block_size = block_size
         super().__init__(*args, **kwargs)
 
     @abstractmethod
@@ -30,7 +38,7 @@ class CollatedDataset(TaskDataset):
         max_nodes: int | None = None,
     ) -> dict[str, torch.Tensor]: ...
 
-    def collate_fn(self, batch: list[Data]) -> Data:
+    def collate_fn(self, batch: list[dict]) -> dict:
         """Collate function to merge data samples of various sizes into a batch.
 
         Individual data samples must contain the following attributes:
@@ -98,9 +106,10 @@ class CollatedDataset(TaskDataset):
             added but they are not needed for general processing.
         """
         graphs = [item for item in batch if item is not None]
+        flattened_graphs = list(chain(*graphs))
 
         graph_features, text_features, image_features = (
-            collator_utils.extract_and_merge_features(graphs)
+            collator_utils.extract_and_merge_features(flattened_graphs)
         )
 
         if self.use_flattened_collator:
@@ -108,10 +117,10 @@ class CollatedDataset(TaskDataset):
                 graph_features,
                 text_features,
                 image_features,
-                _DEFAULT_SPARSE_BLOCK_SIZE,
+                self.block_size,
             )
-            batch_size = collated_output["graph_ids"].max() + 1
-            num_nodes = collated_output["in_degree"].shape[0]
+            batch_size = collated_output["num_total_graphs"]
+            num_nodes = collated_output["out_degree"].shape[0]
         else:
             collated_output = collator_utils.generic_collator(
                 graph_features,
@@ -126,7 +135,7 @@ class CollatedDataset(TaskDataset):
         # features beyond just the labels.
         return {
             "x": collated_output,
-            "y": self.label_collate_fn(graphs, batch_size, num_nodes),
+            "y": self.label_collate_fn(flattened_graphs, batch_size, num_nodes),
         }
 
 
@@ -150,7 +159,7 @@ class ContrastiveTaskDataset(CollatedDataset):
         # TODO(liamhebert): Update docstring
 
         out = {
-            key: torch.cat([item.y[key] for item in batch]).flatten()
+            key: torch.cat([item["y"][key] for item in batch]).flatten()
             for key in [
                 ContrastiveLabels.Ys,
                 ContrastiveLabels.HardYs,
@@ -187,7 +196,7 @@ class NodeBatchedDataDataset(CollatedDataset):
 
         if self.use_flattened_collator:
             out = {
-                Labels.Ys: torch.cat([item.y[Labels.Ys] for item in batch]),
+                Labels.Ys: torch.cat([item["y"][Labels.Ys] for item in batch]),
             }
             if max_nodes is not None:
                 have_nodes = out[Labels.Ys].shape[0]
@@ -208,7 +217,7 @@ class NodeBatchedDataDataset(CollatedDataset):
                 Labels.Ys: torch.cat(
                     [
                         collator_utils.pad_1d_unsqueeze(
-                            item.y[Labels.Ys], max_nodes, -100, False
+                            item["y"][Labels.Ys], max_nodes, -100, False
                         )
                         for item in batch
                     ]

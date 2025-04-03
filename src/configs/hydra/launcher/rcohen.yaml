@@ -1,0 +1,8 @@
+defaults:
+  - default
+  - _self_
+
+tasks_per_node: 2
+partition: RCOHEN
+gres: gpu:rcohengpu:2
+timeout_min: 270

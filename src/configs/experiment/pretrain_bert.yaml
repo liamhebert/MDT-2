@@ -1,0 +1,37 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /dataset: pretrain
+  - override /modality_encoder: bert-vit-base
+  - override /model/encoder: base_v2
+  - override /model/loss: contrastive_loss
+  - override /trainer: fsdp
+  - _self_
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["pretrain", "v0", "bert-vit-base"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 10
+  max_epochs: 10
+  # gradient_clip_val: 0.5
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "pretrain"
+  aim:
+    experiment: "pretrain"
+
+model:
+  loss:
+    num_classes: 12
+    learnable_temperature: True
+    adaptive_soft_negative_weight: True

@@ -2,13 +2,14 @@
 
 defaults:
   - modality_encoder: siglip
-  - dataset: pretrain # choose datamodule with `test_dataloader()` for evaluation
   - model: default
+  - dataset: pretrain # choose datamodule with `test_dataloader()` for evaluation
   - logger: null
   - trainer: default
   - paths: default
   - extras: default
   - hydra: default
+  - _self_
 
 task_name: "eval"
 

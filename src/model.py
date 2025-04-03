@@ -9,6 +9,9 @@ from torch import optim
 from torch.optim import lr_scheduler
 from torchmetrics import Metric, MetricCollection
 from losses.loss_abstract import Loss
+from utils import RankedLogger
+
+logger = RankedLogger(__name__)
 
 
 class Model(L.LightningModule):
@@ -18,6 +21,10 @@ class Model(L.LightningModule):
 
     encoder: nn.Module
     loss: Loss
+
+    @torch.compiler.disable
+    def log(self, *args, **kwargs):
+        super().log(*args, **kwargs)
 
     def __init__(
         self,
@@ -36,6 +43,7 @@ class Model(L.LightningModule):
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.encoder = encoder
+
         self.loss = loss
 
         self.metrics = {
@@ -46,11 +54,18 @@ class Model(L.LightningModule):
             for state in ["train", "val", "test"]
         }
 
+        for state, metrics in self.metrics.items():
+            for type, metric_set in metrics.items():
+                for metric_name, metric in metric_set.items():
+                    self.add_module(f"{state}_{type}_{metric_name}", metric)
+
         # for averaging loss across batches
 
     # TODO(liamhebert): Implement model logic
 
-    def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: dict[str, torch.Tensor]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute the forward pass of the model.
 
         Args:
@@ -59,14 +74,14 @@ class Model(L.LightningModule):
         Returns:
             The predicted values (y_hat).
         """
-        # TODO(liamhebert): Implement forward pass with updated args
+
         return self.encoder(**x)
 
     def model_step(
         self,
-        batch: dict[str, torch.Tensor],
+        batch: dict[str, dict[str, torch.Tensor]],
         metrics: dict[str, MetricCollection | Metric],
-    ) -> tuple[torch.Tensor, dict[str, torch.Tensor | int]]:
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor | Metric | int]]:
         """Compute the loss for a batch of data.
 
         Args:
@@ -77,7 +92,9 @@ class Model(L.LightningModule):
             The loss value for that batch, using self.loss.
         """
         x, y = batch["x"], batch["y"]
+
         node_embeddings, graph_embeddings = self.forward(x)
+
         loss, metrics = self.loss(node_embeddings, graph_embeddings, y, metrics)
         return loss, metrics
 
@@ -88,6 +105,14 @@ class Model(L.LightningModule):
         # by default lightning executes validation step sanity checks before
         # training starts, so it's worth to make sure validation metrics don't
         # store results from these checks
+
+        self.encoder.train()
+
+        # for metrics in self.metrics.values():
+        #     for metric_set in metrics.values():
+        #         for metric in metric_set.values():
+        #             metric.to(self.device)
+
         for metric in self.metrics["val"]["epoch"].values():
             metric.reset()
 
@@ -106,16 +131,23 @@ class Model(L.LightningModule):
         """
         loss, metrics = self.model_step(batch, self.metrics["train"]["batch"])
 
-        weight: int = metrics["weight"]
+        weight = metrics["weight"]
         for key, metric in metrics.items():
             self.log(
                 f"train/{key}",
                 metric,
-                on_step=True if "loss" in key else False,
+                on_step=(
+                    True
+                    if any(x in key for x in ["loss", "temperature", "bias"])
+                    else False
+                ),
                 on_epoch=True,
-                prog_bar=True if "loss" in key else False,
+                prog_bar=False,
                 batch_size=weight,
+                sync_dist=True,
             )
+
+        self.log("train/lr", self.scheduler.get_last_lr()[0], on_step=True)
 
         # return loss or backpropagation will fail
         return loss
@@ -131,9 +163,12 @@ class Model(L.LightningModule):
             self.log(
                 f"train/{key}",
                 val,
-                prog_bar=True,
+                prog_bar=False,
+                on_epoch=True,
                 sync_dist=True,
             )
+
+        self.encoder.eval()
 
     def validation_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
@@ -154,8 +189,9 @@ class Model(L.LightningModule):
                 metric,
                 on_step=True if "loss" in key else False,
                 on_epoch=True,
-                prog_bar=True if "loss" in key else False,
+                prog_bar=False,
                 batch_size=weight,
+                sync_dist=True,
             )
         return loss
 
@@ -167,7 +203,14 @@ class Model(L.LightningModule):
         )
 
         for key, val in epoch_vals.items():
-            self.log(f"val/{key}", val, prog_bar=True)
+            self.log(
+                f"val/{key}",
+                val,
+                on_epoch=True,
+                on_step=False,
+                prog_bar=False,
+                sync_dist=True,
+            )
 
     def test_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
@@ -188,10 +231,11 @@ class Model(L.LightningModule):
             self.log(
                 f"test/{key}",
                 metric,
-                on_step=True if "loss" in key else False,
+                on_step=False,
                 on_epoch=True,
-                prog_bar=True if "loss" in key else False,
+                prog_bar=False,
                 batch_size=batch_size,
+                sync_dist=True,
             )
         return loss
 
@@ -203,7 +247,14 @@ class Model(L.LightningModule):
         )
 
         for key, val in epoch_vals.items():
-            self.log(f"test/{key}", val, prog_bar=True)
+            self.log(
+                f"test/{key}",
+                val,
+                prog_bar=False,
+                on_epoch=True,
+                on_step=False,
+                sync_dist=True,
+            )
 
     def setup(self, stage: str) -> None:
         """Lightning hook that is called at the beginning of fit (train +
@@ -216,8 +267,9 @@ class Model(L.LightningModule):
         Args:
             stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
-        if self.hparams.compile and stage == "fit":
-            self.net = torch.compile(self.net)
+        ...
+        # if stage == "fit" and self.hparams.compile:
+        #     self.encoder = torch.compile(self.encoder)
 
     def configure_optimizers(self):
         """Choose what optimizers and learning-rate schedulers to use in your
@@ -231,18 +283,43 @@ class Model(L.LightningModule):
             A dict containing the configured optimizers and learning-rate
             schedulers to be used for training.
         """
+
         optimizer = self.hparams.optimizer(
             params=self.trainer.model.parameters()
         )
         if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
+            epochs = self.trainer.max_epochs
+            assert epochs is not None
+            dataset_size = 380_000
+            steps_per_epoch = 6670
+            total_steps = epochs * steps_per_epoch  # Hard coded, sry.
+            warmup = int(0.1 * total_steps)
+
+            self.scheduler = lr_scheduler.SequentialLR(
+                optimizer=optimizer,
+                schedulers=[
+                    lr_scheduler.LinearLR(
+                        optimizer,
+                        start_factor=1e-5,
+                        end_factor=1.0,
+                        total_iters=warmup,
+                    ),
+                    lr_scheduler.CosineAnnealingLR(
+                        optimizer, T_max=total_steps - warmup, eta_min=0.0
+                    ),
+                ],
+                milestones=[warmup],
+            )
+
+            # self.scheduler = self.hparams.scheduler(optimizer=optimizer)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "monitor": "val/loss",
-                    "interval": "epoch",
+                    "scheduler": self.scheduler,
+                    # "monitor": "val/loss",
+                    "interval": "step",
                     "frequency": 1,
+                    "name": "lr_scheduler",
                 },
             }
         return {"optimizer": optimizer}

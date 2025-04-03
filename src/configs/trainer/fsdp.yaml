@@ -1,0 +1,12 @@
+defaults:
+  - default
+
+strategy:
+  _target_: lightning.pytorch.strategies.FSDPStrategy
+  sharding_strategy: "SHARD_GRAD_OP"
+
+accelerator: gpu
+devices: 2
+num_nodes: 1
+sync_batchnorm: True
+use_distributed_sampler: False  # We handle this

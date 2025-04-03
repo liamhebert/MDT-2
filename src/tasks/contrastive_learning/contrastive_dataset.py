@@ -1,10 +1,12 @@
 """Contrastive pre-training dataset for the contrastive learning task."""
 
-import logging
+from utils.pylogger import RankedLogger
 from typing import Any
 
 from data.types import ContrastiveLabels
 from data.collated_datasets import ContrastiveTaskDataset
+
+logging = RankedLogger(__name__)
 
 
 class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
@@ -205,9 +207,10 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
             dict[str, bool | int]: The label information for the node, which must
                 contain "Ys" and "YMask" as keys.
         """
-        assert "label" in data, (
-            '"label" key not found in data, please check that the data format ',
-            "is compatible with HatefulDiscussions.",
+        assert "subreddit" in data, (
+            '"subreddit" key not found in data, please check that the data ',
+            "format is compatible with ContrastiveLearning.",
+            f"{data.keys()=}",
         )
 
         subreddit = data["subreddit"]

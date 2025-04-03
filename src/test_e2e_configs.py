@@ -3,12 +3,10 @@ These tests validate whether components can be loaded in using Hydra.
 """
 
 from pathlib import Path
-from typing import Generator
 
 import hydra
 from hydra import compose
 from hydra import initialize
-from hydra.core.global_hydra import GlobalHydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from omegaconf import open_dict
@@ -16,21 +14,19 @@ import pytest
 import rootutils
 
 
-@pytest.fixture(scope="session")
-def cfg_test_e2e_global() -> DictConfig:
-    """A pytest fixture for setting up a default Hydra DictConfig for running
-    test functions.
+def process_global_configs(path: str):
+    """Setting up hydra configs with global settings, such as the root_dir and
+    disabling unnecessary prints and logging.
 
-    This differs from other fixtures in that the model is dramatically smaller
-    and designed for quick testing.
+    Args:
+        path (str): The path to the test config yaml file.
 
     Returns:
-        A DictConfig containing a default Hydra configuration for
-    testing.
+        A DictConfig configured with project root and other global settings.
     """
     with initialize(version_base=None, config_path="configs"):
         cfg = compose(
-            config_name="test_fixture_e2e_node.yaml",
+            config_name=path,
             return_hydra_config=True,
             overrides=["ckpt_path=."],
         )
@@ -47,42 +43,43 @@ def cfg_test_e2e_global() -> DictConfig:
     return cfg
 
 
-@pytest.fixture(scope="function")
-def cfg_test_e2e(
-    cfg_test_e2e_global: DictConfig, tmp_path: Path
-) -> Generator[DictConfig, None, None]:
-    """A pytest fixture built on top of the `cfg_test_e2e_global()` fixture, which
-    accepts a temporary logging path `tmp_path` for generating a temporary
-    logging path.
-
-    This is called by each test which uses the `cfg_test` arg. Each test
-    generates its own temporary logging path.
+def process_test_configs(cfg: DictConfig, tmp_path: Path):
+    """
+    Augments a given test_config with temporary paths for data, logs, and output.
 
     Args:
-        cfg_test_global: The input DictConfig object to be modified.
-        tmp_path: The temporary logging path.
+        cfg (DictConfig): The test configuration.
+        tmp_path (Path): The temporary path to store test files.
 
     Returns:
-        A DictConfig with updated output and log directories corresponding to
-        `tmp_path`.
+        A DictConfig with temporary paths for data, logs, and output.
     """
-    cfg = cfg_test_e2e_global.copy()
-
     with open_dict(cfg):
         cfg.paths.output_dir = str(tmp_path)
         cfg.paths.log_dir = str(tmp_path)
+        cfg.paths.data_dir = str(tmp_path)
 
-    yield cfg
-
-    GlobalHydra.instance().clear()
+    return cfg
 
 
-def test_end_to_end(cfg_test_e2e: DictConfig) -> None:
+@pytest.mark.parametrize(
+    "yaml",
+    ["test_fixture_e2e_node.yaml", "test_fixture_e2e_contrast.yaml"],
+)
+def test_end_to_end(yaml: str, tmp_path: Path) -> None:
+    """Tests whether a given yaml file can be instantiated and run.
 
-    HydraConfig().set_config(cfg_test_e2e)
+    Args:
+        yamls (str): The path to the test yaml file.
+        tmp_path (Path): A temporary folder created by pytest to store files.
+    """
+    cfg = process_global_configs(yaml)
+    cfg = process_test_configs(cfg, tmp_path)
 
-    data = hydra.utils.instantiate(cfg_test_e2e.dataset)
-    model = hydra.utils.instantiate(cfg_test_e2e.model)
-    trainer = hydra.utils.instantiate(cfg_test_e2e.trainer)
+    HydraConfig().set_config(cfg)
+
+    data = hydra.utils.instantiate(cfg.dataset)
+    model = hydra.utils.instantiate(cfg.model)
+    trainer = hydra.utils.instantiate(cfg.trainer)
 
     trainer.fit(model=model, datamodule=data, ckpt_path=None)

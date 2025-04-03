@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - all
+  - override /hydra/launcher: all_single
+  - override /trainer: gpu
+  - _self_
+
+dataset:
+  num_workers: 6

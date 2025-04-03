@@ -1,1 +1,1 @@
-# this file is needed here to include configs when building project as a package
+"""Dummy file to ensure configs are included when packaging the project."""
