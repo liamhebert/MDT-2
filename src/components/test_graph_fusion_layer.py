@@ -8,6 +8,7 @@ from torch import nn
 
 from components.graph_fusion_layer import GraphFusionLayer
 from components.graph_fusion_layer import GraphFusionStack
+from pytest import mark
 
 
 def test_forward(
@@ -75,25 +76,33 @@ class MockModalityLayer(nn.Module):
         return (hidden_states * self.scale,)
 
 
-def test_bottleneck_averaging(
+@mark.parametrize("use_projection", [True, False])
+def test_fusion_layer(
     graph_fusion_layer_input: dict[str, torch.Tensor],
+    use_projection: bool,
 ):
     """
-    Tests the forward method of the graph fusion layer.
+    Tests the forward method of the graph fusion layer with projection layers.
     """
+    dim = graph_fusion_layer_input["bottle_neck"].shape[-1]
+
     model = GraphFusionLayer(
         MockModalityLayer(),
         MockModalityLayer(),
-        use_projection=False,
+        use_projection=use_projection,
+        bottleneck_dim=dim,
+        bert_dim=dim,
+        vit_dim=dim,
     )
     with torch.no_grad():
         _, _, bottle_neck_output = model(**graph_fusion_layer_input)
 
     # Since the MockModalityLayer returns the hidden states as is, the
     # bottleneck tokens should be unchanged.
-    assert torch.allclose(
-        bottle_neck_output, graph_fusion_layer_input["bottle_neck"]
-    )
+    if not use_projection:
+        assert torch.allclose(
+            bottle_neck_output, graph_fusion_layer_input["bottle_neck"]
+        )
 
 
 def test_selective_bottleneck_averaging(

@@ -13,6 +13,7 @@ from omegaconf import DictConfig
 
 from utils import pylogger
 from utils import rich_utils
+import os
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -78,6 +79,11 @@ def task_wrapper(task_func: Callable) -> Callable:
     Returns:
         The wrapped task function with robust failure handling.
     """
+    # Since we know that all runs that use this task_wrapper are production train
+    # runs, we can set the IS_PROD environment variable to 1 to avoid any
+    # accidental debug code execution.
+    # NOTE: compute_dataset is not a production run, so we don't set this.
+    os.environ["IS_PROD"] = "1"
 
     def wrap(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         # execute the task

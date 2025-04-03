@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --time=3:00:00
+#SBATCH --time=8:00:00
 #SBATCH --mem=32GB
 #SBATCH --cpus-per-task=6
-#SBATCH --partition=ALL
+#SBATCH --partition=RCOHEN
 #SBATCH --mail-user=l2hebert@uwaterloo.ca
 #SBATCH --mail-type=ALL
 #SBATCH --ntasks-per-node=1

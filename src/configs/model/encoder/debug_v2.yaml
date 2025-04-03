@@ -9,6 +9,8 @@ graph_stack_factory:
     n_heads: 2
     n_kv_heads: 2
     ffn_dim: 32
+    differential_attention: True
+    use_rope: True
 
 # 2 fusion stack with 1 layers
 num_fusion_stack: 2

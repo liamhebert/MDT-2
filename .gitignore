@@ -1,6 +1,7 @@
 # Custom scratch files
 scratch.ipynb
 src/tasks/*/raw_files/
+src/tasks/*/giga_raw_files
 src/data/processed_files/
 src/data/processed_files_debug/
 src/logs/

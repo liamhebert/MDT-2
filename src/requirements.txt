@@ -17,10 +17,10 @@ mypy
 torch_geometric
 transformers
 rich
-xformers
 scikit-learn
 emoji
 pillow
 sentencepiece
 torchdata
 orjson
+h5py

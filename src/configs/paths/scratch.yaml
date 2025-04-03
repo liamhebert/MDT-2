@@ -2,4 +2,4 @@ defaults:
   - default
   - _self_
 
-data_dir: "/scratch/rcohen/l2hebert/data/"
+data_dir: "/big-scratch/rcohen/l2hebert/data/"

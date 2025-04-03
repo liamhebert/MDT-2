@@ -47,6 +47,14 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
+    log.info("Instantiating callbacks...")
+    callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+
+    log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
+    trainer: Trainer = hydra.utils.instantiate(
+        cfg.trainer, callbacks=callbacks, logger=logger
+    )
+
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
 
@@ -56,14 +64,6 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating model <{cfg.model._target_}>")
     torch.set_float32_matmul_precision("medium")
     model: LightningModule = hydra.utils.instantiate(cfg.model)
-
-    log.info("Instantiating callbacks...")
-    callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
-
-    log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(
-        cfg.trainer, callbacks=callbacks, logger=logger
-    )
 
     object_dict = {
         "cfg": cfg,

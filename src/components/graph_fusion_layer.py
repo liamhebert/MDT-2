@@ -46,6 +46,9 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
         bert_layer: BertLayer,
         vit_layer: ViTLayer,
         use_projection: bool = False,
+        bottleneck_dim: int = 768,
+        bert_dim: int = 768,
+        vit_dim: int = 768,
     ) -> None:
         """Initializes the GraphFusionLayer module.
 
@@ -71,14 +74,13 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
         self.bert_encoder = bert_layer
         self.vit_encoder = vit_layer
         self.gradient_checkpointing = False
+        self.use_projection = use_projection
         if use_projection:
             # TODO(liamhebert): This should be tuned to the specific use case.
-            self.bert_projection = nn.Linear(768, 768)
-            self.vit_projection = nn.Linear(768, 768)
-            raise NotImplementedError("Projection not implemented")
-        else:
-            self.bert_projection = nn.Identity()
-            self.vit_projection = nn.Identity()
+            self.bottle_to_bert_projection = nn.Linear(bottleneck_dim, bert_dim)
+            self.bottle_to_vit_projection = nn.Linear(bottleneck_dim, vit_dim)
+            self.bert_to_bottle_projection = nn.Linear(bert_dim, bottleneck_dim)
+            self.vit_to_bottle_projection = nn.Linear(vit_dim, bottleneck_dim)
 
     @torch.compiler.disable
     def forward(
@@ -140,6 +142,9 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
         # once we have static sizes for vision and text inputs.
         # assert vision_batch == text_batch
 
+        if self.use_projection:
+            bottle_neck = self.bottle_to_bert_projection(bottle_neck)
+
         bert_hidden_states_in = torch.cat(
             [bottle_neck, bert_hidden_states], dim=1
         )
@@ -160,6 +165,10 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
 
         bert_hidden_output = bert_hidden_output_out[:, num_bottleneck_tokens:]
         bottle_neck_output = bert_hidden_output_out[:, :num_bottleneck_tokens]
+        if self.use_projection:
+            bottle_neck_output = self.bert_to_bottle_projection(
+                bottle_neck_output
+            )
 
         # TODO(liamhebert): Check how this behaves when some images are present
         # and others are not.
@@ -168,17 +177,42 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
                 f"Mask must be bool, got {image_padding_mask=}, "
                 f"{image_padding_mask.dtype=}"
             )
+            img_bottle_neck = bottle_neck[image_padding_mask]
+            if self.use_projection:
+                img_bottle_neck = self.bottle_to_vit_projection(img_bottle_neck)
             vit_hidden_states_in = torch.cat(
-                [bottle_neck[image_padding_mask], vit_hidden_states], dim=1
+                [img_bottle_neck, vit_hidden_states], dim=1
             )
 
             vit_hidden_output_out = self.vit_forward(vit_hidden_states_in)
             vit_hidden_output = vit_hidden_output_out[:, num_bottleneck_tokens:]
+            vit_bot_output = vit_hidden_output_out[:, :num_bottleneck_tokens]
+            if self.use_projection:
+                vit_bot_output = self.vit_to_bottle_projection(vit_bot_output)
 
-            bottle_neck_output[image_padding_mask] = (
-                vit_hidden_output_out[:, :num_bottleneck_tokens]
-                + bottle_neck_output[image_padding_mask]
+            # Initialize image_bottleneck_tokens with the full batch size
+            updated_tokens = bottle_neck_output.clone()
+            # Calculate the averaged bottleneck tokens *only* for samples with
+            # images
+            # Note: This part is still indexing, but not in-place assignment
+            image_bottleneck_tokens = (
+                vit_bot_output + bottle_neck_output[image_padding_mask]
             ) / 2
+            # Assign the calculated averaged tokens to the correct rows of
+            # image_bottleneck_tokens
+
+            updated_tokens[image_padding_mask] = image_bottleneck_tokens
+
+            expanded_image_mask = image_padding_mask.view(-1, 1, 1).expand_as(
+                bottle_neck_output
+            )
+
+            bottle_neck_with_images = torch.where(
+                expanded_image_mask,
+                updated_tokens,
+                bottle_neck_output,
+            )
+            bottle_neck_output = bottle_neck_with_images
 
         else:
             vit_hidden_output = None
@@ -263,6 +297,9 @@ class GraphFusionStack(nn.Module):
         bert_layers: list[BertLayer],
         vit_layers: list[ViTLayer],
         use_projection: bool = False,
+        bottleneck_dim: int = 768,
+        bert_dim: int = 768,
+        vit_dim: int = 768,
     ) -> None:
         """Constructs a stack of GraphFusionLayers.
 
@@ -286,6 +323,9 @@ class GraphFusionStack(nn.Module):
                     bert_layer,
                     vit_layer,
                     use_projection,
+                    bottleneck_dim=bottleneck_dim,
+                    bert_dim=bert_dim,
+                    vit_dim=vit_dim,
                 )
                 for bert_layer, vit_layer in zip(bert_layers, vit_layers)
             ]

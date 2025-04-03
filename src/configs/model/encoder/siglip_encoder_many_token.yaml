@@ -1,5 +1,5 @@
 defaults:
-- base_v2
+- many_token_v2
 
 embedding_dim: 1024
 freeze_initial_encoders: True

@@ -1,0 +1,16 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - pretrain_siglip
+  - _self_
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+dataset:
+  dataset:
+    politics_and_gender_only: True
+    force_tag: "politics_and_gender"

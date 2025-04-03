@@ -19,6 +19,8 @@ class HatefulDiscussions(NodeBatchedDataDataset):
     Task dataset for HatefulDiscussions.
     """
 
+    tag: str = "hateful_discussions"
+
     hate_labels: list[str] = [
         "DEG",
         "lti_hate",

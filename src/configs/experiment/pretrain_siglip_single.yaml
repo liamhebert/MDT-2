@@ -7,5 +7,5 @@ defaults:
 
 dataset:
   train_batch_size: 52
-  max_total_length: null
+  max_total_length: 572
   test_batch_size: 52

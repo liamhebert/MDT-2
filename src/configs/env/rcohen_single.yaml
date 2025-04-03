@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - rcohen
+  - override /hydra/launcher: rcohen_single
+  - override /trainer: gpu
+  - _self_
+
+dataset:
+  num_workers: 6

@@ -1,0 +1,4 @@
+defaults:
+  - base_v2
+
+_target_: components.v2.discussion_transformer_all_tokens.DiscussionTransformerAllTokens

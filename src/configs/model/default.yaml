@@ -1,6 +1,6 @@
 defaults:
   - loss: cross_entropy
-  - encoder: base_v2
+  - encoder: many_token_v2
 
 _target_: model.Model
 
@@ -8,8 +8,8 @@ optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
   lr: 0.0001
-  weight_decay: 0.0001
-  betas: [0.9, 0.999]
+  weight_decay: 0.0
+  betas: [0.9, 0.95]
 
 scheduler:
   _target_: torch.optim.lr_scheduler.SequentialLR

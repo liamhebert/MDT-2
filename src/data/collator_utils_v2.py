@@ -200,7 +200,7 @@ def generic_collator(
     # Add padding to the in_degrees, image_masks, distances, and distance_indices
     virtual_distance_pad = torch.zeros((num_padding, 2), dtype=torch.long)
     virtual_distance_graph = torch.zeros((num_graphs, 2), dtype=torch.long)
-    rotary_pos = torch.cat(rotary_poses)
+    rotary_pos = torch.cat(rotary_poses) + 1
     rotary_pos = torch.cat(
         [virtual_distance_graph, rotary_pos, virtual_distance_pad], dim=0
     )
@@ -259,9 +259,10 @@ def generic_collator(
         # Since we are using undirected graphs, in_degree == out_degree
         "out_degree": out_degree,
         "text_input": collated_text_features,
-        "image_inputs": {"pixel_values": filtered_image},
+        "image_input": {"pixel_values": filtered_image},
         "image_padding_mask": image_padding,
         "num_total_graphs": len(out_degrees),
         "rotary_pos": rotary_pos,
         "graph_mask": flex_block_mask,
+        "graph_ids": graph_ids,
     }
