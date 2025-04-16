@@ -14,7 +14,7 @@ timeout_min: 270
 nodes: 1
 name: ${hydra.job.name}
 cpus_per_task: 4
-mem_gb: 32
+mem_gb: 48
 signal_delay_s: 120
 max_num_timeout: 0
 additional_parameters: {

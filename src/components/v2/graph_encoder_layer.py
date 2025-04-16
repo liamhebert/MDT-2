@@ -185,13 +185,13 @@ class GraphTransformerBlock(nn.Module):
         x: torch.Tensor,
         # freq_cis: torch.Tensor,
         mask: BlockMask | torch.Tensor | None = None,
-        spatial_pos: torch.Tensor | None = None,
+        rope_spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
 
         attn_out = self.attention(
             self.attention_norm(x),
             mask=mask,
-            spatial_pos=spatial_pos,
+            rope_spatial_pos=rope_spatial_pos,
         )
         h = x + attn_out.type_as(x)
 
@@ -241,7 +241,7 @@ class BaseGraphTransformer(nn.Module):
         self,
         x: torch.Tensor,
         mask: BlockMask | torch.Tensor | None = None,
-        spatial_pos: torch.Tensor | None = None,
+        rope_spatial_pos: torch.Tensor | None = None,
     ):
         """Computes the forward pass of the transformer.
 
@@ -257,9 +257,9 @@ class BaseGraphTransformer(nn.Module):
 
                 If mask is a torch.Tensor or None, then we will use the
                 standard scaled dot-product attention.
-            spatial_pos (torch.Tensor | None): Spatial position tensor of shape
-                `(S, 2)` for use with RoPE. If RoPE is not used, then this can
-                be None.
+            rope_spatial_pos (torch.Tensor | None): Spatial position tensor of
+                shape `(S, 2)` for use with RoPE. If RoPE is not used, then this
+                can be None.
 
         Returns:
             torch.Tensor: The transformed tensor with the same shape as `x`
@@ -267,7 +267,7 @@ class BaseGraphTransformer(nn.Module):
         """
 
         for layer in self.layers:
-            x = layer(x, mask=mask, spatial_pos=spatial_pos)
+            x = layer(x, mask=mask, rope_spatial_pos=rope_spatial_pos)
         return x
 
     def init_weights(self):

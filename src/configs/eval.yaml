@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - modality_encoder: siglip
+  - modality_encoder: bert-vit-base
   - model: default
   - dataset: pretrain # choose datamodule with `test_dataloader()` for evaluation
   - logger: null

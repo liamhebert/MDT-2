@@ -3,7 +3,6 @@ defaults:
 
 strategy:
   _target_: lightning.pytorch.strategies.FSDPStrategy
-  sharding_strategy: "NO_SHARD"
 
 accelerator: gpu
 devices: 2

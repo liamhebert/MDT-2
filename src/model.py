@@ -6,10 +6,10 @@ import lightning as L
 import torch
 from torch import nn
 from torch import optim
-from torch.optim import lr_scheduler
 from torchmetrics import Metric, MetricCollection
 from losses.loss_abstract import Loss
 from utils import RankedLogger
+from lr_schedules.schedules import LearningRateSchedulePrototype
 
 logger = RankedLogger(__name__)
 
@@ -29,7 +29,7 @@ class Model(L.LightningModule):
     def __init__(
         self,
         optimizer: optim.Optimizer,
-        scheduler: lr_scheduler.LRScheduler,
+        scheduler: LearningRateSchedulePrototype,
         encoder: nn.Module,
         loss: Loss,
         compile: bool = False,
@@ -150,7 +150,7 @@ class Model(L.LightningModule):
                 sync_dist=False,
             )
 
-        self.log("train/lr", self.scheduler.get_last_lr()[0], on_step=True)
+        self.log("train/lr", self.scheduler.get_last_lr(), on_step=True)
 
         # return loss or backpropagation will fail
         return loss
@@ -274,6 +274,12 @@ class Model(L.LightningModule):
         # if stage == "fit" and self.hparams.compile:
         #     self.encoder = torch.compile(self.encoder)
 
+    # def on_before_optimizer_step(self, optimizer):
+    #     # Compute the 2-norm for each layer
+    #     # If using mixed precision, the gradients are already unscaled here
+    #     norms = grad_norm(self.encoder, norm_type=2)
+    #     self.log_dict(norms)
+
     def configure_optimizers(self):
         """Choose what optimizers and learning-rate schedulers to use in your
         optimization. Normally you'd need one. But in the case of GANs or
@@ -290,39 +296,9 @@ class Model(L.LightningModule):
         optimizer = self.hparams.optimizer(
             params=self.trainer.model.parameters()
         )
-        if self.hparams.scheduler is not None:
-            epochs = self.trainer.max_epochs
-            assert epochs is not None
-            dataset_size = 380_000
-            steps_per_epoch = 2886
-            total_steps = epochs * steps_per_epoch  # Hard coded, sry.
-            warmup = int(0.1 * total_steps)
-
-            self.scheduler = lr_scheduler.SequentialLR(
-                optimizer=optimizer,
-                schedulers=[
-                    lr_scheduler.LinearLR(
-                        optimizer,
-                        start_factor=1e-4,
-                        end_factor=1.0,
-                        total_iters=warmup,
-                    ),
-                    lr_scheduler.CosineAnnealingLR(
-                        optimizer, T_max=total_steps - warmup, eta_min=0.0
-                    ),
-                ],
-                milestones=[warmup],
-            )
-
-            # self.scheduler = self.hparams.scheduler(optimizer=optimizer)
+        if self.scheduler is not None:
             return {
                 "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": self.scheduler,
-                    # "monitor": "val/loss",
-                    "interval": "step",
-                    "frequency": 1,
-                    "name": "lr_scheduler",
-                },
+                "lr_scheduler": self.scheduler.create_schedule(optimizer),
             }
         return {"optimizer": optimizer}

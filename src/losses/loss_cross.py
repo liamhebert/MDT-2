@@ -21,28 +21,27 @@ from losses.loss_abstract import Loss
 from data.types import Labels
 
 
-# TODO(liamhebert): create whatever loss set up we want here.
 class NodeCrossEntropyLoss(Loss):
     """
     Cross-entropy loss function.
     """
 
     output_head: SimpleOutputHead
-    weights: torch.Tensor
 
     def __init__(
         self,
         weights: list[float],
         output_head: SimpleOutputHead,
+        num_classes: int = 2,
     ):
         super().__init__()
         assert len(weights) == 2
         assert any(w > 0 for w in weights)
 
-        self.weight = torch.tensor(weights, requires_grad=False)
+        self.loss_weight = weights
 
         self.output_head = output_head
-        assert self.output_head.output_dim == 2
+        assert self.output_head.output_dim == num_classes
 
     def build_batch_metric_aggregators(
         self,
@@ -135,21 +134,19 @@ class NodeCrossEntropyLoss(Loss):
         assert num_classes == 2
 
         return_metrics = {}
-        classification_metrics: dict[str, torch.Tensor] = metrics[
-            "classification"
-        ].forward(logits, targets)
+        metrics["classification"].update(logits, targets)
 
-        for key, value in classification_metrics.items():
-            if value.shape == (num_classes,):
-                # Unpack class-wise metrics into separate keys
-                for i, v in enumerate(value):
-                    class_key = key.replace("none", f"class_{i}")
-                    return_metrics[class_key] = v
-            else:
-                assert value.shape == (), f"Unexpected shape: {value.shape}"
-                return_metrics[key] = value
-
-        return_metrics["loss"] = metrics["loss"].forward(loss)
+        # for key, value in classification_metrics.items():
+        #     if value.shape == (num_classes,):
+        #         # Unpack class-wise metrics into separate keys
+        #         for i, v in enumerate(value):
+        #             class_key = key.replace("none", f"class_{i}")
+        #             return_metrics[class_key] = v
+        #     else:
+        #         assert value.shape == (), f"Unexpected shape: {value.shape}"
+        #         return_metrics[key] = value
+        metrics["loss"].update(loss)
+        return_metrics["loss"] = loss
 
         effective_batch_size = (targets != -100).sum().float()
         return_metrics["weight"] = effective_batch_size
@@ -267,10 +264,12 @@ class NodeCrossEntropyLoss(Loss):
         logits = torch.reshape(logits, (-1, 2))
         targets = torch.flatten(targets)
 
+        loss_weights = torch.tensor(self.loss_weight, device=logits.device)
+
         loss = F.cross_entropy(
             logits,
             targets,
-            weight=self.weight,
+            weight=loss_weights,
             reduction="mean",
             ignore_index=-100,
         )

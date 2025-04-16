@@ -22,12 +22,16 @@ class CollatedDataset(TaskDataset_2):
     def __init__(
         self,
         *args,
+        spatial_pos_max: int = 100,
+        max_attn_distance: int = 100,
         block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
         use_flattened_collator: bool = True,
         **kwargs,
     ):
         self.use_flattened_collator = use_flattened_collator
         self.block_size = block_size
+        self.spatial_pos_max = spatial_pos_max
+        self.max_attn_distance = max_attn_distance
         super().__init__(*args, **kwargs)
 
     @abstractmethod
@@ -117,7 +121,9 @@ class CollatedDataset(TaskDataset_2):
                 graph_features,
                 text_features,
                 image_features,
-                self.block_size,
+                block_size=self.block_size,
+                index_spatial_pos_max=self.spatial_pos_max,
+                max_attn_distance=self.max_attn_distance,
             )
             batch_size = collated_output["num_total_graphs"]
             num_nodes = collated_output["out_degree"].shape[0]
@@ -143,6 +149,14 @@ class ContrastiveTaskDataset(CollatedDataset):
     """
     Dataset with contrastive learning specific collate function.
     """
+
+    @property
+    def has_node_labels(self) -> bool:
+        return False
+
+    @property
+    def has_graph_labels(self) -> bool:
+        return True
 
     def label_collate_fn(
         self, batch: list[Data], batch_size: int, max_nodes: int | None = None
@@ -180,6 +194,14 @@ class NodeBatchedDataDataset(CollatedDataset):
     """
     Dataset with Node learning specific collate function.
     """
+
+    @property
+    def has_node_labels(self) -> bool:
+        return True
+
+    @property
+    def has_graph_labels(self) -> bool:
+        return False
 
     def label_collate_fn(
         self, batch: list[Data], batch_size: int, max_nodes: int | None = None

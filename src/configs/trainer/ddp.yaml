@@ -6,5 +6,6 @@ strategy: ddp_find_unused_parameters_true
 accelerator: gpu
 devices: 2
 num_nodes: 1
-sync_batchnorm: False
+sync_batchnorm: True
 use_distributed_sampler: False  # We handle this
+gradient_clip_val: 0.5

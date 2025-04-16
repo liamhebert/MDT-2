@@ -40,8 +40,9 @@ class TaskDataset(Dataset, ABC):
     test_size: int | float | None
 
     spatial_pos_max: int = 100
+    max_graph_size: int = 49
 
-    _splits: dict[str, list[int]] | None
+    _splits: dict[str, list[list[tuple[str, int]]]] | None
     _hdf5_file: h5py.File | None = None
     _hdf5_filename: str | None = None
 
@@ -73,6 +74,7 @@ class TaskDataset(Dataset, ABC):
         group_size: int = 1,
         skip_invalid_label_graphs: bool = False,
         force_tag: str | None = None,
+        max_graph_size: int = 49,
     ):
         """Initializes the TaskDataset.
 
@@ -127,6 +129,7 @@ class TaskDataset(Dataset, ABC):
         self.split_graphs = split_graphs
         self.strict = strict
         self.max_distance_length = max_distance_length
+        self.max_graph_size = max_graph_size
 
         self.train_size = train_size
         self.valid_size = valid_size
@@ -223,8 +226,12 @@ class TaskDataset(Dataset, ABC):
                     f"Generating splits: {self.train_size=},"
                     f" {self.valid_size=}, {self.test_size=}"
                 )
-                all_indices_for_dataset = list(chain(*dataset_mapping.values()))
 
+                all_indices_for_dataset = list(chain(*dataset_mapping.values()))
+                log.info(
+                    f"Processing {dataset_name=} with"
+                    f" {len(all_indices_for_dataset)=}"
+                )
                 train_idx, test_valid_idx = train_test_split(
                     all_indices_for_dataset,
                     train_size=self.train_size,
@@ -252,38 +259,9 @@ class TaskDataset(Dataset, ABC):
                 current_dataset_splits["valid_idx"] = valid_idx
                 current_dataset_splits["test_idx"] = test_idx
 
-            def group_indices(
-                indices: list[str],
-            ) -> list[tuple[str, list[str]]]:
-                # Group sets of indices such that each group consists of unique
-                # indices only.
-
-                groups = []
-                current_group = set()
-                remaining_ids = list(indices)  # Create a copy to modify
-                random.shuffle(remaining_ids)
-                total_dups = 0
-                while remaining_ids:
-                    if len(current_group) < self.group_size:
-                        item = remaining_ids.pop(0)  # Take the first item
-                        if item in current_group:
-                            total_dups += 1
-                        current_group.add(item)
-                    else:
-                        groups.append((dataset_name, list(current_group)))
-                        current_group = set()  # Start a new group
-
-                if len(current_group) == self.group_size:
-                    groups.append((dataset_name, list(current_group)))
-                return groups
-
             # TODO(liamhebert): This only groups once, meaning graphs will
             # always have the same positive. Would be nice to recreate this
             # at the end of every epoch maybe?
-            current_dataset_splits = {
-                key: group_indices(val)
-                for key, val in current_dataset_splits.items()
-            }
 
             dataset_splits[dataset_name] = current_dataset_splits
 
@@ -293,12 +271,43 @@ class TaskDataset(Dataset, ABC):
         }
         log.info(f"Dataset sizes: {pprint.pformat(dataset_sizes)}")
 
-        self._splits = {"train_idx": [], "valid_idx": [], "test_idx": []}
-        for split_dict in dataset_splits.values():
+        pre_grouped_splits = {"train_idx": [], "valid_idx": [], "test_idx": []}
+        for dataset, split_dict in dataset_splits.items():
             for split in ["train_idx", "valid_idx", "test_idx"]:
-                self._splits[split] += split_dict[split]
+                pre_grouped_splits[split] += [
+                    (dataset, x) for x in split_dict[split]
+                ]
 
-        self._flattened_data: List[tuple[str, list[str]]] = list(
+        def group_indices(
+            indices: list[str],
+        ) -> list[list[tuple[str, int]]]:
+            # Group sets of indices such that each group consists of unique
+            # indices only.
+
+            groups = []
+            current_group = set()
+            remaining_ids = list(indices)  # Create a copy to modify
+            random.shuffle(remaining_ids)
+            total_dups = 0
+            while remaining_ids:
+                if len(current_group) < self.group_size:
+                    dataset, item = remaining_ids.pop(0)  # Take the first item
+                    if item in current_group:
+                        total_dups += 1
+                    current_group.add((dataset, item))
+                else:
+                    groups.append(list(current_group))
+                    current_group = set()  # Start a new group
+
+            if len(current_group) == self.group_size:
+                groups.append(list(current_group))
+            return groups
+
+        self._splits = {
+            key: group_indices(val) for key, val in pre_grouped_splits.items()
+        }
+
+        self._flattened_data: List[List[tuple[str, int]]] = list(
             chain(
                 self._splits["train_idx"],
                 self._splits["valid_idx"],
@@ -439,8 +448,27 @@ class TaskDataset(Dataset, ABC):
                         break
                     # TODO(liamhebert): This currently only works in graph-mode
                     # not for split nodes.
-                    if f"graph_{original_idx}" in dataset_group:
-                        index_mapping[original_idx] = [f"graph_{original_idx}"]
+                    test_graph_name = (
+                        f"graph_{original_idx}"
+                        if self.has_graph_labels or (not self.split_graphs)
+                        else f"graph_{original_idx}_label_0"
+                    )
+                    if test_graph_name in dataset_group:
+                        if self.has_graph_labels or (not self.split_graphs):
+                            index_mapping[original_idx] = [test_graph_name]
+                        else:
+                            i = 0
+                            while True:
+                                if (
+                                    f"graph_{original_idx}_label_{i}"
+                                    in dataset_group
+                                ):
+                                    index_mapping[original_idx].append(
+                                        f"graph_{original_idx}_label_{i}"
+                                    )
+                                    i += 1
+                                else:
+                                    break
                         continue
 
                     # if (
@@ -461,6 +489,7 @@ class TaskDataset(Dataset, ABC):
                     try:
                         data = self.process_graph(json_data)
                     except ValueError as e:
+                        log.info(e)
                         # Graphs that raise label errors are skipped.
                         had_errors += 1
                         continue
@@ -477,6 +506,7 @@ class TaskDataset(Dataset, ABC):
                             y_mask = torch.ones_like(ys).bool()
                             y_mask[i] = False
                             new_data["y"][Labels.Ys][y_mask] = -100
+
                             graph_name = self._write_graph_to_hdf5(
                                 dataset_group,
                                 new_data,
@@ -524,10 +554,7 @@ class TaskDataset(Dataset, ABC):
         self._idx_mapping, which is only created in the master process.
         """
         self._idx_mapping = {}
-        log.warning(
-            "Creating dumb idx mapping. NOTE: This will break when using split"
-            " graphs."
-        )
+        log.warning("Creating dumb idx mapping.")
         dataset_file = self.hdf5_file
         log.info(dataset_file.keys())
         for file in self.raw_paths:
@@ -535,17 +562,46 @@ class TaskDataset(Dataset, ABC):
             if dataset_name not in dataset_file:
                 log.warning(f"Dataset {dataset_name} not found in HDF5 file")
                 continue
+            dataset_group = dataset_file.require_group(dataset_name)
             with open(file, "r") as f:
                 index_mapping = {}
                 for original_idx, line in enumerate(f):
                     if self.debug and original_idx == self.debug:
                         break
-                    index_mapping[original_idx] = [f"graph_{original_idx}"]
+                    test_graph_name = (
+                        f"graph_{original_idx}"
+                        if self.has_graph_labels or (not self.split_graphs)
+                        else f"graph_{original_idx}_label_0"
+                    )
+                    if test_graph_name in dataset_group:
+                        if self.has_graph_labels or (not self.split_graphs):
+                            index_mapping[original_idx] = [test_graph_name]
+                        else:
+                            i = 0
+                            while True:
+                                if (
+                                    f"graph_{original_idx}_label_{i}"
+                                    in dataset_group
+                                ):
+                                    index_mapping[original_idx].append(
+                                        f"graph_{original_idx}_label_{i}"
+                                    )
+                                    i += 1
+                                else:
+                                    break
+
             self._idx_mapping[dataset_name] = index_mapping
 
     def _write_graph_to_hdf5(
         self, dataset_group, data, original_index, label_index=None
     ) -> str:
+
+        is_prod = os.getenv("IS_PROD", False) == "1" and not self.debug
+        assert not is_prod, (
+            f"Attempted to write graph {dataset_group=}, {original_index=},"
+            f" {label_index=} in PROD mode"
+        )
+
         if label_index is not None:
             graph_name = f"graph_{original_index}_label_{label_index}"
         else:
@@ -630,8 +686,11 @@ class TaskDataset(Dataset, ABC):
     def process_graph(self, json_data):
         dut.compute_relative_distance(json_data)
         flattened_graph = self.flatten_graph(json_data)
-        if len(flattened_graph["id"]) > 49:
-            raise ValueError("Graph too large")
+        if len(flattened_graph["id"]) > self.max_graph_size:
+            raise ValueError(
+                f"Graph too large ({len(flattened_graph['id'])} >"
+                f" {self.max_graph_size})"
+            )
 
         if all(
             y == -100 for y in flattened_graph["y"]
@@ -755,11 +814,9 @@ class TaskDataset(Dataset, ABC):
         mapped_indices = [self._flattened_data[i] for i in indices]
 
         result = []
-        for dataset, graph_indices in tqdm(
-            mapped_indices, desc="Getting sizes"
-        ):
+        for grouped_indices in tqdm(mapped_indices, desc="Getting sizes"):
             total_size = 0
-            for graph_index in graph_indices:
+            for dataset, graph_index in grouped_indices:
                 group = self.hdf5_file.get(f"{dataset}/{graph_index}")
                 assert isinstance(
                     group, h5py.Group
@@ -820,14 +877,14 @@ class TaskDataset(Dataset, ABC):
 
         assert self._flattened_data
         try:
-            dataset_name, graph_indices = self._flattened_data[idx]
+            grouped_data = self._flattened_data[idx]
         except Exception as e:
             log.warning(f"Index {idx} not found in {self._flattened_data=}")
             raise e
 
         data = [
             self._load_graph_from_hdf5(dataset_name, graph_index)
-            for graph_index in graph_indices
+            for dataset_name, graph_index in grouped_data
         ]
 
         return data

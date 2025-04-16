@@ -1,0 +1,51 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /modality_encoder: bert-vit-base
+  - override /dataset: hateful_discussions
+  - override /model/encoder: mdt
+  - override /model/loss: cross_entropy
+  - override /model/scheduler: finetune
+  - override /trainer: ddp
+  - _self_
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["GIGA-pretrain", "v1", "siglip-modbert", "mdt"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 1
+  max_epochs: 5
+  # gradient_clip_val: 0.5
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "giga_pretrain"
+  aim:
+    experiment: "giga_pretrain"
+
+model:
+  loss:
+    num_classes: 2
+  encoder:
+    block_size: 1
+    graph_token_average: False
+  scheduler:
+    dataset_steps: 1012
+
+
+dataset:
+  dataset:
+    spatial_pos_max: 10
+    max_attn_distance: 5
+
+  train_batch_size: 24
+  test_batch_size: 24
+  max_total_length: null

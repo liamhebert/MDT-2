@@ -9,3 +9,9 @@ dataset:
   split_graphs: False
   politics_and_gender_only: False
   force_tag: "giga_pretrain"
+  max_graph_size: 49
+
+train_batch_size: 48
+max_total_length: null
+test_batch_size: 48
+group_size: 2

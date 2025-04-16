@@ -1,0 +1,4 @@
+_target_: lr_schedules.schedules.FineTuneSchedule
+
+max_epochs: ${trainer.max_epochs}
+dataset_steps: ???

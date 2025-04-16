@@ -1,0 +1,42 @@
+_target_: components.Graphormer.graphormer_transformer.GraphormerDiscussionTransformer
+
+embedding_dim: 768
+
+graph_node_feature:
+  _target_: components.v2.feature_layers.GraphNodeFeature
+  num_out_degree: 10
+  hidden_dim: "${model.encoder.embedding_dim}"
+
+graph_attn_bias:
+  _target_: components.MDT.attn_bias.GraphAttnBias
+  num_heads: "${model.encoder.graph_stack_factory.graph_tfmr_factory.n_heads}"
+  num_spatial: "${dataset.dataset.max_distance_length}"
+
+graph_stack_factory:
+  _target_: components.v2.graph_encoder_layer.BaseGraphTransformer
+  _partial_: True
+  num_layers: 8
+  graph_tfmr_factory:
+    _target_: components.v2.graph_encoder_layer.GraphTransformerBlock
+    _partial_: True
+    n_heads: 12
+    n_kv_heads: 12
+    dim: "${model.encoder.embedding_dim}"
+    ffn_dim: 3072
+    differential_attention: False
+    use_rope: False
+    rope_mixed: True
+
+
+text_model_config:
+  bert_model_name: "${modality_encoder.text_config.text_model_name}"
+  attention_dropout: 0.3
+  activation_dropout: 0.3
+
+num_graph_layers_to_freeze: 0
+
+freeze_initial_encoders: True
+
+block_size: 1
+
+graph_token_average: False

@@ -12,3 +12,7 @@ defaults:
 trainer:
   fast_dev_run: 2
   detect_anomaly: true
+
+model:
+  scheduler:
+    dataset_steps: 100
