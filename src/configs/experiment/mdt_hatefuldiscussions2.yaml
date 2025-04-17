@@ -15,21 +15,22 @@ defaults:
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["GIGA-pretrain", "v1", "siglip-modbert", "mdt"]
+tags: ["HD2", "v1", "siglip-modbert", "mdt"]
 
 seed: 12345
 
 trainer:
   min_epochs: 1
-  max_epochs: 5
+  max_epochs: 10
   # gradient_clip_val: 0.5
 
 logger:
   wandb:
     tags: ${tags}
-    group: "giga_pretrain"
+    group: "hd2_mdt"
+    project: "mdt_hd2"
   aim:
-    experiment: "giga_pretrain"
+    experiment: "hd2_mdt"
 
 model:
   loss:
@@ -37,14 +38,17 @@ model:
   encoder:
     block_size: 1
     graph_token_average: False
+    freeze_initial_encoders: True
+  optimizer:
+    lr: 3e-5
   scheduler:
     dataset_steps: 1012
-
 
 dataset:
   dataset:
     spatial_pos_max: 10
     max_attn_distance: 5
+    force_tag: "HD2_mdt"
 
   train_batch_size: 24
   test_batch_size: 24

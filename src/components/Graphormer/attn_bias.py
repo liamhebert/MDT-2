@@ -1,5 +1,5 @@
+from torch import nn
 import torch
-import torch.nn as nn
 
 
 def init_params(module: nn.Module) -> None:
@@ -13,7 +13,7 @@ def init_params(module: nn.Module) -> None:
         module.weight.data.normal_(mean=0.0, std=0.02)
 
 
-class GraphAttnBias(nn.Module):
+class GraphormerAttnBias(nn.Module):
     """
     Compute attention bias for each head.
     """
@@ -38,14 +38,14 @@ class GraphAttnBias(nn.Module):
                 this value should be 10 to create an embedding for each
                 position.
         """
-        super(GraphAttnBias, self).__init__()
+        super().__init__()
         self.num_heads = num_heads
 
         # Since we want to compute a bias scalar for attention, we create
         # embeddings of size num_heads, which corresponds to a single value
         # added per head.
         self.spatial_pos_encoder = nn.Embedding(
-            (num_spatial * num_spatial) + 5,
+            num_spatial * 2 + 5,
             num_heads,
             padding_idx=0,
         )
@@ -84,10 +84,5 @@ class GraphAttnBias(nn.Module):
             2, 0, 1
         )
         graph_attn_bias = graph_attn_bias + spatial_pos_bias
-
-        # # reset spatial pos here
-        # t = self.graph_token_virtual_distance.weight.view(1, self.num_heads, 1)
-        # graph_attn_bias[:, :, 1:, 0] = graph_attn_bias[:, :, 1:, 0] + t
-        # graph_attn_bias[:, :, 0, :] = graph_attn_bias[:, :, 0, :] + t
 
         return graph_attn_bias

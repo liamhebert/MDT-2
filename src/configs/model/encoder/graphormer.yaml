@@ -8,21 +8,21 @@ graph_node_feature:
   hidden_dim: "${model.encoder.embedding_dim}"
 
 graph_attn_bias:
-  _target_: components.MDT.attn_bias.GraphAttnBias
+  _target_: components.Graphormer.attn_bias.GraphormerAttnBias
   num_heads: "${model.encoder.graph_stack_factory.graph_tfmr_factory.n_heads}"
-  num_spatial: "${dataset.dataset.max_distance_length}"
+  num_spatial: "${dataset.dataset.spatial_pos_max}"
 
 graph_stack_factory:
   _target_: components.v2.graph_encoder_layer.BaseGraphTransformer
   _partial_: True
-  num_layers: 8
+  num_layers: 10
   graph_tfmr_factory:
     _target_: components.v2.graph_encoder_layer.GraphTransformerBlock
     _partial_: True
-    n_heads: 12
-    n_kv_heads: 12
+    n_heads: 6
+    n_kv_heads: 6
     dim: "${model.encoder.embedding_dim}"
-    ffn_dim: 3072
+    ffn_dim: 768
     differential_attention: False
     use_rope: False
     rope_mixed: True

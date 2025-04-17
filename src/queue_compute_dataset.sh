@@ -1,4 +1,5 @@
 #!/bin/bash
 
-sbatch run_compute_dataset_102.sh "$@"
-sbatch run_compute_dataset_all.sh "$@"
+sbatch run_compute_dataset_all.sh experiment=mdt_hatefuldiscussions2
+sbatch run_compute_dataset_all.sh experiment=graphormer_hatefuldiscussions2
+sbatch run_compute_dataset_all.sh experiment=giga_pretrain_siglip

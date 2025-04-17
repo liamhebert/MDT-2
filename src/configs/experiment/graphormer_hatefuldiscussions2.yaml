@@ -8,35 +8,38 @@ defaults:
   - override /dataset: hateful_discussions
   - override /model/encoder: graphormer
   - override /model/loss: cross_entropy
-  - override /trainer: ddp
+  - override /model/scheduler: finetune
+  - override /trainer: gpu
   - _self_
 
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["GIGA-pretrain", "v1", "siglip-modbert", "mdt"]
+tags: ["hateful_discussions", "v1", "bert-vit-base", "graphormer"]
 
 seed: 12345
 
 trainer:
   min_epochs: 1
-  max_epochs: 5
+  max_epochs: 10
   # gradient_clip_val: 0.5
 
 logger:
   wandb:
     tags: ${tags}
-    group: "giga_pretrain"
+    group: "hd2_graphormer"
+    project: "graphormer_hd2"
   aim:
-    experiment: "giga_pretrain"
+    experiment: "hd2_graphormer"
 
 dataset:
   dataset:
     spatial_pos_max: 100
     max_attn_distance: 100
+    force_tag: "HD2_graphormer"
 
-  train_batch_size: 24
-  test_batch_size: 24
+  train_batch_size: 48
+  test_batch_size: 48
   max_total_length: null
 
 model:
@@ -45,5 +48,8 @@ model:
   encoder:
     block_size: 1
     graph_token_average: False
+    freeze_initial_encoders: True
   scheduler:
     dataset_steps: 1012
+  optimizer:
+    lr: 3e-5

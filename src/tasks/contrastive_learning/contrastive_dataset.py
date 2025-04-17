@@ -205,6 +205,23 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
 
         super().__init__(**kwargs)
 
+    def group_hint(self, dataset_name: str) -> int:
+        """Returns the group hint for the dataset.
+
+        Args:
+            dataset_name (str): The name of the dataset.
+
+        Returns:
+            int: The group hint for the dataset.
+        """
+        if dataset_name not in self.idx_map:
+            logging.warning(
+                f"Attempted to get group hint for dataset {dataset_name} but"
+                " dataset is not in mapping. Returning -1... "
+            )
+            return -1
+        return self.idx_map[dataset_name][0]
+
     def retrieve_label(self, data: dict[str, Any]) -> dict[str, bool | int]:
         """Retrieves the graph label from the root node.
 

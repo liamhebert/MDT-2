@@ -1,9 +1,9 @@
 """Tests for the generic dataset class."""
 
 import pathlib
-
 import pytest
 import torch
+import numpy as np
 
 from data.collated_datasets import ContrastiveTaskDataset
 from data.collated_datasets import NodeBatchedDataDataset
@@ -342,9 +342,9 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
 
     assert data["text"]["input_ids"].shape == (3, 512)
     assert data["text"]["attention_mask"].shape == (3, 512)
-    torch.testing.assert_close(
+    np.testing.assert_allclose(
         data["rotary_position"],
-        torch.tensor([[0, 0], [0, 1], [1, 1]], dtype=torch.uint8),
+        np.array([[0, 0], [0, 1], [1, 1]], dtype=np.uint8),
     )
 
 

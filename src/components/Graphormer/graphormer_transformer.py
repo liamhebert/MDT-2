@@ -7,7 +7,8 @@ from transformers.models.bert.modeling_bert import BertModel
 from transformers.models.bert.modeling_bert import BertPooler
 from transformers import AutoModel
 
-from components.MDT.attn_bias import GraphAttnBias
+from components.Graphormer.attn_bias import GraphormerAttnBias
+
 from components.v2.feature_layers import GraphNodeFeature
 from components.v2.graph_encoder_layer import BaseGraphTransformer
 from components.v2.discussion_transformer import freeze_module_params
@@ -20,7 +21,7 @@ class GraphormerDiscussionTransformer(nn.Module):
 
     embedding_dim: int
     graph_node_feature: GraphNodeFeature
-    graph_attn_bias: GraphAttnBias
+    graph_attn_bias: GraphormerAttnBias
     text_model: BertModel
     text_pooler: BertPooler
     graphormer_layers: nn.ModuleList
@@ -28,7 +29,7 @@ class GraphormerDiscussionTransformer(nn.Module):
     def __init__(
         self,
         graph_node_feature: GraphNodeFeature,
-        graph_attn_bias: GraphAttnBias,
+        graph_attn_bias: GraphormerAttnBias,
         graph_stack_factory: Callable[[int], BaseGraphTransformer],
         text_model_config: DictConfig,
         embedding_dim: int = 768,
@@ -59,7 +60,6 @@ class GraphormerDiscussionTransformer(nn.Module):
         out_degree: torch.Tensor,
         num_total_graphs: int,
         graph_mask: torch.Tensor,
-        graph_ids: torch.Tensor,
         **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """The forward function of the Discussion Transformer model.
@@ -106,7 +106,7 @@ class GraphormerDiscussionTransformer(nn.Module):
 
         bert_output = self.text_model(**text_input).pooler_output
 
-        flattened_batch, seq_len, hidden_dim = bert_output.size()
+        flattened_batch, hidden_dim = bert_output.size()
 
         # This does not have the graph ids in them
         graph_x = bert_output

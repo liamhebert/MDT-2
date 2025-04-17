@@ -138,6 +138,7 @@ class ContrastiveLoss(Loss):
         )
 
         if use_all_gather:
+            print(device_targets, device_hard_targets, normalized_A)
             all_targets, all_hard_targets, all_graph_embeddings = (
                 self.all_gather(x)
                 for x in (device_targets, device_hard_targets, normalized_A)

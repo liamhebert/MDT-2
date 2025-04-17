@@ -22,8 +22,8 @@ class CollatedDataset(TaskDataset_2):
     def __init__(
         self,
         *args,
-        spatial_pos_max: int = 100,
-        max_attn_distance: int = 100,
+        spatial_pos_max: int = 8000,
+        max_attn_distance: int = 8000,
         block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
         use_flattened_collator: bool = True,
         **kwargs,

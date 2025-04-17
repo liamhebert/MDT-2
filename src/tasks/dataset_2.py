@@ -271,10 +271,13 @@ class TaskDataset(Dataset, ABC):
         }
         log.info(f"Dataset sizes: {pprint.pformat(dataset_sizes)}")
 
-        pre_grouped_splits = {"train_idx": [], "valid_idx": [], "test_idx": []}
+        pre_grouped_splits = {"train_idx": {}, "valid_idx": {}, "test_idx": {}}
         for dataset, split_dict in dataset_splits.items():
+            group_hint = self.group_hint(dataset)
             for split in ["train_idx", "valid_idx", "test_idx"]:
-                pre_grouped_splits[split] += [
+                if group_hint not in pre_grouped_splits[split]:
+                    pre_grouped_splits[split][group_hint] = []
+                pre_grouped_splits[split][group_hint] += [
                     (dataset, x) for x in split_dict[split]
                 ]
 
@@ -303,9 +306,12 @@ class TaskDataset(Dataset, ABC):
                 groups.append(list(current_group))
             return groups
 
-        self._splits = {
-            key: group_indices(val) for key, val in pre_grouped_splits.items()
-        }
+        self._splits = {}
+        for split, groups in pre_grouped_splits.items():
+            self._splits[split] = []
+            for group in groups.values():
+                grouped_idx = group_indices(group)
+                self._splits[split].extend(grouped_idx)
 
         self._flattened_data: List[List[tuple[str, int]]] = list(
             chain(
@@ -332,6 +338,16 @@ class TaskDataset(Dataset, ABC):
         random.shuffle(self._splits["test_idx"])
 
         return self._splits
+
+    def group_hint(self, dataset_name: str) -> int:
+        """Returns an integer value indicating how to partition the data into
+        groups of similar graphs. Useful for contrastive learning tasks, where
+        we can group positive graphs together.
+
+        Args:
+            dataset_name (str): The name of the dataset being processed.
+        """
+        return 0
 
     @property
     def train_idx(self) -> list[int]:
@@ -430,6 +446,11 @@ class TaskDataset(Dataset, ABC):
         def process_file(file):
             dataset_name = os.path.basename(file).removesuffix("-data.json")
             assert self._hdf5_file, "HDF5 file not open"
+            if self.group_hint(dataset_name) < 0:
+                log.warning(
+                    f"Skipping dataset {dataset_name} due to group hint < 0"
+                )
+                return (dataset_name, None)
             if is_prod and dataset_name not in self._hdf5_file:
                 log.warning(
                     f"Skipping empty group {dataset_name=} due to PROD mode"
@@ -488,7 +509,7 @@ class TaskDataset(Dataset, ABC):
                     json_data = orjson.loads(line)
                     try:
                         data = self.process_graph(json_data)
-                    except ValueError as e:
+                    except Exception as e:
                         log.info(e)
                         # Graphs that raise label errors are skipped.
                         had_errors += 1
@@ -499,11 +520,11 @@ class TaskDataset(Dataset, ABC):
                     ):  # Split graphs only for node-level tasks
                         index_mapping[original_idx] = []
 
-                        mask = data["y"][Labels.Ys] != -100
-                        for i in mask.nonzero(as_tuple=True)[0]:
+                        mask: np.ndarray = data["y"][Labels.Ys] != -100
+                        for i in mask.nonzero()[0]:
                             new_data = copy.deepcopy(data)
                             ys = new_data["y"][Labels.Ys]
-                            y_mask = torch.ones_like(ys).bool()
+                            y_mask = np.ones_like(ys).astype(np.bool)
                             y_mask[i] = False
                             new_data["y"][Labels.Ys][y_mask] = -100
 
@@ -557,6 +578,8 @@ class TaskDataset(Dataset, ABC):
         log.warning("Creating dumb idx mapping.")
         dataset_file = self.hdf5_file
         log.info(dataset_file.keys())
+        # TODO(liamhebert): Instead of recreating indexing mapping, we should
+        # just save it in the hdf5 file, and then retrieve it directly every time.
         for file in self.raw_paths:
             dataset_name = os.path.basename(file).removesuffix("-data.json")
             if dataset_name not in dataset_file:
@@ -611,21 +634,19 @@ class TaskDataset(Dataset, ABC):
 
         text_group = group.create_group("text")
         for key, tensor in data["text"].items():
-            text_group.create_dataset(key, data=tensor.numpy())
+            text_group.create_dataset(key, data=tensor)
         y_group = group.create_group("y")
         for key, tensor in data["y"].items():
-            y_group.create_dataset(key, data=tensor.numpy())
+            y_group.create_dataset(key, data=tensor)
 
-        group.create_dataset("image_mask", data=data["image_mask"].numpy())
+        group.create_dataset("image_mask", data=data["image_mask"])
         if data["images"] is not None:
             images_group = group.create_group("images")
             for key, tensor in data["images"].items():
-                images_group.create_dataset(key, data=tensor.numpy())
-        group.create_dataset("distance", data=data["distance"].numpy())
-        group.create_dataset(
-            "rotary_position", data=data["rotary_position"].numpy()
-        )
-        group.create_dataset("out_degree", data=data["out_degree"].numpy())
+                images_group.create_dataset(key, data=tensor.cpu().numpy())
+        group.create_dataset("distance", data=data["distance"])
+        group.create_dataset("rotary_position", data=data["rotary_position"])
+        group.create_dataset("out_degree", data=data["out_degree"])
 
         return graph_name
 
@@ -720,7 +741,7 @@ class TaskDataset(Dataset, ABC):
             flattened_graph["text"],
             padding="max_length",
             truncation=True,
-            return_tensors="pt",
+            return_tensors="np",
             max_length=self.text_config.get("max_length", None),
             return_attention_mask=True,
             return_token_type_ids=self.text_config.get(
@@ -748,19 +769,20 @@ class TaskDataset(Dataset, ABC):
             else:
                 image_mask.append(False)
 
-        image_mask = torch.tensor(image_mask, dtype=torch.bool)
+        image_mask = np.array(image_mask, dtype=np.bool)
 
-        # image_mask = torch.tensor(
-        #    [img is not None for img in flattened_graph["images"]],
-        #    dtype=torch.bool,
-        # )
-        # images = [
-        #    Image.open(os.path.join(self.root, img)).convert("RGB")
-        #    for img in flattened_graph["images"]
-        #    if img
-        # ]
+        image_mask = torch.tensor(
+            [img is not None for img in flattened_graph["images"]],
+            dtype=torch.bool,
+        )
+        images = [
+            Image.open(os.path.join(self.root, img)).convert("RGB")
+            for img in flattened_graph["images"]
+            if img
+        ]
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
         tokenized_images = (
-            self.image_tokenizer(images, return_tensors="pt")
+            self.image_tokenizer(images, return_tensors="pt", device=device)
             if images
             else None
         )
@@ -772,23 +794,24 @@ class TaskDataset(Dataset, ABC):
             )
             for distance in flattened_graph["distances"]
         ]
-        distance_tensor = torch.tensor(
+        distance_tensor = np.array(
             [
                 [dist for _, dist in distances]
                 for distances in combined_distance
             ],
-            dtype=torch.uint8,
+            dtype=np.int16,
         )
-        rotary_pos = torch.tensor(
-            flattened_graph["rotary_position"], dtype=torch.uint8
+        rotary_pos = np.array(
+            flattened_graph["rotary_position"], dtype=np.int16
         )
         degree = pyg_utils.degree(
             edges[1][1:], num_nodes=edges.shape[1], dtype=torch.long
         )  # Degree excluding self-loop
+        degree = degree.numpy()
 
         y = {
-            key: torch.tensor(
-                [label[key] for label in flattened_graph["y"]], dtype=torch.int8
+            key: np.array(
+                [label[key] for label in flattened_graph["y"]], dtype=np.int8
             )
             for key in flattened_graph["y"][0].keys()
         }
