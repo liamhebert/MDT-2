@@ -1,6 +1,8 @@
 #!/bin/bash
 
-python 1-organize_comments.py
-python 2-combine_and_compress_trees.py
-python 3-prune-trees.py
-python 4-get_images.py
+echo "===STARTING 1===="
+python3.10 1-organize_comments.py
+echo "===STARTING 2===="
+python3.10 2-combine_and_compress_trees.py
+echo "===STARTING 3===="
+python3.10 3-get_images.py

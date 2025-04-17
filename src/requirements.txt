@@ -22,4 +22,5 @@ emoji
 pillow
 sentencepiece
 torchdata
+orjson
 h5py
