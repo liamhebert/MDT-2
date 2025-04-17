@@ -48,8 +48,9 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
         p.numel() for p in model.parameters() if not p.requires_grad
     )
 
-    hparams["data"] = cfg["data"]
+    hparams["dataset"] = cfg["dataset"]
     hparams["trainer"] = cfg["trainer"]
+    hparams["model/modality_encoder"] = cfg["modality_encoder"]
 
     hparams["callbacks"] = cfg.get("callbacks")
     hparams["extras"] = cfg.get("extras")

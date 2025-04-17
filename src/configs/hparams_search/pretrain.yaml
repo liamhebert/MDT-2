@@ -1,0 +1,33 @@
+# @package _global_
+
+# example hyperparameter optimization of some experiment with Optuna:
+# python train.py -m hparams_search=mnist_optuna experiment=example
+
+defaults:
+  - default
+
+# choose metric which will be optimized by Optuna
+# make sure this is the correct name of some metric logged in lightning module!
+optimized_metric: "val/best_loss"
+
+# here we define Optuna hyperparameter search
+# it optimizes for value returned from function with @hydra.main decorator
+# docs: https://hydra.cc/docs/next/plugins/optuna_sweeper
+hydra:
+  sweeper:
+    # number of parallel workers
+    n_jobs: 8
+
+    # 'minimize' or 'maximize' the objective
+    direction: minimize
+
+    # total number of runs that will be executed
+    n_trials: 20
+
+    # define hyperparameter search space
+    params:
+      model.optimizer.lr: choice(0.0001) # choose between 0.001 to 0.01
+      model.encoder.graph_stack_factory.num_layers: choice(3, 4) # choose between 3, 4
+      model.encoder.graph_stack_factory.graph_tfmr_factory.use_rope: choice(True) # choose between True, False
+      model.encoder.graph_stack_factory.graph_tfmr_factory.differential_attention: choice(True, False) # choose between True, False
+      dataset.group_size: choice(2, 4) # choose between 2, 4 positives in a graph

@@ -1,0 +1,25 @@
+defaults:
+  - submitit_slurm
+  - _self_
+
+_target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
+
+gres: ???
+partition: ???
+tasks_per_node: ???
+
+account: rcohen_group
+submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+timeout_min: 270
+nodes: 1
+name: ${hydra.job.name}
+cpus_per_task: 4
+mem_gb: 48
+signal_delay_s: 120
+max_num_timeout: 0
+additional_parameters: {
+  "mail-user": "l2hebert@uwaterloo.ca",
+  "mail-type": "ALL",
+  "signal": "SIGUSR1@90"
+}
+array_parallelism: 256

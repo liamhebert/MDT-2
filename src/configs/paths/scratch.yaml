@@ -1,0 +1,5 @@
+defaults:
+  - default
+  - _self_
+
+data_dir: "/big-scratch/rcohen/l2hebert/data/"

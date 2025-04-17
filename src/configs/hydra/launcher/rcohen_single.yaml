@@ -1,0 +1,8 @@
+defaults:
+  - rcohen
+  - _self_
+
+tasks_per_node: 1
+gres: gpu:1
+mem_gb: 32
+timeout_min: 1440  # Since preemption does not work rn.

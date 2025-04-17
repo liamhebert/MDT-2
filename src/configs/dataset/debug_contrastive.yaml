@@ -1,0 +1,18 @@
+defaults:
+  - default
+
+train_batch_size: 2
+test_batch_size: 2
+max_total_length: 32
+num_workers: 2
+
+dataset:
+  _target_: "tasks.test_dataset.DummyGraphTaskDataset"
+  root: "tasks/sample_test_data"
+  raw_graph_path: "test10"
+
+  split_graphs: False
+  strict: False
+
+  force_reload: True
+  debug: True

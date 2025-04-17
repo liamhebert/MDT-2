@@ -1,3 +1,9 @@
+"""Tests the feature layers of the discussion transformer.
+
+In particular, this module tests the GraphNodeFeature and GraphAttnBias
+layers.
+"""
+
 from omegaconf import DictConfig
 import pytest
 import torch
@@ -20,7 +26,7 @@ def graph_node_feature_fixture(
 
 @pytest.fixture(scope="function")
 def graph_node_feature_input(
-    graph_node_feature_fixture: tuple[GraphNodeFeature, DictConfig]
+    graph_node_feature_fixture: tuple[GraphNodeFeature, DictConfig],
 ) -> dict[str, torch.Tensor]:
     """
     Sample input to test the graph node feature layer.
@@ -50,7 +56,7 @@ def graph_attn_bias_fixture(
 
 @pytest.fixture(scope="function")
 def graph_attn_bias_input(
-    graph_attn_bias_fixture: tuple[GraphNodeFeature, DictConfig]
+    graph_attn_bias_fixture: tuple[GraphNodeFeature, DictConfig],
 ) -> dict[str, torch.Tensor]:
     """
     Fixture to build the graph node feature input.

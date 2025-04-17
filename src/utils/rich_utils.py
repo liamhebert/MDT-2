@@ -24,7 +24,8 @@ log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 def print_config_tree(
     cfg: DictConfig,
     print_order: Sequence[str] = (
-        "data",
+        "dataset",
+        "modality_encoder",
         "model",
         "callbacks",
         "logger",
@@ -59,8 +60,8 @@ def print_config_tree(
             queue.append(field)
             if field in cfg
             else log.warning(
-                f"Field '{field}' not found in config. Skipping '{field}' config"
-                "printing..."
+                f"Field '{field}' not found in config. Skipping '{field}'"
+                " configprinting..."
             )
         )
 

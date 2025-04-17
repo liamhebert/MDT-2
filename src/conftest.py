@@ -12,6 +12,10 @@ from omegaconf import DictConfig
 from omegaconf import open_dict
 import pytest
 import rootutils
+import os
+
+# Disable CUDA devices, even if they are visible.
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 @pytest.fixture(scope="session")

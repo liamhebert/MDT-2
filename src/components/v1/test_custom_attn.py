@@ -1,3 +1,5 @@
+"""Tests the legacy multi-head attention layer."""
+
 from omegaconf import DictConfig
 import pytest
 import torch
@@ -19,7 +21,7 @@ def multihead_attention_fixture(
 
 @pytest.fixture(scope="function")
 def multihead_attention_input(
-    multihead_attention_fixture: tuple[MultiheadAttention, DictConfig]
+    multihead_attention_fixture: tuple[MultiheadAttention, DictConfig],
 ) -> dict[str, torch.Tensor]:
     """
     Sample input to test the multi-head attention layer.

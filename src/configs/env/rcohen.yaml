@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - override /paths: default
+  - override /hydra/launcher: rcohen
+  - _self_
+
+dataset:
+  num_workers: 6

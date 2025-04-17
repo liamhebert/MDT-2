@@ -12,6 +12,7 @@ from typing import Any
 
 from data.collated_datasets import NodeBatchedDataDataset
 from data.types import Labels
+import numpy as np
 
 
 class HatefulDiscussions(NodeBatchedDataDataset):
@@ -19,17 +20,27 @@ class HatefulDiscussions(NodeBatchedDataDataset):
     Task dataset for HatefulDiscussions.
     """
 
+    tag: str = "hateful_discussion2"
+
     hate_labels: list[str] = [
         "DEG",
-        "lti_hate",
+        "True",
         "IdentityDirectedAbuse",
         "AffiliationDirectedAbuse",
+        "PersonDirectedAbuse",
+        "Slur",
     ]
-    not_hate_labels: list[str] = ["Neutral", "lti_normal", "NDG", "HOM"]
+    # not_hate_labels: list[str] = ["Neutral", "lti_normal", "NDG", "HOM"]
 
-    def has_node_labels(self) -> bool:
-        """Indicating that the dataset has node labels."""
-        return True
+    keep_ids: set
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.keep_ids = set(
+            np.load(
+                self.root + "/" + "keep_ids.npy", allow_pickle=True
+            ).flatten()
+        )
 
     def retrieve_label(self, data: dict[str, Any]) -> dict[str, bool | int]:
         """Retrieves the label for the comment corresponding to
@@ -42,17 +53,25 @@ class HatefulDiscussions(NodeBatchedDataDataset):
             tuple[int, bool]: _description_
         """
         assert "label" in data, (
-            '"label" key not found in data, please check that the data format ',
-            "is compatible with HatefulDiscussions.",
+            (
+                '"label" key not found in data, please check that the data'
+                f" format is compatible with HatefulDiscussions.{data.keys()=}"
+            ),
         )
+        if data["id"] not in self.keep_ids:
+            return {
+                Labels.Ys: -100,
+            }
+        self.keep_ids.remove(data["id"])
 
         label = data["label"]
 
         if label in self.hate_labels:
+
             return {
                 Labels.Ys: 1,
             }
-        elif label in self.not_hate_labels:
+        elif label != "NA":
             return {
                 Labels.Ys: 0,
             }

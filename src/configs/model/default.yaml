@@ -1,21 +1,16 @@
 defaults:
   - loss: cross_entropy
-  - encoder: base_v2
+  - encoder: many_token_v2
+  - scheduler: finetune
 
 _target_: model.Model
 
 optimizer:
-  _target_: torch.optim.Adam
+  _target_: torch.optim.AdamW
   _partial_: true
-  lr: 0.001
+  lr: 0.0001
   weight_decay: 0.0
-
-scheduler:
-  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
-  _partial_: true
-  mode: min
-  factor: 0.1
-  patience: 10
+  betas: [0.9, 0.95]
 
 # compile model for faster training with pytorch 2.0
-compile: false
+compile: False

@@ -1,6 +1,8 @@
 default_language_version:
   python: python3
 
+exclude: "(^logs/)|(^data/processed_files)|(^.*__init__.py$)"
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -18,17 +20,17 @@ repos:
 
   # python code formatting
   - repo: https://github.com/psf/black
-    rev: 24.10.0
+    rev: 25.1.0
     hooks:
       - id: black
-        args: [--line-length=80]
+        args: ["-l 80", "--preview", "--enable-unstable-feature=string_processing"]
 
   # python docstring formatting
   - repo: https://github.com/keewis/blackdoc
     rev: v0.3.9
     hooks:
       - id: blackdoc
-        additional_dependencies: ["black==24.10.0"]
+        additional_dependencies: ["black==25.1.0"]
       - id: blackdoc-autoupdate-black
 
   # python docstring coverage checking
@@ -45,8 +47,7 @@ repos:
             --ignore-nested-functions,
             -vv,
           ]
-        pass_filenames: True # Needed to ignore __init__.py files
-        exclude: "test_.*\\.py" # Exclude test files from documention coverage
+        exclude: "test_.*\\.py" # Ignore test files
 
   # python check (PEP8), programming errors and code complexity
   - repo: https://github.com/PyCQA/flake8

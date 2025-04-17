@@ -1,2 +1,6 @@
-text_model_name: "bert-base-uncased"
+text_config:
+  text_model_name: "bert-base-uncased"
+  has_token_type_ids: True
+  add_position_ids: False
+
 vision_model_name: "openai/clip-vit-base-patch16"

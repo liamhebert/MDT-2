@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - pretrain_siglip
+  - override /model/encoder: siglip_encoder_many_token
+  - _self_
+
+dataset:
+  dataset:
+    politics_and_gender_only: True
+
+model:
+  encoder:
+    graph_token_average: False
+  scheduler:
+    dataset_steps: 10302

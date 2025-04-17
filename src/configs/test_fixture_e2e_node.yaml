@@ -3,9 +3,7 @@
 defaults:
   - test_fixture
   - override model: debug
-
-trainer:
-  fast_dev_run: True
+  - _self_
 
 model:
   encoder:

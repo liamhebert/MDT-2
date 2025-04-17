@@ -11,10 +11,11 @@ class GraphFeatures(StrEnum):
     """Graph feature names used as inputs."""
 
     AttnBias = "attn_biases"
-    InDegree = "in_degree"
+    OutDegree = "out_degree"
     ImageMask = "image_mask"
     Distance = "distance"
     DistanceIndex = "distance_index"
+    RotaryPos = "rotary_pos"
 
 
 class TextFeatures(StrEnum):
@@ -23,6 +24,7 @@ class TextFeatures(StrEnum):
     InputIds = "input_ids"
     AttentionMask = "attention_mask"
     TokenTypeIds = "token_type_ids"
+    PositionIds = "position_ids"
 
 
 class ImageFeatures(StrEnum):

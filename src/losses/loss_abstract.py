@@ -8,6 +8,11 @@ import torch
 from torchmetrics import Metric
 from torchmetrics import SumMetric
 from torchmetrics import MetricCollection
+from typing import Mapping
+from torch.distributed.nn import functional as distF
+from utils import RankedLogger
+
+log = RankedLogger(__name__)
 
 
 class LastValueMetric(SumMetric):
@@ -30,10 +35,17 @@ class Loss(abc.ABC, torch.nn.Module):
     Abstract class for loss functions.
     """
 
+    is_distributed: bool = torch.distributed.is_initialized()
+
+    def all_gather(self, x: torch.Tensor) -> torch.Tensor:
+        """All gather a tensor across all processes."""
+        gathered = distF.all_gather(x)
+        return torch.stack(gathered, dim=0)
+
     @abc.abstractmethod
     def build_batch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | MetricCollection]:
+    ) -> Mapping[str, Metric | MetricCollection]:
         """Build metric collectors for batch metrics.
 
         TODO(liamhebert): Write more docs here
@@ -43,7 +55,7 @@ class Loss(abc.ABC, torch.nn.Module):
     @abc.abstractmethod
     def build_epoch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | MetricCollection]:
+    ) -> Mapping[str, Metric | MetricCollection]:
         """
         Build run-level metric aggregators for each metric.
         """
@@ -57,7 +69,7 @@ class Loss(abc.ABC, torch.nn.Module):
         targets: torch.Tensor,
         loss: torch.Tensor,
         metrics: dict[str, Metric | MetricCollection],
-    ) -> dict[str, torch.Tensor]:
+    ) -> Mapping[str, torch.Tensor | Metric]:
         """Update metric objects with new batch.
 
         Args:
@@ -78,7 +90,7 @@ class Loss(abc.ABC, torch.nn.Module):
         self,
         batch_metrics: dict[str, Metric | MetricCollection],
         epoch_metrics: dict[str, Metric | MetricCollection],
-    ) -> dict[str, torch.Tensor]:
+    ) -> Mapping[str, torch.Tensor]:
         """Update run-level metric aggregator with epoch metrics.
 
         This should be called at the end of each epoch to capture the best value
@@ -95,11 +107,11 @@ class Loss(abc.ABC, torch.nn.Module):
         ...
 
     @abc.abstractmethod
-    def __call__(
+    def forward(
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
-        ys: dict[str, torch.Tensor],
+        ys: Mapping[str, torch.Tensor],
         batch_metrics: dict[str, Metric | MetricCollection] | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the cross-entropy loss.

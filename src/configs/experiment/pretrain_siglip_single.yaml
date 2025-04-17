@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - pretrain_siglip
+  - override /trainer: gpu
+  - _self_
+
+dataset:
+  train_batch_size: 52
+  max_total_length: 572
+  test_batch_size: 52

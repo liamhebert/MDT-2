@@ -1,6 +1,7 @@
 _target_: losses.NodeCrossEntropyLoss
 
 weights: [1.0, 1.0]
+num_classes: 2
 
 output_head:
   _target_: components.output_head.SimpleOutputHead
@@ -8,4 +9,4 @@ output_head:
   lin1_dim: 64
   lin2_dim: 128
   lin3_dim: 64
-  output_dim: 2
+  output_dim: "${model.loss.num_classes}"

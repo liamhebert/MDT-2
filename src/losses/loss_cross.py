@@ -2,7 +2,7 @@
 Implementation for cross-entropy loss function.
 """
 
-from typing import Literal
+from typing import Literal, Mapping
 
 import torch
 from torch.nn import functional as F
@@ -21,28 +21,27 @@ from losses.loss_abstract import Loss
 from data.types import Labels
 
 
-# TODO(liamhebert): create whatever loss set up we want here.
 class NodeCrossEntropyLoss(Loss):
     """
     Cross-entropy loss function.
     """
 
     output_head: SimpleOutputHead
-    weights: torch.Tensor
 
     def __init__(
         self,
         weights: list[float],
         output_head: SimpleOutputHead,
+        num_classes: int = 2,
     ):
         super().__init__()
         assert len(weights) == 2
         assert any(w > 0 for w in weights)
 
-        self.weight = torch.tensor(weights, requires_grad=False)
+        self.loss_weight = weights
 
         self.output_head = output_head
-        assert self.output_head.output_dim == 2
+        assert self.output_head.output_dim == num_classes
 
     def build_batch_metric_aggregators(
         self,
@@ -53,7 +52,7 @@ class NodeCrossEntropyLoss(Loss):
         """
 
         def make_metric_group(
-            average: Literal["micro", "macro", "weighted", "none"]
+            average: Literal["micro", "macro", "weighted", "none"],
         ) -> MetricCollection:
             return MetricCollection(
                 (
@@ -111,7 +110,7 @@ class NodeCrossEntropyLoss(Loss):
         targets: torch.Tensor,
         loss: torch.Tensor,
         metrics: dict[str, Metric],
-    ) -> dict[str, torch.Tensor | int]:
+    ) -> Mapping[str, torch.Tensor | Metric]:
         """Update metric objects with new batch.
 
         Args:
@@ -135,31 +134,28 @@ class NodeCrossEntropyLoss(Loss):
         assert num_classes == 2
 
         return_metrics = {}
-        classification_metrics: dict[str, torch.Tensor] = metrics[
-            "classification"
-        ].forward(logits, targets)
+        metrics["classification"].update(logits, targets)
 
-        for key, value in classification_metrics.items():
-            if value.shape == (num_classes,):
-                # Unpack class-wise metrics into separate keys
-                for i, v in enumerate(value):
-                    class_key = key.replace("none", f"class_{i}")
-                    return_metrics[class_key] = v
-            else:
-                assert value.shape == (), f"Unexpected shape: {value.shape}"
-                return_metrics[key] = value
-
-        metrics["loss"].forward(loss)
+        # for key, value in classification_metrics.items():
+        #     if value.shape == (num_classes,):
+        #         # Unpack class-wise metrics into separate keys
+        #         for i, v in enumerate(value):
+        #             class_key = key.replace("none", f"class_{i}")
+        #             return_metrics[class_key] = v
+        #     else:
+        #         assert value.shape == (), f"Unexpected shape: {value.shape}"
+        #         return_metrics[key] = value
+        metrics["loss"].update(loss)
         return_metrics["loss"] = loss
 
-        effective_batch_size = (targets != -100).sum()
-        return_metrics["weight"] = effective_batch_size.item()
+        effective_batch_size = (targets != -100).sum().float()
+        return_metrics["weight"] = effective_batch_size
 
         return return_metrics
 
     def build_epoch_metric_aggregators(
         self,
-    ) -> dict[str, Metric | None]:
+    ) -> Mapping[str, Metric | MetricCollection]:
         """
         Build run-level metric aggregators for each metric.
         """
@@ -176,9 +172,9 @@ class NodeCrossEntropyLoss(Loss):
 
     def compute_epoch_metrics(
         self,
-        batch_metrics: dict[str, Metric],
-        epoch_metrics: dict[str, Metric],
-    ) -> dict[str, torch.Tensor]:
+        batch_metrics: dict[str, Metric | MetricCollection],
+        epoch_metrics: dict[str, Metric | MetricCollection],
+    ) -> Mapping[str, torch.Tensor]:
         """Update run-level metric aggregator with epoch metrics.
 
         This should be called at the end of each epoch to capture the best value
@@ -217,19 +213,21 @@ class NodeCrossEntropyLoss(Loss):
                 metrics["none_" + metric][1]
             )
 
-        epoch_metrics["best_loss"].forward(batch_metrics["loss"].compute())
+        epoch_vals["best_loss"] = epoch_metrics["best_loss"].forward(
+            batch_metrics["loss"].compute()
+        )
 
         for metric in batch_metrics.values():
             metric.reset()
 
         return epoch_vals
 
-    def __call__(
+    def forward(
         self,
         node_embeddings: torch.Tensor,
         graph_embeddings: torch.Tensor,
-        ys: dict[str, torch.Tensor],
-        batch_metrics: dict[str, Metric] | None = None,
+        ys: Mapping[str, torch.Tensor],
+        batch_metrics: dict[str, Metric | MetricCollection] | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the cross-entropy loss.
 
@@ -266,10 +264,12 @@ class NodeCrossEntropyLoss(Loss):
         logits = torch.reshape(logits, (-1, 2))
         targets = torch.flatten(targets)
 
+        loss_weights = torch.tensor(self.loss_weight, device=logits.device)
+
         loss = F.cross_entropy(
             logits,
             targets,
-            weight=self.weight,
+            weight=loss_weights,
             reduction="mean",
             ignore_index=-100,
         )

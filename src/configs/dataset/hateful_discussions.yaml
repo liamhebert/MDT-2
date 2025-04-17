@@ -1,25 +1,15 @@
-_target_: datamodule.DataModule
-train_batch_size: 8
-test_batch_size: 32
-num_workers: 8
-pin_memory: True
+defaults:
+  - default
 
 dataset:
   _target_: tasks.hateful_discussions.hateful_discussions.HatefulDiscussions
-  root: ${paths.data_dir}
-  raw_graph_path: raw_files/*.json
-  output_graph_path: ${paths.data_dir}/processed_files
-
-  train_size: 0.8
-  valid_size: 0.1
-  test_size: 0.1
-
-  split_seed: 42
-
-  image_tokenizer_key: ${modality_encoder.vision_model_name}
-  text_tokenizer_key: ${modality_encoder.text_model_name}
+  root: ${paths.root_dir}/tasks/hateful_discussions/raw_files/
+  raw_graph_path: final-data
 
   split_graphs: False
-  strict: True
-  max_distance_length: 6
-  force_reload: True
+  max_graph_size: 130
+
+train_batch_size: 24
+max_total_length: null
+test_batch_size: 24
+group_size: 1

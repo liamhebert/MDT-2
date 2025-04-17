@@ -4,7 +4,7 @@ embedding_dim: 768
 
 graph_node_feature:
   _target_: components.v2.feature_layers.GraphNodeFeature
-  num_out_degree: 6
+  num_out_degree: 10
   hidden_dim: "${model.encoder.embedding_dim}"
 
 graph_stack_factory:
@@ -14,13 +14,17 @@ graph_stack_factory:
   graph_tfmr_factory:
     _target_: components.v2.graph_encoder_layer.GraphTransformerBlock
     _partial_: True
+    n_heads: 12
+    n_kv_heads: 12
     dim: "${model.encoder.embedding_dim}"
-    n_heads: 4
-    n_kv_heads: 4
     ffn_dim: 3072
+    differential_attention: False
+    use_rope: False
+    rope_mixed: True
+
 
 text_model_config:
-  bert_model_name: "${modality_encoder.text_model_name}"
+  bert_model_name: "${modality_encoder.text_config.text_model_name}"
   attention_dropout: 0.3
   activation_dropout: 0.3
 
@@ -35,10 +39,10 @@ num_bottle_neck: 4
 num_fusion_stack: 4
 fusion_stack_size: 2
 
-encoder_normalize_before: False
-
-embed_scale: None
-
 num_graph_layers_to_freeze: 0
 
 freeze_initial_encoders: False
+
+block_size: 1
+
+graph_token_average: False

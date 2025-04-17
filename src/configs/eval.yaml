@@ -1,14 +1,15 @@
 # @package _global_
 
 defaults:
-  - modality_encoder: siglip
-  - dataset: pretrain # choose datamodule with `test_dataloader()` for evaluation
+  - modality_encoder: bert-vit-base
   - model: default
+  - dataset: pretrain # choose datamodule with `test_dataloader()` for evaluation
   - logger: null
   - trainer: default
   - paths: default
   - extras: default
   - hydra: default
+  - _self_
 
 task_name: "eval"
 

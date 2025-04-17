@@ -8,6 +8,7 @@ from torch import nn
 
 from components.graph_fusion_layer import GraphFusionLayer
 from components.graph_fusion_layer import GraphFusionStack
+from pytest import mark
 
 
 def test_forward(
@@ -75,25 +76,33 @@ class MockModalityLayer(nn.Module):
         return (hidden_states * self.scale,)
 
 
-def test_bottleneck_averaging(
+@mark.parametrize("use_projection", [True, False])
+def test_fusion_layer(
     graph_fusion_layer_input: dict[str, torch.Tensor],
+    use_projection: bool,
 ):
     """
-    Tests the forward method of the graph fusion layer.
+    Tests the forward method of the graph fusion layer with projection layers.
     """
+    dim = graph_fusion_layer_input["bottle_neck"].shape[-1]
+
     model = GraphFusionLayer(
         MockModalityLayer(),
         MockModalityLayer(),
-        use_projection=False,
+        use_projection=use_projection,
+        bottleneck_dim=dim,
+        bert_dim=dim,
+        vit_dim=dim,
     )
     with torch.no_grad():
         _, _, bottle_neck_output = model(**graph_fusion_layer_input)
 
     # Since the MockModalityLayer returns the hidden states as is, the
     # bottleneck tokens should be unchanged.
-    assert torch.allclose(
-        bottle_neck_output, graph_fusion_layer_input["bottle_neck"]
-    )
+    if not use_projection:
+        assert torch.allclose(
+            bottle_neck_output, graph_fusion_layer_input["bottle_neck"]
+        )
 
 
 def test_selective_bottleneck_averaging(
@@ -102,6 +111,9 @@ def test_selective_bottleneck_averaging(
     """
     Tests the forward method of the graph fusion layer.
     """
+    bottle_neck_dim = graph_fusion_layer_input["bottle_neck"].shape[-1]
+    bert_dim = graph_fusion_layer_input["bert_hidden_states"].shape[-1]
+    vit_dim = graph_fusion_layer_input["vit_hidden_states"].shape[-1]
     model = GraphFusionLayer(
         MockModalityLayer(),
         # To make sure we capture the correct selective positions, we double the
@@ -109,6 +121,9 @@ def test_selective_bottleneck_averaging(
         # (ie: (1 + 1) / 2 = 1, whereas (1 + 2) / 2 = 1.5)
         MockModalityLayer(scale=2.0),
         use_projection=False,
+        bottleneck_dim=bottle_neck_dim,
+        bert_dim=bert_dim,
+        vit_dim=vit_dim,
     )
     # Only items 3 and 1 should have the full bottleneck, the rest should be
     # half.

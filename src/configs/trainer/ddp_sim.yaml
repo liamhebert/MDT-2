@@ -3,5 +3,7 @@ defaults:
 
 # simulate DDP on CPU, useful for debugging
 accelerator: cpu
-devices: 2
-strategy: ddp_spawn
+devices: 1
+strategy: ddp_find_unused_parameters_true
+use_distributed_sampler: False  # We handle this
+sync_batchnorm: False

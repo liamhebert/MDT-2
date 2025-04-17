@@ -1,0 +1,53 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /modality_encoder: siglip-UAE
+  - override /dataset: giga_pretrain
+  - override /model/encoder: siglip_encoder
+  - override /model/scheduler: pretrain
+  - override /model/loss: contrastive_loss
+  - override /trainer: ddp
+  - _self_
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["GIGA-pretrain", "v1", "siglip-UAE", "disco"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 1
+  max_epochs: 5
+  # gradient_clip_val: 0.5
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "giga_pretrain"
+  aim:
+    experiment: "giga_pretrain"
+
+model:
+  loss:
+    num_classes: 10
+    learnable_temperature: True
+    adaptive_soft_negative_weight: False
+    soft_negative_weight: 1.0
+    temperature: 10
+    bias: 0.0
+  encoder:
+    freeze_initial_encoders: True
+    block_size: 1
+    graph_token_average: False
+  scheduler:
+    dataset_steps: 10302
+
+dataset:
+  train_batch_size: 48
+  max_total_length: null
+  test_batch_size: 48
+  group_size: 2
