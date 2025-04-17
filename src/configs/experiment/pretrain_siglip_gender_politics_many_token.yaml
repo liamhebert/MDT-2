@@ -12,3 +12,5 @@ dataset:
 model:
   encoder:
     graph_token_average: False
+  scheduler:
+    dataset_steps: 10302

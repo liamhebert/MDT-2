@@ -83,13 +83,14 @@ class DiscussionTransformerBlockAllTokens(DiscussionTransformerBlock):
 
 
         """
-        x = self.post_norm(x)
+        # x = self.post_norm(x)
 
         graph_x = self.graph_layer(
             x,
             mask=graph_mask,
-            spatial_pos=rotary_pos,
+            rope_spatial_pos=rotary_pos,
         )
+        # graph_x = graph_x + x
 
         # extract bottle_neck tokens
         graph_tokens = graph_x[:num_total_graphs, :]
@@ -100,16 +101,15 @@ class DiscussionTransformerBlockAllTokens(DiscussionTransformerBlock):
             self.num_bottlenecks,
             node_tokens.shape[1],
         )
-        bottle_neck = self.pre_norm(bottle_neck)
 
-        bert_output, vit_output, bottle_neck = self.fusion_layer(
+        bert_output, vit_output, new_bottle_neck = self.fusion_layer(
             bert_hidden_states=bert_output,
             vit_hidden_states=vit_output,
-            bottle_neck=bottle_neck,
+            bottle_neck=self.post_norm(bottle_neck),
             image_padding_mask=image_padding_mask,
             bert_attention_mask=text_attention_mask,
         )
-        # bottle_neck = self.post_norm(bottle_neck)
+        bottle_neck = new_bottle_neck + bottle_neck
 
         # Bottleneck shape are [num_nodes, num_bot, embed_dim]
         # We want to flatten this so that we get [num_nodes * num_bot, embed_dim]
@@ -312,7 +312,7 @@ class DiscussionTransformerAllTokens(DiscussionTransformerPrototype):
         graph_x = self.final_graphormer_layer(
             graph_x,
             mask=graph_mask,
-            spatial_pos=rotary_pos,
+            rope_spatial_pos=rotary_pos,
         )
 
         if self.graph_token_average:

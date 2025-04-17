@@ -133,9 +133,9 @@ def test_soft_negative_weight(weight):
         # Weights are 1 / num_soft_negatives
         weight_matrix = torch.tensor(
             [
-                [0, 1.0, 1.0, 0.5, 0.5],  # 1 / 2 soft = 0.5
-                [1.0, 0, 1.0, 0.5, 0.5],
-                [1.0, 1.0, 0, 0.5, 0.5],
+                [0, 1.0, 1.0, 1.0, 1.0],  # 2 / 2 soft = 1
+                [1.0, 0, 1.0, 1.0, 1.0],
+                [1.0, 1.0, 0, 1.0, 1.0],
                 [0.25, 0.25, 0.25, 0.0, 0.25],  # 1 / 4 soft = 0.25
                 [0.25, 0.25, 0.25, 0.25, 0.0],
             ]
@@ -163,23 +163,16 @@ def test_soft_negative_weight(weight):
             ]
         )
 
-    normalized_weights = F.normalize(weight_matrix, p=1, dim=1)
-    if weight == "none":
-        num_labels = 2
-    else:
-        num_labels = 4
+    num_valid_labels = torch.clamp((weight_matrix.sum(dim=1) > 0).sum(), min=1)
 
-    normalized_weights = normalized_weights * num_labels
-    expected_loss = torch.einsum(
-        "ij, ij -> i",
-        -F.logsigmoid(expect_sim * expect_labels),
-        normalized_weights,
+    expected_loss = (
+        torch.einsum(
+            "ij, ij -> i",
+            -F.logsigmoid(expect_sim * expect_labels),
+            weight_matrix,
+        ).sum()
+        / num_valid_labels
     )
-
-    if weight == "none":
-        expected_loss = expected_loss.sum() / num_labels
-    else:
-        expected_loss = expected_loss.mean()
 
     test.assert_close(loss_value, expected_loss)
 
@@ -221,9 +214,9 @@ def test_contrastive_loss_value():
 
     loss_value, returned_metrics = loss(node_x, graph_x, y_true, batch_metrics)
 
-    expect_sim = torch.tensor(
-        [[1.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 1.0]]
-    )
+    normed_x = F.normalize(graph_x[:-2], p=2, dim=1)
+    expect_sim = torch.matmul(normed_x, normed_x.T)
+
     expect_labels = torch.tensor(
         [[1.0, 0.0, 0.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]]
     )
@@ -233,14 +226,11 @@ def test_contrastive_loss_value():
     weight_matrix = torch.ones((3, 3))
     weight_matrix = weight_matrix.fill_diagonal_(0)
 
-    expected_loss = (
-        torch.einsum(
-            "ij, ij -> i",
-            -F.logsigmoid(expect_sim * expect_labels),
-            weight_matrix,
-        ).sum()
-        / 2
-    )
+    expected_loss = torch.einsum(
+        "ij, ij -> i",
+        -F.logsigmoid(expect_sim * expect_labels),
+        weight_matrix,
+    ).mean()
 
     test.assert_close(loss_value, expected_loss)
 
@@ -305,13 +295,14 @@ def test_contrastive_loss_value():
     weight_matrix = torch.ones((3, 3))
     weight_matrix = weight_matrix.fill_diagonal_(0)
 
+    num_valid_labels = torch.clamp((weight_matrix.sum(dim=1) > 0).sum(), min=1)
     expected_loss = (
         torch.einsum(
             "ij, ij -> i",
             -F.logsigmoid(expect_sim * expect_labels),
             weight_matrix,
         ).sum()
-        / 2
+        / num_valid_labels
     )
 
     test.assert_close(loss_value_2, expected_loss)
@@ -401,12 +392,19 @@ def test_distributed_contrastive_loss_value(num_gpus: int):
         ]
     ).tile((num_gpus, num_gpus))
     expected_labels = (expected_labels * 2) - 1
+    num_positives = [1 * num_gpus, 2 * num_gpus, 2 * num_gpus]
 
     loss_value, returned_metrics = loss(node_x, graph_x, y_true, batch_metrics)
-    expected_loss = torch.einsum(
-        "ij, ij -> i",
-        -F.logsigmoid(expected_logits * expected_labels),
-        weight_matrix,
-    ).mean()
+    print("expected_soft", weight_matrix)
+    num_valid_labels = torch.clamp((weight_matrix.sum(dim=1) > 0).sum(), min=1)
+    print("expected_pos", num_valid_labels)
+    expected_loss = (
+        torch.einsum(
+            "ij, ij -> i",
+            -F.logsigmoid(expected_logits * expected_labels),
+            weight_matrix,
+        ).sum()
+        / num_valid_labels
+    )
 
     test.assert_close(loss_value, expected_loss)

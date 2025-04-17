@@ -3,7 +3,6 @@ import pytest
 import torch
 
 from components.v2.discussion_transformer import DiscussionTransformer
-from components.v2.feature_layers import GraphAttnBias
 from components.v2.feature_layers import GraphNodeFeature
 
 
@@ -63,54 +62,3 @@ class TestGraphNodeFeature:
         # Test that the two graph global token are added at the start
         graph_global_token = model.graph_token.weight.repeat(2, 1)
         torch.testing.assert_close(output_x[:2, :], graph_global_token)
-
-
-@pytest.mark.skip(
-    "Skipping Attn_Bias tests since we dont use it with the v2 model"
-)
-class TestGraphAttnBias:
-    """
-    Tests the GraphAttnBias class.
-    """
-
-    def test_forward(
-        self,
-        graph_attn_bias_fixture: tuple[GraphAttnBias, DictConfig],
-        graph_attn_bias_input: dict[str, torch.Tensor],
-    ):
-        """
-        Tests the forward method of the graph attn bias layer.
-        """
-        model, config = graph_attn_bias_fixture
-        batch, num_nodes, _ = graph_attn_bias_input["attn_bias"].shape
-        num_heads = config.num_heads
-
-        with torch.no_grad():
-            output = model(**graph_attn_bias_input)
-
-        expected_shape = (
-            batch,
-            num_heads,
-            num_nodes,
-            num_nodes,
-        )
-
-        assert output.shape == expected_shape
-
-        expected_global_attn_bias = (
-            model.graph_token_virtual_distance.weight.view(
-                1, config.num_heads, 1
-            )
-        )
-        expected_global_attn_bias = expected_global_attn_bias.repeat(
-            batch, 1, num_nodes
-        )
-        # Graph token to all other nodes
-        torch.testing.assert_close(
-            output[:, :, 0, :], expected_global_attn_bias
-        )
-
-        # All other nodes to graph token
-        torch.testing.assert_close(
-            output[:, :, 1:, 0], expected_global_attn_bias[:, :, :-1]
-        )

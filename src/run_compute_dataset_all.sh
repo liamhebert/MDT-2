@@ -1,8 +1,9 @@
 #!/bin/bash
 
-#SBATCH --time=3:00:00
+#SBATCH --time=6:00:00
 #SBATCH --mem=32GB
 #SBATCH --cpus-per-task=6
+#SBATCH --gres=gpu:1
 #SBATCH --partition=ALL
 #SBATCH --mail-user=l2hebert@uwaterloo.ca
 #SBATCH --mail-type=ALL

@@ -36,3 +36,4 @@ dataset:
   debug: False
 
   skip_invalid_label_graphs: True
+  max_graph_size: 49

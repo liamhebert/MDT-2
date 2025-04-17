@@ -40,6 +40,8 @@ model:
     bias: -10
   encoder:
     block_size: 1
+  scheduler:
+    dataset_steps: 10302
 
 dataset:
   train_batch_size: 108

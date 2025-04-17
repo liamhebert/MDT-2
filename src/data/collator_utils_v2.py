@@ -27,6 +27,8 @@ def generic_collator(
     text_features: InputFeatures,
     image_features: InputFeatures,
     block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE * 2,
+    index_spatial_pos_max: int = 8000,
+    max_attn_distance: int = 8000,
 ) -> dict[str, torch.Tensor | dict[str, torch.Tensor] | int]:
     """Collate function to merge data samples of various sizes into a batch.
 
@@ -206,7 +208,18 @@ def generic_collator(
     )
 
     # Since distance has a 2 dimension for ups and downs, we need to sum it.
-    spatial_pos = torch.block_diag(*[x.sum(dim=-1) for x in distances])
+    indexing_distances = [
+        torch.clamp(x, max=index_spatial_pos_max).sort()[0] for x in distances
+    ]
+
+    # We nudge by 2 because 0 == padding, 1 == graph_token, 2 onwards are nodes.
+    indexing_pos = torch.block_diag(
+        *[
+            (x[:, :, 0] * (index_spatial_pos_max - 1) + x[:, :, 1]) + 2
+            for x in indexing_distances
+        ]
+    )
+    spatial_pos = torch.block_diag(*[x.sum(dim=-1) + 2 for x in distances])
     out_degree = torch.cat(out_degrees) + 1
 
     padding_1d = torch.zeros((num_padding,), dtype=torch.long)
@@ -231,7 +244,10 @@ def generic_collator(
         (total_num_graphs, -1)
     )
     spatial_pos = torch.cat(
-        (virtual_distance_graph, spatial_pos, virtual_distance_pad), dim=0
+        (virtual_distance_graph + 1, spatial_pos, virtual_distance_pad), dim=0
+    )
+    indexing_pos = torch.cat(
+        (virtual_distance_graph + 1, indexing_pos, virtual_distance_pad), dim=0
     )
 
     # add on the query dimension
@@ -242,7 +258,12 @@ def generic_collator(
         (total_num_graphs, -1)
     )
     spatial_pos = torch.cat(
-        (virtual_distance_graph.T, spatial_pos, virtual_distance_pad.T), dim=1
+        (virtual_distance_graph.T + 1, spatial_pos, virtual_distance_pad.T),
+        dim=1,
+    )
+    indexing_pos = torch.cat(
+        (virtual_distance_graph.T + 1, indexing_pos, virtual_distance_pad.T),
+        dim=1,
     )
 
     num_graphs = len(out_degrees)
@@ -251,9 +272,11 @@ def generic_collator(
     flex_block_mask = generate_graph_attn_mask_tensor(
         graph_ids,
         spatial_pos,
-        max_spatial_distance=20,
+        # +2 for padding and graph token
+        max_spatial_distance=max_attn_distance + 2,
         block_size=block_size,
     )
+    spatial_pos = torch.clamp(spatial_pos, max=index_spatial_pos_max * 2)
 
     return {
         # Since we are using undirected graphs, in_degree == out_degree
@@ -263,6 +286,8 @@ def generic_collator(
         "image_padding_mask": image_padding,
         "num_total_graphs": len(out_degrees),
         "rotary_pos": rotary_pos,
+        "spatial_pos": spatial_pos,
+        "indexing_spatial_pos": indexing_pos,
         "graph_mask": flex_block_mask,
         "graph_ids": graph_ids,
     }

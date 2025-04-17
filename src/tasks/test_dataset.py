@@ -1,9 +1,9 @@
 """Tests for the generic dataset class."""
 
 import pathlib
-
 import pytest
 import torch
+import numpy as np
 
 from data.collated_datasets import ContrastiveTaskDataset
 from data.collated_datasets import NodeBatchedDataDataset
@@ -22,6 +22,7 @@ class DummyNodeTaskDataset(NodeBatchedDataDataset):
 
     def retrieve_label(self, data: dict) -> dict[str, bool | int]:
         """Return node labels, which is a boolean label and mask."""
+        assert "label" in data, data.keys()
         if data["label"] == "NA":
             return {Labels.Ys: -100}
         return {Labels.Ys: data["label"] != "NA"}
@@ -39,10 +40,25 @@ class DummyGraphTaskDataset(ContrastiveTaskDataset):
         """Return constrastive graph labels, which is a boolean y, mask,
         hard y.
         """
+        assert "label" in data, data.keys()
         return {
             ContrastiveLabels.Ys: data["label"] != "NA",
             ContrastiveLabels.HardYs: data["label"] != "NA",
         }
+
+
+def recursive_update(data: dict) -> dict:
+    """Utility function to fix the data structure, while not deleting the
+    original formatted data.
+
+    TODO(liamhebert): Remove this function when the data is fixed in the
+    original dataset.
+    """
+    data.update(data["data"])
+    del data["data"]
+    for child in data["tree"]:
+        recursive_update(child)
+    return data
 
 
 @pytest.fixture(scope="function")
@@ -90,8 +106,8 @@ def test_process_split(split_dataset: DummyNodeTaskDataset):
         data += [x]
         assert torch.sum(x[0]["y"][Labels.Ys] != -100) == 1
 
-    assert len(split_dataset) == 15
-    assert len(data) == 14
+    assert len(split_dataset) == 16
+    assert len(data) == 15
     split_dataset.collate_fn(data)
 
 
@@ -106,7 +122,7 @@ def test_node_process(dataset: DummyNodeTaskDataset):
     assert len(data) == 11
     res = dataset.collate_fn(data)
 
-    assert len(res["x"]["image_input"]["pixel_values"]) == 6, res["x"][
+    assert len(res["x"]["image_input"]["pixel_values"]) == 5, res["x"][
         "image_input"
     ]
 
@@ -124,7 +140,7 @@ def test_graph_dataset_process(graph_dataset: DummyGraphTaskDataset):
 
     assert res["y"][ContrastiveLabels.Ys].shape == (11,)
     assert res["y"][ContrastiveLabels.HardYs].shape == (11,)
-    assert len(res["x"]["image_input"]["pixel_values"]) == 6, res["x"][
+    assert len(res["x"]["image_input"]["pixel_values"]) == 5, res["x"][
         "image_input"
     ]
 
@@ -266,6 +282,7 @@ def test_flatten_graph(dataset: DummyNodeTaskDataset):
             },
         ],
     }
+    tree = recursive_update(tree)
 
     flattened_graph = dataset.flatten_graph(tree)
 
@@ -289,7 +306,7 @@ def test_flatten_graph(dataset: DummyNodeTaskDataset):
 
 def test_process_graph(dataset: DummyNodeTaskDataset):
     """Test the end-to-end process of an individual graph."""
-    json_data = {
+    tree = {
         "id": "root",
         "images": [],
         "data": {"title": "Root Title", "body": "Root Body", "label": "A"},
@@ -308,8 +325,9 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
             },
         ],
     }
+    tree = recursive_update(tree)
 
-    data = dataset.process_graph(json_data)
+    data = dataset.process_graph(tree)
 
     assert data["text"] is not None
     assert data["y"][Labels.Ys].tolist() == [True, True, -100]
@@ -324,9 +342,9 @@ def test_process_graph(dataset: DummyNodeTaskDataset):
 
     assert data["text"]["input_ids"].shape == (3, 512)
     assert data["text"]["attention_mask"].shape == (3, 512)
-    torch.testing.assert_close(
+    np.testing.assert_allclose(
         data["rotary_position"],
-        torch.tensor([[0, 0], [0, 1], [1, 1]], dtype=torch.uint8),
+        np.array([[0, 0], [0, 1], [1, 1]], dtype=np.uint8),
     )
 
 
@@ -335,7 +353,7 @@ def test_truncated_distance(dataset: DummyNodeTaskDataset):
     """
     Testing whether we can correctly map distances to the correct indices.
     """
-    json_data = {
+    tree = {
         "id": "root",
         "images": [],
         "data": {"title": "Root Title", "body": "Root Body", "label": "A"},
@@ -362,8 +380,9 @@ def test_truncated_distance(dataset: DummyNodeTaskDataset):
             },
         ],
     }
+    tree = recursive_update(tree)
 
-    data = dataset.process_graph(json_data)
+    data = dataset.process_graph(tree)
 
     distance_indices = data["distance_index"]
     # 0 -> 0 == 1 -> 1 == 2 -> 2

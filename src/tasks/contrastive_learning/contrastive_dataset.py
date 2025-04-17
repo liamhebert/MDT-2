@@ -61,32 +61,32 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
                     "dgu",
                 ],
             },
-            "Affluence": {
-                "a": [
-                    "vagabond",
-                    "hitchhiking",
-                    "DumpsterDiving",
-                    "almosthomeless",
-                    "AskACountry",
-                    "KitchenConfidential",
-                    "Nightshift",
-                    "alaska",
-                    "fuckolly",
-                    "FolkPunk",
-                ],
-                "b": [
-                    "backpacking",
-                    "hiking",
-                    "Frugal",
-                    "personalfinance",
-                    "travel",
-                    "Cooking",
-                    "fitbit",
-                    "CampingandHiking",
-                    "gameofthrones",
-                    "IndieFolk",
-                ],
-            },
+            # "Affluence": {
+            #     "a": [
+            #         "vagabond",
+            #         "hitchhiking",
+            #         "DumpsterDiving",
+            #         "almosthomeless",
+            #         "AskACountry",
+            #         "KitchenConfidential",
+            #         "Nightshift",
+            #         "alaska",
+            #         "fuckolly",
+            #         "FolkPunk",
+            #     ],
+            #     "b": [
+            #         "backpacking",
+            #         "hiking",
+            #         "Frugal",
+            #         "personalfinance",
+            #         "travel",
+            #         "Cooking",
+            #         "fitbit",
+            #         "CampingandHiking",
+            #         "gameofthrones",
+            #         "IndieFolk",
+            #     ],
+            # },
             "Gender": {
                 "a": [
                     "AskMen",
@@ -131,7 +131,6 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
                     "eldertrees",
                     "running",
                     "trailrunning",
-                    "MaleFashionMarket",
                     "canadacordcutters",
                     "pearljam",
                 ],
@@ -181,6 +180,7 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
         # Map to convert a subreddit name to a group
         self.idx_map = {}
         idx = 0
+        duplicates_found = []
         for _, value in groups.items():
             a = idx
             b = idx + 1
@@ -193,13 +193,34 @@ class ContrastivePreTrainingDataset(ContrastiveTaskDataset):
                 for subreddit in subreddits:
                     if subreddit in self.idx_map:
                         logging.warning("Duplicate index found: %s", subreddit)
-                    self.idx_map[subreddit] = (pos, neg)
+                        duplicates_found.append(subreddit)
+                    else:
+                        self.idx_map[subreddit] = (pos, neg)
+
+        if duplicates_found:
+            logging.warning(
+                f"Total duplicates found: {len(duplicates_found)}. This may"
+                " affect model results."
+            )
 
         super().__init__(**kwargs)
 
-    def has_graph_labels(self) -> bool:
-        """Indicating that the dataset has graph labels."""
-        return True
+    def group_hint(self, dataset_name: str) -> int:
+        """Returns the group hint for the dataset.
+
+        Args:
+            dataset_name (str): The name of the dataset.
+
+        Returns:
+            int: The group hint for the dataset.
+        """
+        if dataset_name not in self.idx_map:
+            logging.warning(
+                f"Attempted to get group hint for dataset {dataset_name} but"
+                " dataset is not in mapping. Returning -1... "
+            )
+            return -1
+        return self.idx_map[dataset_name][0]
 
     def retrieve_label(self, data: dict[str, Any]) -> dict[str, bool | int]:
         """Retrieves the graph label from the root node.

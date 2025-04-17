@@ -12,7 +12,6 @@ class DiscussionTransformerBlock(nn.Module):
 
     graph_layer: BaseGraphTransformer
     fusion_layer: GraphFusionStack
-    norm: RMSNorm
     num_bottlenecks: int
 
     def __init__(
@@ -27,12 +26,12 @@ class DiscussionTransformerBlock(nn.Module):
         self.fusion_layer = GraphFusionStack(
             bert_layer_stack,
             vit_layer_stack,
-            use_projection=True,
+            use_projection=False,
             bottleneck_dim=embedding_dim,
             bert_dim=embedding_dim,
             vit_dim=embedding_dim,
         )
-        self.pre_norm = RMSNorm(embedding_dim)
+        # self.pre_norm = RMSNorm(embedding_dim)
         self.graph_layer = graph_layer
         self.post_norm = RMSNorm(embedding_dim)
         self.num_bottlenecks = num_bottlenecks
@@ -48,23 +47,26 @@ class DiscussionTransformerBlock(nn.Module):
         bottle_neck: torch.Tensor,
         image_padding_mask: torch.Tensor,
         text_attention_mask: torch.Tensor,
+        bert_position_ids: torch.Tensor | None = None,
     ):
-        x = self.post_norm(x)
+        # Apply pre-normalization for better gradient flow and stability
 
+        # Process through graph layer
         graph_x = self.graph_layer(
             x,
             mask=graph_mask,
-            spatial_pos=rotary_pos,
+            rope_spatial_pos=rotary_pos,
         )
 
         # extract bottle_neck tokens
         graph_tokens = graph_x[:num_total_graphs, :]
         node_tokens = graph_x[num_total_graphs:, :]
-        # TODO(liamhebert): Experiment adding graph tokens here too
+
         bottle_neck = torch.cat(
             (node_tokens.unsqueeze(1), bottle_neck[:, 1:, :]), dim=1
         )
-        bottle_neck = self.pre_norm(bottle_neck)
+
+        # Apply pre-normalization before fusion
 
         bert_output, vit_output, bottle_neck = self.fusion_layer(
             bert_hidden_states=bert_output,
@@ -72,11 +74,12 @@ class DiscussionTransformerBlock(nn.Module):
             bottle_neck=bottle_neck,
             image_padding_mask=image_padding_mask,
             bert_attention_mask=text_attention_mask,
+            bert_position_ids=None,
         )
-        bottle_neck = self.post_norm(bottle_neck)
 
         node_tokens = bottle_neck[:, 0, :]
 
+        # Combine graph tokens and node tokens
         graph_x = torch.cat((graph_tokens, node_tokens), dim=0)
 
         return graph_x, bert_output, vit_output, bottle_neck

@@ -83,7 +83,7 @@ class ContrastiveLoss(Loss):
 
         assert isinstance(soft_negative_weight, float)
         self.soft_negative_weight = nn.Parameter(
-            torch.Tensor([soft_negative_weight]).float(), requires_grad=False
+            torch.tensor([soft_negative_weight]).float(), requires_grad=False
         )
         self.adaptive_soft_negative_weight = adaptive_soft_negative_weight
         self.temperature = nn.Parameter(
@@ -138,13 +138,14 @@ class ContrastiveLoss(Loss):
         )
 
         if use_all_gather:
+            print(device_targets, device_hard_targets, normalized_A)
             all_targets, all_hard_targets, all_graph_embeddings = (
                 self.all_gather(x)
                 for x in (device_targets, device_hard_targets, normalized_A)
             )
             assert isinstance(all_graph_embeddings, torch.Tensor)
             graph_shape = graph_embeddings.shape
-
+            num_gpus = all_graph_embeddings.shape[0]
             targets, hard_targets, graph_embeddings = (
                 all_targets.reshape(-1),
                 all_hard_targets.reshape(-1),
@@ -153,11 +154,10 @@ class ContrastiveLoss(Loss):
         else:
             targets, hard_targets = device_targets, device_hard_targets
             graph_embeddings = normalized_A
+            num_gpus = 1
 
         # scaling factor
-        # print("GRAPH EMBEDDINGS", graph_embeddings)
         sim = torch.matmul(graph_embeddings, graph_embeddings.t())
-        # print("REAL SIM", sim)
         sim = sim * self.temperature.exp() + self.bias
 
         # Targets is an array of int labels, discussions sharing the same label
@@ -173,12 +173,12 @@ class ContrastiveLoss(Loss):
         target_matrix = targets.unsqueeze(1).eq(targets).float()
 
         # Remove padding from the loss, and any reweighting
-        target_matrix[padding_mask] = -100
-        target_matrix = target_matrix.fill_diagonal_(-100)
+        target_matrix[padding_mask] = -1
+        target_matrix = target_matrix.fill_diagonal_(-1)
 
         # Same as targets, but for hard negatives
         hard_target_matrix = hard_targets.unsqueeze(1).eq(targets).float()
-        hard_target_matrix[padding_mask] = -100
+        hard_target_matrix[padding_mask] = -1
 
         soft_labels = torch.logical_and(
             target_matrix.eq(0), hard_target_matrix.eq(0)
@@ -187,7 +187,6 @@ class ContrastiveLoss(Loss):
         num_hard_labels = (
             torch.logical_or(target_matrix.eq(1), hard_target_matrix.eq(1))
         ).sum(dim=1)
-        # print("NUM_HARD_LABELS", num_hard_labels)
         num_hard_labels = torch.clamp(num_hard_labels, min=1)
 
         if self.adaptive_soft_negative_weight:
@@ -210,54 +209,47 @@ class ContrastiveLoss(Loss):
         soft_matrix = soft_matrix.fill_diagonal_(0)
         # Set the weight for padding entries to 0
         soft_matrix[padding_mask] = 0
+        # For numerical stability, set this to 0
+        target_matrix[padding_mask] = 0
+        target_matrix = target_matrix.fill_diagonal_(0)
 
-        # Normalize the weights to sum to the number of valid labels
-        # soft_matrix = F.normalize(soft_matrix, p=1, dim=1)
-
-        # if (
-        #    self.adaptive_soft_negative_weight
-        #    or (self.soft_negative_weight != 0).all()
-        # ):
-        #    num_valid_labels = num_hard_labels * 2
-        # else:
-        #    num_valid_labels = torch.clamp(
-        #        (soft_matrix != 0).int().sum(dim=0), min=1
-        #     )
-
-        # soft_matrix = soft_matrix * (num_valid_labels)
-
-        # compute loss
         # Map 0, 1 labels to -1, 1
         target_matrix = (target_matrix * 2) - 1
         log_probs = F.logsigmoid(sim * target_matrix)
-        # print("TARGET MATRIX", target_matrix)
+
         loss = torch.einsum("ij, ij -> i", -log_probs, soft_matrix)
 
-        num_positive_labels = target_matrix.eq(1).sum(dim=1) - 1
+        # Calculate normalization factors safely
+        # We remove 1 from the number of positive labels to remove
+        # self-similarity from the loss.
+        total_positive_labels = target_matrix.eq(1).sum(dim=1)
+        num_positive_labels = torch.clamp(total_positive_labels, min=1)
+        num_valid_labels = torch.clamp(
+            (soft_matrix.sum(dim=1) > 0).sum(), min=1
+        )
+        # Apply normalization safely
 
-        loss = loss / num_positive_labels.clamp(min=1)
-        loss = loss / soft_matrix.sum(dim=1).clamp(min=1)
-        loss = loss.sum()
+        loss = loss / num_positive_labels
+        loss = loss.sum() / num_valid_labels
 
-        # loss = loss / num_valid_labels
+        # Apply padding mask to only include non-padded examples
 
-        # Since the loss will eventually be all_gathered summed anyway.
-        # loss = loss.sum()  # / <some gpu number>
-        # print('LOSS SUMMED', loss)
+        # Final scaling for multi-GPU training
+        # loss = loss / num_gpus  # To control gradients
 
         if batch_metrics is not None:
             with torch.no_grad():
-                sim = sim.fill_diagonal_(-1e9)
+                metric_sim = sim.detach()
+                metric_sim = metric_sim.fill_diagonal_(-1e9)
 
-                sim[padding_mask] = -1e9
+                metric_sim[padding_mask] = -1e9
 
                 metrics = self.compute_batch_metrics(
-                    sim,
+                    metric_sim,
                     targets.detach(),
                     loss.detach(),
                     batch_metrics,
                 )
-            # metrics = {"weight": sim.shape[0]}
         else:
             metrics = {}
         return loss, metrics
@@ -324,6 +316,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
                 [
                     make_metric_group("macro"),  # type: ignore
                     make_metric_group("weighted"),  # type: ignore
+                    make_metric_group("micro"),  # type: ignore
                     # make_metric_group("none"),  # type: ignore
                 ]
             ),
@@ -341,7 +334,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
 
         return {
             f"best_{metric_type}_{metric}": MaxMetric()
-            for metric_type in ["macro", "weighted"]
+            for metric_type in ["micro", "macro", "weighted"]
             # + [f"class_{i}" for i in range(self.num_classes)]
             for metric in ["f1", "recall", "precision", "accuracy"]
         } | {
@@ -414,7 +407,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
         ret_metrics = {}
 
         metrics = batch_metrics["classification"].compute()
-        for metric_type in ["macro", "weighted"]:
+        for metric_type in ["macro", "weighted", "micro"]:
             metric_ids = ["f1", "recall", "precision"]
             if metric_type == "weighted":
                 metric_ids.append("accuracy")
@@ -425,17 +418,6 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
                 ret_metrics[f"{metric_type}_{metric}"] = metric_value
                 epoch_metrics[key].update(metric_value)
                 ret_metrics[key] = epoch_metrics[key]
-
-        # for metric in ["f1", "recall", "precision"]:
-        #     metric_values = metrics["none_" + metric]
-        #     for class_id in range(self.num_classes):
-        #         key = f"best_class_{class_id}_{metric}"
-        #         ret_metrics[f"class_{class_id}_{metric}"] = metric_values[
-        #             class_id
-        #         ]
-        #         ret_metrics[key] = epoch_metrics[key].forward(
-        #             metric_values[class_id]
-        #         )
 
         ret_metrics["best_loss"] = epoch_metrics["best_loss"].forward(
             batch_metrics["loss"].compute()

@@ -50,6 +50,8 @@ def global_prepare(
                 "google/vit-base-patch16-224"
             )
 
+            cfg.model.scheduler.dataset_steps = 100
+
             cfg.extras.print_config = False
             cfg.extras.enforce_tags = False
             cfg.logger = None

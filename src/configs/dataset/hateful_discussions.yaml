@@ -3,7 +3,13 @@ defaults:
 
 dataset:
   _target_: tasks.hateful_discussions.hateful_discussions.HatefulDiscussions
-  root: ${paths.data_dir}
-  raw_graph_path: raw_files/*.json
+  root: ${paths.root_dir}/tasks/hateful_discussions/raw_files/
+  raw_graph_path: final-data
 
-  split_graphs: True
+  split_graphs: False
+  max_graph_size: 130
+
+train_batch_size: 24
+max_total_length: null
+test_batch_size: 24
+group_size: 1

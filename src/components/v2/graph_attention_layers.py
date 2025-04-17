@@ -126,7 +126,7 @@ class Attention(nn.Module):
         self,
         x: torch.Tensor,
         mask: torch.Tensor | BlockMask | None = None,
-        spatial_pos: torch.Tensor | None = None,
+        rope_spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Computes the standard multi-head scaled dot-product attention.
 
@@ -142,9 +142,9 @@ class Attention(nn.Module):
 
                 If mask is a torch.Tensor or None, then we will use the
                 standard scaled dot-product attention.
-            spatial_pos (torch.Tensor | None): Spatial position tensor of shape
-                `(S, 2)` for use with RoPE. If RoPE is not used, then this can
-                be None.
+            rope_spatial_pos (torch.Tensor | None): Spatial position tensor of
+                shape `(S, 2)` for use with RoPE. If RoPE is not used, then this
+                can be None.
 
         Returns:
             torch.Tensor: Output tensor of shape `(S, D)`.
@@ -163,8 +163,8 @@ class Attention(nn.Module):
 
         # ROPE HERE
         if self.rope is not None:
-            assert spatial_pos is not None
-            xq, xk = self.rope(xq, xk, spatial_pos)
+            assert rope_spatial_pos is not None
+            xq, xk = self.rope(xq, xk, rope_spatial_pos)
 
         xk = repeat_kv(xk, self.heads_per_group, dim=1)
         xv = repeat_kv(xv, self.heads_per_group, dim=1)
@@ -347,7 +347,7 @@ class DifferentialAttention(nn.Module):
         self,
         x: torch.Tensor,
         mask: BlockMask | torch.Tensor | None = None,
-        spatial_pos: torch.Tensor | None = None,
+        rope_spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Computes the differential multi-head scaled dot-product attention.
 
@@ -358,9 +358,9 @@ class DifferentialAttention(nn.Module):
             x (torch.Tensor): Input tensor of shape `(S, D)`.
             mask (BlockMask): BlockMask to apply to the attention, which allows
                 for sparse attention.
-            spatial_pos (torch.Tensor | None): Spatial position tensor of shape
-                `(S, 2)` for use with RoPE. If RoPE is not used, then this can
-                be None.
+            rope_spatial_pos (torch.Tensor | None): Spatial position tensor of
+                shape `(S, 2)` for use with RoPE. If RoPE is not used, then this
+                can be None.
 
         Returns:
             torch.Tensor: Output tensor of shape `(S, D)`.
@@ -378,8 +378,8 @@ class DifferentialAttention(nn.Module):
         xv = xv.view(seq_len, self.num_kv_heads, 2 * self.head_dim)
 
         if self.rope is not None:
-            assert spatial_pos is not None
-            xq, xk = self.rope(xq, xk, spatial_pos)
+            assert rope_spatial_pos is not None
+            xq, xk = self.rope(xq, xk, rope_spatial_pos)
 
         xq = xq.reshape(1, seq_len, self.num_heads, 2, self.head_dim)
         xk = xk.reshape(1, seq_len, self.num_kv_heads, 2, self.head_dim)

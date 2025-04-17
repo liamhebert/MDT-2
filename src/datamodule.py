@@ -91,6 +91,12 @@ class DataModule(LightningDataModule):
         self.master_dataset.process()
 
     def teardown(self, stage):
+        """Clean up files on finish.
+
+        Called when the datamodule is destroyed. This is called on every
+        process when using DDP. This is useful for cleaning up any resources
+        that are not needed anymore.
+        """
         if self.master_dataset._hdf5_file is not None:
             self.master_dataset._hdf5_file.close()
 
@@ -183,8 +189,10 @@ class DataModule(LightningDataModule):
         # ):
         #     if self.hparams.cache_dataset:  # type: ignore
         #         self.master_dataset.populate_cache(counts_only=False)
+        if stage == "inference":
+            log.warning(f"Skipping loading training data due to {stage=}")
 
-        if self._train_dataset is None:
+        if self._train_dataset is None and stage != "inference":
             # make training dataset
             if self.hparams.use_length_grouped_sampler:  # type: ignore
                 self._train_dataset = LengthSubsetDataset(

@@ -111,6 +111,9 @@ def test_selective_bottleneck_averaging(
     """
     Tests the forward method of the graph fusion layer.
     """
+    bottle_neck_dim = graph_fusion_layer_input["bottle_neck"].shape[-1]
+    bert_dim = graph_fusion_layer_input["bert_hidden_states"].shape[-1]
+    vit_dim = graph_fusion_layer_input["vit_hidden_states"].shape[-1]
     model = GraphFusionLayer(
         MockModalityLayer(),
         # To make sure we capture the correct selective positions, we double the
@@ -118,6 +121,9 @@ def test_selective_bottleneck_averaging(
         # (ie: (1 + 1) / 2 = 1, whereas (1 + 2) / 2 = 1.5)
         MockModalityLayer(scale=2.0),
         use_projection=False,
+        bottleneck_dim=bottle_neck_dim,
+        bert_dim=bert_dim,
+        vit_dim=vit_dim,
     )
     # Only items 3 and 1 should have the full bottleneck, the rest should be
     # half.

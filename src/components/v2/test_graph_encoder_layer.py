@@ -6,7 +6,8 @@ from components.v2.graph_encoder_layer import (
     BaseGraphTransformer,
     GraphTransformerBlock,
 )
-from components.v2.graph_attention_mask import generate_graph_attn_mask_mod
+from components.v2.graph_attention_mask import generate_graph_attn_mask_tensor
+
 from pytest import mark
 
 
@@ -73,7 +74,7 @@ def test_graph_transformer(diff_attn: bool, use_rope: bool):
     spatial_distance_matrix = torch.randn(seq_len, seq_len)
     rotary_pos = torch.randint(0, 10, (seq_len, 2))
     max_spatial_distance = 4
-    mask = generate_graph_attn_mask_mod(
+    mask = generate_graph_attn_mask_tensor(
         graph_ids=graph_ids,
         spatial_distance_matrix=spatial_distance_matrix,
         max_spatial_distance=max_spatial_distance,

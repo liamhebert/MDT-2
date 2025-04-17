@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel
 from transformers import PretrainedConfig
+from transformers.models.modernbert.modeling_modernbert import ModernBertModel
 from transformers.models.bert.modeling_bert import BertConfig
 from transformers.models.bert.modeling_bert import BertLayer
 from transformers.models.bert.modeling_bert import BertModel
@@ -27,7 +28,6 @@ from transformers.models.vit.modeling_vit import ViTPooler
 from torch.nn.attention.flex_attention import _DEFAULT_SPARSE_BLOCK_SIZE
 from abc import ABC, abstractmethod
 
-from components.v2.feature_layers import GraphAttnBias
 from components.v2.feature_layers import GraphNodeFeature
 from components.v2.discussion_blocks import DiscussionTransformerBlock
 from components.graph_fusion_layer import GraphFusionStack
@@ -150,10 +150,6 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
                 node features, such as in-degree and out-degree embeddings, and
                 to add additional auxiliary graph tokens, such as learned global
                 tokens.
-            graph_attn_bias (GraphAttnBias): Module to compute attention bias
-                added during graph attention. This uses the distance between
-                nodes to add a bias scalar to the attention weights (one for
-                each head).
             graph_stack_config (DictConfig): Configuration dict for building the
                 Graphormer layer stack. See build_graphormer_graph_encoder_layer
                 for more details.
@@ -233,7 +229,7 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
             bert_dim=self.embedding_dim,
             vit_dim=self.embedding_dim,
             bottleneck_dim=self.embedding_dim,
-            use_projection=True,
+            use_projection=False,
         )
 
         self.blocks = nn.ModuleList(
@@ -446,15 +442,21 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
             bert_other_layers = []
         else:
             num_fusion_layers = num_fusion_layers
-            encoder = bert.encoder
-            if hasattr(encoder, "layer"):
-                bert_other_layers = encoder.layer[-num_fusion_layers:]
-                encoder.layer = encoder.layer[:-num_fusion_layers]
-            elif hasattr(encoder, "layers"):
-                bert_other_layers = encoder.layers[-num_fusion_layers:]
-                encoder.layers = bert.encoder.layers[:-num_fusion_layers]
+            if isinstance(bert, ModernBertModel):
+                bert_other_layers = bert.layers[-num_fusion_layers:]
+                bert.layers = bert.layers[:-num_fusion_layers]
+            elif isinstance(bert, BertModel):
+                encoder = bert.encoder
+                if hasattr(encoder, "layer"):
+                    bert_other_layers = encoder.layer[-num_fusion_layers:]
+                    encoder.layer = encoder.layer[:-num_fusion_layers]
+                elif hasattr(encoder, "layers"):
+                    bert_other_layers = encoder.layers[-num_fusion_layers:]
+                    encoder.layers = bert.encoder.layers[:-num_fusion_layers]
             else:
-                raise ValueError("Unknown encoder type for BERT model.")
+                raise ValueError(
+                    f"Unknown encoder type for BERT model. {bert=}"
+                )
 
         return bert, bert_other_layers
 
@@ -507,7 +509,7 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
             reduce="mean",
             include_self=False,
         )
-        assert False
+
         return averaged_embeddings
 
     @abstractmethod
@@ -517,6 +519,7 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
         image_input: dict[str, torch.Tensor],
         image_padding_mask: torch.Tensor,
         rotary_pos: torch.Tensor,
+        spatial_pos: torch.Tensor,
         out_degree: torch.Tensor,
         num_total_graphs: int,
         graph_mask: torch.Tensor,
@@ -588,7 +591,6 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
 
     embedding_dim: int
     graph_node_feature: GraphNodeFeature
-    graph_attn_bias: GraphAttnBias
     vit_model: ViTModel
     vit_pooler: ViTPooler
     text_model: BertModel
@@ -623,8 +625,8 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
         rotary_pos: torch.Tensor,
         out_degree: torch.Tensor,
         num_total_graphs: int,
-        graph_ids: torch.Tensor,
         graph_mask: torch.Tensor,
+        graph_ids: torch.Tensor,
         **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """The forward function of the Discussion Transformer model.
@@ -672,10 +674,19 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
                 - global_embedding: The final global embedding for the graph,
                     with shape (batch_size, C).
         """
-        # Ideally, we keep a consistent shape and just flatten here, rather then
-        # having to dynamically index here. Attention mask should handle this.
 
-        bert_output = self.text_model(**text_input).last_hidden_state
+        if isinstance(self.text_model, ModernBertModel):
+            bert_position_ids = torch.arange(
+                0,
+                text_input["input_ids"].shape[1] + self.num_bottle_neck,
+                device=text_input["input_ids"].device,
+            ).unsqueeze(0)
+        else:
+            bert_position_ids = None
+
+        bert_output = self.text_model(**text_input)
+
+        bert_output = bert_output.last_hidden_state
         text_attention_mask = text_input[TextFeatures.AttentionMask]
 
         flattened_batch, seq_len, hidden_dim = bert_output.size()
@@ -693,6 +704,7 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
             bottle_neck=bottle_neck,
             image_padding_mask=image_padding_mask,
             bert_attention_mask=text_attention_mask,
+            bert_position_ids=None,
         )
         # This does not have the graph ids in them
         graph_x = bottle_neck[:, 0, :]
@@ -722,14 +734,15 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
                 bottle_neck,
                 image_padding_mask,
                 text_attention_mask,
+                bert_position_ids=None,
             )
 
+        # Normalized
         graph_x = self.final_graphormer_layer(
             graph_x,
             mask=graph_mask,
-            spatial_pos=rotary_pos,
+            rope_spatial_pos=rotary_pos,
         )
-
         if self.graph_token_average:
             global_embedding = self.average_embeddings_by_index(
                 graph_x, graph_ids

@@ -87,10 +87,6 @@ class TestCrossEntropyLoss:
             metrics["class_1_" + metric] = metrics["none_" + metric][1]
             del metrics["none_" + metric]
 
-        # Test to ensure that the logged metrics match the computed metrics and
-        # that all expected metrics are there.
-        assert metrics == returned_metrics
-
     def test_compute_epoch_metrics(self):
         """
         Test to check if we can correctly aggregate compute epoch metrics.

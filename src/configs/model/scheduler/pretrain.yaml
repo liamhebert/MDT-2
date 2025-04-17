@@ -1,0 +1,5 @@
+_target_: lr_schedules.schedules.PretrainSchedule
+max_epochs: ${trainer.max_epochs}
+dataset_steps: ???
+warmup_percentage: 0.05
+start_lr: 1e-6
