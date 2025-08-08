@@ -1,4 +1,4 @@
-# MDT-2 Rewrite
+# DisCo: Discussion Contrastive Pretraining for Hollistic Discussion Embeddings
 
 Work-in-progress rewrite of MDT, good to look at for how the Hydra+Lightning template can be used.
 
