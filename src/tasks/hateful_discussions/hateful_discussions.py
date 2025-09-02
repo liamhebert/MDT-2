@@ -67,7 +67,6 @@ class HatefulDiscussions(NodeBatchedDataDataset):
         label = data["label"]
 
         if label in self.hate_labels:
-
             return {
                 Labels.Ys: 1,
             }

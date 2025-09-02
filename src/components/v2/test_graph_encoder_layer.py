@@ -53,14 +53,14 @@ def test_graph_transformer(diff_attn: bool, use_rope: bool):
     seq_len = 8
 
     graph_tfmr_factory = create_graph_transformer_factory(
-        n_heads,
-        n_kv_heads,
-        dim,
-        ffn_dim,
-        norm_eps,
-        head_dim,
-        diff_attn,
-        use_rope,
+        n_heads=n_heads,
+        n_kv_heads=n_kv_heads,
+        dim=dim,
+        ffn_dim=ffn_dim,
+        norm_eps=norm_eps,
+        head_dim=head_dim,
+        diff_attn=diff_attn,
+        use_rope=use_rope,
     )
 
     num_layers = 3

@@ -61,7 +61,7 @@ class RMSNorm(nn.Module):
 
     def forward(self, x: torch.Tensor):
         """Applies the RMSNorm normalization to the input tensor."""
-        output = self._norm(x.float())
+        output = self._norm(x.float()).type_as(x)
         return (output * self.weight.float()).type_as(x)
 
     def reset_parameters(self):
@@ -70,17 +70,56 @@ class RMSNorm(nn.Module):
 
 
 class Attention(nn.Module):
+    """A standard multi-head attention mechanism with optional RoPE.
+
+    This class implements a multi-head attention layer that can be configured
+    to use Grouped-Query Attention (GQA) by setting `n_kv_heads` to a value
+    less than `n_heads`. It also supports Rotary Position Embeddings (RoPE) for
+    injecting positional information into the attention mechanism.
+
+    The forward pass can handle both dense and sparse attention masks. If a
+    `BlockMask` from `flex_attention` is provided, it performs sparse attention,
+    which is more efficient for graph-structured data.
+
+    Attributes:
+        dim (int): The input and output dimension of the layer.
+        head_dim (int): The dimension of each attention head.
+        n_heads (int): The number of query heads.
+        n_kv_heads (int): The number of key/value heads.
+        heads_per_group (int): The ratio of query heads to key/value heads.
+        wq (nn.Linear): The linear layer for the query projection.
+        wk (nn.Linear): The linear layer for the key projection.
+        wv (nn.Linear): The linear layer for the value projection.
+        wo (nn.Linear): The linear layer for the output projection.
+        rope (RoPE | None): The RoPE module, if `use_rope` is True.
+    """
+
     def __init__(
         self,
         dim: int,
         head_dim: int,
         n_heads: int,
         n_kv_heads: int,
-        use_biased_attention: bool = False,
         use_rope: bool = False,
         rope_theta: float = 10.0,
         rope_mixed: bool = True,
     ):
+        """Initializes the Attention module.
+
+        Args:
+            dim (int): The input and output dimension.
+            head_dim (int): The dimension of each attention head.
+            n_heads (int): The number of query heads.
+            n_kv_heads (int): The number of key/value heads. For standard MHA,
+                this should be equal to `n_heads`. For GQA, this should be
+                smaller than `n_heads`.
+            use_rope (bool, optional): If True, enables Rotary Position
+                Embeddings. Defaults to False.
+            rope_theta (float, optional): The theta parameter for RoPE.
+                Defaults to 10.0.
+            rope_mixed (bool, optional): If True, uses the "mixed" variant of
+                RoPE. Defaults to True.
+        """
         super().__init__()
 
         self.dim = dim
@@ -240,6 +279,33 @@ class Attention(nn.Module):
 
 
 class DifferentialAttention(nn.Module):
+    """Attention mechanism which computes weighted difference of two attentions.
+
+    This layer implements a "differential" attention mechanism, where the final
+    attention output is a combination of two separate attention computations,
+    `attn1` and `attn2`. The combination is controlled by a learnable parameter
+    `lambda_full`, which allows the model to dynamically adjust the contribution
+    of each attention component.
+
+    This architecture can be useful for capturing different types of
+    relationships in the data. For example, `attn1` might focus on local
+    interactions, while `attn2` captures more global dependencies.
+
+    Like the standard `Attention` class, this module supports Grouped-Query
+    Attention (GQA), Rotary Position Embeddings (RoPE), and sparse attention
+    with `BlockMask`.
+
+    Attributes:
+        num_heads (int): The number of query heads.
+        num_kv_heads (int): The number of key/value heads.
+        head_dim (int): The dimension of each attention head (effectively halved).
+        dim (int): The input and output dimension.
+        wq, wk, wv, wo (nn.Linear): Linear layers for projections.
+        lambda_q1, lambda_k1, lambda_q2, lambda_k2 (nn.Parameter): Learnable
+            parameters for computing the `lambda_full` weight.
+        subln (RMSNorm): A normalization layer applied to the attention output.
+        rope (RoPE | None): The RoPE module, if `use_rope` is True.
+    """
 
     def __init__(
         self,
@@ -252,6 +318,22 @@ class DifferentialAttention(nn.Module):
         rope_theta: float = 10.0,
         rope_mixed: bool = True,
     ):
+        """Initializes the DifferentialAttention module.
+
+        Args:
+            dim (int): The input and output dimension.
+            head_dim (int): The dimension of each attention head. Note that this
+                is effectively halved in this implementation.
+            n_heads (int): The number of query heads.
+            n_kv_heads (int): The number of key/value heads.
+            depth (int, optional): The depth of the layer in the transformer
+                stack, used for initializing `lambda_init`. Defaults to 0.
+            use_rope (bool, optional): If True, enables RoPE. Defaults to False.
+            rope_theta (float, optional): The theta parameter for RoPE.
+                Defaults to 10.0.
+            rope_mixed (bool, optional): If True, uses the "mixed" variant of
+                RoPE. Defaults to True.
+        """
         super().__init__()
 
         # Note that we lose half of the head_dim here, so the effective head_dim
@@ -293,7 +375,7 @@ class DifferentialAttention(nn.Module):
         self.subln = RMSNorm(2 * self.head_dim, eps=1e-5)
         if use_rope:
             self.rope = RoPE(
-                head_dim=head_dim,
+                head_dim=self.head_dim,
                 num_heads=n_heads,
                 rope_theta=rope_theta,
                 rope_mixed=rope_mixed,
@@ -373,20 +455,20 @@ class DifferentialAttention(nn.Module):
         xk = self.wk(x.view_as(x))
         xv = self.wv(x.view_as(x))
 
-        xq = xq.view(seq_len, 2 * self.num_heads, self.head_dim)
-        xk = xk.view(seq_len, 2 * self.num_kv_heads, self.head_dim)
+        xq = xq.view(seq_len, self.num_heads, 2, self.head_dim)
+        xk = xk.view(seq_len, self.num_kv_heads, 2, self.head_dim)
         xv = xv.view(seq_len, self.num_kv_heads, 2 * self.head_dim)
 
         if self.rope is not None:
             assert rope_spatial_pos is not None
             xq, xk = self.rope(xq, xk, rope_spatial_pos)
 
-        xq = xq.reshape(1, seq_len, self.num_heads, 2, self.head_dim)
-        xk = xk.reshape(1, seq_len, self.num_kv_heads, 2, self.head_dim)
-        xv = xv.reshape(1, seq_len, self.num_kv_heads, 2 * self.head_dim)
+        # xq = xq.reshape(1, seq_len, self.num_heads, 2, self.head_dim)
+        # xk = xk.reshape(1, seq_len, self.num_kv_heads, 2, self.head_dim)
+        # xv = xv.reshape(1, seq_len, self.num_kv_heads, 2 * self.head_dim)
         # q/k: 1 S H 2 D -> 1 H S 2 D
         # v: 1 S H D -> 1 H S D
-        xq, xk, xv = map(lambda e: e.transpose(1, 2), (xq, xk, xv))
+        xq, xk, xv = map(lambda e: e.unsqueeze(0).transpose(1, 2), (xq, xk, xv))
 
         # q/k: 1 H S 2 D -> 1 H S D
         q1, q2 = xq[:, :, :, 0], xq[:, :, :, 1]

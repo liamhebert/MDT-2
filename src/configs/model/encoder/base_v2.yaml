@@ -46,3 +46,4 @@ freeze_initial_encoders: False
 block_size: 1
 
 graph_token_average: False
+concat_graph_to_node: False

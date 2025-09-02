@@ -11,7 +11,7 @@ dataset:
   force_tag: "giga_pretrain"
   max_graph_size: 51
 
-train_batch_size: 44
+train_batch_size: 48
 max_total_length: null
-test_batch_size: 44
+test_batch_size: 48
 group_size: 2

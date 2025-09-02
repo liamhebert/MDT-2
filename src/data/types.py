@@ -10,12 +10,11 @@ from enum import StrEnum
 class GraphFeatures(StrEnum):
     """Graph feature names used as inputs."""
 
-    AttnBias = "attn_biases"
     OutDegree = "out_degree"
     ImageMask = "image_mask"
     Distance = "distance"
-    DistanceIndex = "distance_index"
     RotaryPos = "rotary_pos"
+    Edges = "edges"
 
 
 class TextFeatures(StrEnum):

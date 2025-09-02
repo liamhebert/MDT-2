@@ -53,16 +53,6 @@ class Loss(abc.ABC, torch.nn.Module):
         ...
 
     @abc.abstractmethod
-    def build_epoch_metric_aggregators(
-        self,
-    ) -> Mapping[str, Metric | MetricCollection]:
-        """
-        Build run-level metric aggregators for each metric.
-        """
-        # TODO(liamhebert): Consider building this dynamically based on
-        ...
-
-    @abc.abstractmethod
     def compute_batch_metrics(
         self,
         logits: torch.Tensor,
@@ -82,27 +72,6 @@ class Loss(abc.ABC, torch.nn.Module):
         Returns:
             Dictionary of metric values for the batch, which must contain
             - "loss": The loss value with shape (B,)
-        """
-        ...
-
-    @abc.abstractmethod
-    def compute_epoch_metrics(
-        self,
-        batch_metrics: dict[str, Metric | MetricCollection],
-        epoch_metrics: dict[str, Metric | MetricCollection],
-    ) -> Mapping[str, torch.Tensor]:
-        """Update run-level metric aggregator with epoch metrics.
-
-        This should be called at the end of each epoch to capture the best value
-        for each metric. At the end of this function, we will reset all
-        batch_metrics back to 0 for the next epoch.
-
-        Args:
-            batch_metrics: The metric objects for the epoch.
-            epoch_metrics: The metric objects for the run.
-
-        Returns:
-            Dictionary of metric values for the epoch
         """
         ...
 

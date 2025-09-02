@@ -2,5 +2,6 @@ text_config:
   text_model_name: "bert-base-uncased"
   has_token_type_ids: True
   add_position_ids: False
+  max_length: 128
 
 vision_model_name: "google/vit-base-patch16-224"

@@ -15,6 +15,7 @@ from components.v2.discussion_transformer_all_tokens import (
     DiscussionTransformerAllTokens,
 )
 from components.v2.graph_attention_mask import generate_graph_attn_mask_tensor
+import copy
 
 
 def discussion_transformer_input(
@@ -195,8 +196,26 @@ def test_forward(
     model_cls: type[DiscussionTransformer],
 ):
     _, config = discussion_transformer_fixture
-    config._target_ = model_cls.__module__ + "." + model_cls.__name__
+    config_local = copy.deepcopy(config)
+    config_local._target_ = model_cls.__module__ + "." + model_cls.__name__
 
-    model: DiscussionTransformer = instantiate(config)
+    model: DiscussionTransformer = instantiate(config_local)
 
-    model.forward(**discussion_transformer_input(config))  # type: ignore
+    model.forward(**discussion_transformer_input(config_local))  # type: ignore
+
+
+def test_concat_node(
+    discussion_transformer_fixture: tuple[DiscussionTransformer, DictConfig],
+):
+    _, config = discussion_transformer_fixture
+    config_local = copy.deepcopy(config)
+    config_local.concat_graph_to_node = True
+
+    model: DiscussionTransformer = instantiate(config_local)
+
+    node, graph = model.forward(
+        **discussion_transformer_input(config_local)  # type: ignore
+    )
+    assert (
+        node.shape[-1] == graph.shape[-1] * 2
+    ), f"Expected {node.shape[-1]} to be equal to {graph.shape[-1] * 2}"

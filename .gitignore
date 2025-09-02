@@ -7,6 +7,8 @@ src/data/processed_files_debug/
 src/logs/
 *.out
 *.tar.gz
+*.parquet
+src/analysis/*.json
 src/wandb/
 
 # Byte-compiled / optimized / DLL files

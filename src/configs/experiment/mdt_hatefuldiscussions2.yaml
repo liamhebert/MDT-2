@@ -42,14 +42,17 @@ model:
   optimizer:
     lr: 3e-5
   scheduler:
-    dataset_steps: 1012
+    dataset_steps: 73840
 
 dataset:
   dataset:
     spatial_pos_max: 10
     max_attn_distance: 5
-    force_tag: "HD2_mdt"
+    force_tag: "HD2_mdt_split"
+    split_graphs: True
 
   train_batch_size: 24
   test_batch_size: 24
   max_total_length: null
+
+task_name: "mdt_hd2"

@@ -196,20 +196,31 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
                 [img_bottle_neck, vit_hidden_states], dim=1
             )
 
+            print(vit_hidden_states_in.shape, num_bottleneck_tokens)
             vit_hidden_output_out = self.vit_forward(vit_hidden_states_in)
+            print(vit_hidden_output_out)
+            print(vit_hidden_output_out.shape)
             vit_hidden_output = vit_hidden_output_out[:, num_bottleneck_tokens:]
-            vit_bot_output = vit_hidden_output_out[:, :num_bottleneck_tokens]
+            vit_bottleneck_output = vit_hidden_output_out[
+                :, :num_bottleneck_tokens
+            ]
             if self.use_projection:
-                vit_bot_output = self.vit_to_bottle_projection(vit_bot_output)
+                vit_bottleneck_output = self.vit_to_bottle_projection(
+                    vit_bottleneck_output
+                )
 
             # Initialize image_bottleneck_tokens with the full batch size
             updated_tokens = bottle_neck_output.clone()
             # Calculate the averaged bottleneck tokens *only* for samples with
             # images
             # Note: This part is still indexing, but not in-place assignment
-            image_bottleneck_tokens = (
-                vit_bot_output + bottle_neck_output[image_padding_mask]
-            ) / 2
+            image_subset = bottle_neck_output[image_padding_mask]
+            # Average the bottleneck tokens from both modalities
+            assert vit_bottleneck_output.shape == image_subset.shape, (
+                f"{vit_bottleneck_output.shape=}, {image_subset.shape=},"
+                f" {image_padding_mask=}"
+            )
+            image_bottleneck_tokens = (vit_bottleneck_output + image_subset) / 2
             # Assign the calculated averaged tokens to the correct rows of
             # image_bottleneck_tokens
 
@@ -252,13 +263,12 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
         # if output_hidden_states:
         #     all_hidden_states = all_hidden_states + (hidden_states,)
 
-        layer_head_mask = None
-
-        layer_outputs = self.vit_encoder(hidden_states, layer_head_mask, False)
-
-        hidden_states = layer_outputs[0]
-
-        return hidden_states
+        layer_outputs = self.vit_encoder(hidden_states)
+        if isinstance(layer_outputs, tuple):
+            # TODO(liamhebert): I have no idea why sometimes it's a tuple and
+            # other times it is not. Putting this here to fix that issue.
+            layer_outputs = layer_outputs[0]
+        return layer_outputs
 
     def bert_forward(
         self,

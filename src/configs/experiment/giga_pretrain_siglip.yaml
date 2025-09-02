@@ -15,13 +15,13 @@ defaults:
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["GIGA-pretrain", "v1", "siglip-UAE", "disco"]
+tags: ["GIGA-pretrain", "v1.5", "siglip-UAE", "disco"]
 
 seed: 12345
 
 trainer:
   min_epochs: 1
-  max_epochs: 5
+  max_epochs: 10
   # gradient_clip_val: 0.5
 
 logger:
@@ -33,7 +33,7 @@ logger:
 
 model:
   loss:
-    num_classes: 10
+    num_classes: 6
     learnable_temperature: True
     adaptive_soft_negative_weight: False
     soft_negative_weight: 1.0
@@ -44,10 +44,12 @@ model:
     block_size: 1
     graph_token_average: False
   scheduler:
-    dataset_steps: 10302
+    dataset_steps: 10302 # Total is 412,080
 
 dataset:
-  train_batch_size: 48
+  train_batch_size: 40
   max_total_length: null
-  test_batch_size: 48
+  test_batch_size: 40
   group_size: 2
+
+task_name: "pretrain"

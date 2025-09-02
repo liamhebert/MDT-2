@@ -7,13 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import hydra
 from lightning import Callback
 from lightning import LightningDataModule
-from lightning import LightningModule
 from lightning import Trainer
 import lightning as L
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 import torch
-
+from model import Model
 from utils import extras
 from utils import get_metric_value
 from utils import instantiate_callbacks
@@ -22,7 +21,7 @@ from utils import log_hyperparameters
 from utils import RankedLogger
 from utils import task_wrapper
 
-log = RankedLogger(__name__, rank_zero_only=True)
+log = RankedLogger(__name__, rank_zero_only=False)
 
 torch.set_float32_matmul_precision("medium")
 
@@ -63,7 +62,20 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
     torch.set_float32_matmul_precision("medium")
-    model: LightningModule = hydra.utils.instantiate(cfg.model)
+
+    model: Model = hydra.utils.instantiate(cfg.model)
+
+    log.info("ckpt_path: %s", cfg.get("ckpt_path"))
+    if cfg.get("ckpt_path"):
+        log.info(f"Loading model weights from checkpoint <{cfg.ckpt_path}>")
+        model = Model.load_from_checkpoint(
+            cfg.ckpt_path,
+            encoder=model.encoder,
+            loss=model.loss,
+            optimizer=model.optimizer,
+            scheduler=model.scheduler,
+            strict=False,
+        )
 
     object_dict = {
         "cfg": cfg,

@@ -20,6 +20,8 @@ from transformers.models.modernbert.modeling_modernbert import ModernBertModel
 from transformers.models.bert.modeling_bert import BertConfig
 from transformers.models.bert.modeling_bert import BertLayer
 from transformers.models.bert.modeling_bert import BertModel
+from transformers.models.roberta.modeling_roberta import RobertaModel
+
 from transformers.models.bert.modeling_bert import BertPooler
 from transformers.models.vit.modeling_vit import ViTConfig
 from transformers.models.vit.modeling_vit import ViTLayer
@@ -104,6 +106,7 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
         freeze_initial_encoders: bool = False,
         graph_token_average: bool = False,
         block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
+        concat_graph_to_node: bool = False,
     ) -> None:
         """The Discussion Transformer model, which fuses comment modalities with
         graph context.
@@ -195,6 +198,7 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
         self.embedding_dim = embedding_dim
         self.graph_node_feature = graph_node_feature
         self.graph_token_average = graph_token_average
+        self.concat_graph_to_node = concat_graph_to_node
 
         total_fusion_layers = fusion_stack_size * num_fusion_stack
         self.vit_model, vit_fusion_layers = self.build_vit_encoder(
@@ -445,7 +449,7 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
             if isinstance(bert, ModernBertModel):
                 bert_other_layers = bert.layers[-num_fusion_layers:]
                 bert.layers = bert.layers[:-num_fusion_layers]
-            elif isinstance(bert, BertModel):
+            elif isinstance(bert, BertModel) or isinstance(bert, RobertaModel):
                 encoder = bert.encoder
                 if hasattr(encoder, "layer"):
                     bert_other_layers = encoder.layer[-num_fusion_layers:]
@@ -745,11 +749,21 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
         )
         if self.graph_token_average:
             global_embedding = self.average_embeddings_by_index(
-                graph_x, graph_ids
+                graph_x[num_total_graphs:], graph_ids[num_total_graphs:]
             )
         else:
             global_embedding = graph_x[:num_total_graphs, :]
 
         assert global_embedding.size() == (num_total_graphs, hidden_dim)
         node_embedding = graph_x[num_total_graphs:, :]
+        if self.concat_graph_to_node:
+
+            node_embedding = torch.cat(
+                (
+                    node_embedding,
+                    global_embedding[graph_ids[num_total_graphs:]],
+                ),
+                dim=-1,
+            )
+
         return node_embedding, global_embedding

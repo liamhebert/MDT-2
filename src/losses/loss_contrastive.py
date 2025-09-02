@@ -9,9 +9,6 @@ import torch.nn.functional as F
 from torchmetrics import MetricCollection
 from torchmetrics import Accuracy
 from torchmetrics import F1Score
-from torchmetrics import MaxMetric
-from torchmetrics import MeanMetric
-from torchmetrics import MinMetric
 from torchmetrics import Precision
 from torchmetrics import Recall
 from typing import Literal, Mapping
@@ -138,7 +135,6 @@ class ContrastiveLoss(Loss):
         )
 
         if use_all_gather:
-            print(device_targets, device_hard_targets, normalized_A)
             all_targets, all_hard_targets, all_graph_embeddings = (
                 self.all_gather(x)
                 for x in (device_targets, device_hard_targets, normalized_A)
@@ -319,26 +315,9 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
                     make_metric_group("micro"),  # type: ignore
                     # make_metric_group("none"),  # type: ignore
                 ]
-            ),
-            "loss": MeanMetric(),
-        }
-
-    def build_epoch_metric_aggregators(
-        self,
-    ) -> Mapping[str, Metric | MetricCollection]:
-        """
-        Build run-level metric aggregators for each metric.
-        """
-        # TODO(liamhebert): Consider building this dynamically based on
-        # batch_metrics
-
-        return {
-            f"best_{metric_type}_{metric}": MaxMetric()
-            for metric_type in ["micro", "macro", "weighted"]
-            # + [f"class_{i}" for i in range(self.num_classes)]
-            for metric in ["f1", "recall", "precision", "accuracy"]
-        } | {
-            "best_loss": MinMetric(),
+            )
+            # ),
+            # "loss": MeanMetric(),
         }
 
     # @torch.compiler.disable
@@ -373,8 +352,7 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
         return_metrics = {}
 
         metrics["classification"].update(preds, targets)
-        metrics["loss"].update(loss)
-
+        # metrics["loss"].update(loss)
         return_metrics["loss"] = loss
 
         effective_batch_size = (targets != -100).float().sum()
@@ -383,47 +361,3 @@ class ContrastiveLossWithMetrics(ContrastiveLoss):
         return_metrics["temperature"] = self.temperature.exp()
 
         return return_metrics
-
-    # @torch.compiler.disable
-    def compute_epoch_metrics(
-        self,
-        batch_metrics: dict[str, Metric | MetricCollection],
-        epoch_metrics: dict[str, Metric | MetricCollection],
-    ) -> Mapping[str, torch.Tensor]:
-        """Update run-level metric aggregator with epoch metrics.
-
-        This should be called at the end of each epoch to capture the best value
-        for each metric. At the end of this function, we will reset all
-        batch_metrics back to 0 for the next epoch.
-
-        Args:
-            batch_metrics: The metric objects for the epoch.
-            epoch_metrics: The metric objects for the run.
-
-        Returns:
-            Dictionary of metric values for the epoch
-        """
-
-        ret_metrics = {}
-
-        metrics = batch_metrics["classification"].compute()
-        for metric_type in ["macro", "weighted", "micro"]:
-            metric_ids = ["f1", "recall", "precision"]
-            if metric_type == "weighted":
-                metric_ids.append("accuracy")
-            for metric in metric_ids:
-                key = f"best_{metric_type}_{metric}"
-
-                metric_value = metrics[f"{metric_type}_{metric}"]
-                ret_metrics[f"{metric_type}_{metric}"] = metric_value
-                epoch_metrics[key].update(metric_value)
-                ret_metrics[key] = epoch_metrics[key]
-
-        ret_metrics["best_loss"] = epoch_metrics["best_loss"].forward(
-            batch_metrics["loss"].compute()
-        )
-
-        for metric_obj in batch_metrics.values():
-            metric_obj.reset()
-
-        return ret_metrics

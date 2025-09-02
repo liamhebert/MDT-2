@@ -84,6 +84,7 @@ def task_wrapper(task_func: Callable) -> Callable:
     # accidental debug code execution.
     # NOTE: compute_dataset is not a production run, so we don't set this.
     os.environ["IS_PROD"] = "1"
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     def wrap(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         # execute the task

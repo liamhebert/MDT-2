@@ -1,0 +1,52 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /modality_encoder: siglip-UAE
+  - override /dataset: hateful_discussions
+  - override /model/encoder: siglip_encoder
+  - override /model/loss: cross_entropy
+  - override /model/scheduler: finetune
+  - override /trainer: ddp
+  - _self_
+
+tags: ["HD2", "v1", "siglip-UAE", "disco"]
+
+
+trainer:
+  min_epochs: 1
+  max_epochs: 10
+  # gradient_clip_val: 0.5
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "hd2_disco"
+    project: "hd2_disco"
+  aim:
+    experiment: "hd2_disco"
+
+model:
+  loss:
+    num_classes: 2
+  encoder:
+    block_size: 1
+    graph_token_average: False
+    freeze_initial_encoders: True
+  optimizer:
+    lr: 3e-5
+  scheduler:
+    dataset_steps: 36920
+
+dataset:
+  dataset:
+    force_tag: "HD2_disco_split"
+    split_graphs: True
+
+  train_batch_size: 24
+  test_batch_size: 24
+  max_total_length: null
+
+task_name: "disco_hd2"
