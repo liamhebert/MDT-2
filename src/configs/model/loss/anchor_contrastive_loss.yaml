@@ -1,0 +1,6 @@
+_target_: losses.AnchorContrastiveLoss
+
+num_classes: 8
+dim: "${model.encoder.embedding_dim}"
+temperature: 0.3
+learnable_temperature: True

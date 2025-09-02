@@ -11,5 +11,6 @@
 #SBATCH --signal=SIGUSR1@90
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export TOKENIZERS_PARALLELISM=false
 
-srun python train.py experiment=graphormer_hatefuldiscussions2 trainer=gpu logger=wandb logger.wandb.project=graphormer_hd2 env=all
+python train.py experiment=graphormer_hatefuldiscussions2 trainer=gpu logger=wandb logger.wandb.project=graphormer_hd2 env=all

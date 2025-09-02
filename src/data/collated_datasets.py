@@ -5,15 +5,15 @@ from abc import abstractmethod
 import torch
 from torch_geometric.data import Data
 
-from data import collator_utils, collator_utils_v2
 from data.types import ContrastiveLabels
 from data.types import Labels
-from tasks.dataset_2 import TaskDataset as TaskDataset_2
+from data import collator_utils
+from tasks.dataset import TaskDataset
 from torch.nn.attention.flex_attention import _DEFAULT_SPARSE_BLOCK_SIZE
 from itertools import chain
 
 
-class CollatedDataset(TaskDataset_2):
+class CollatedDataset(TaskDataset):
     """
     Dataset wrapper to include a function to collate multiple graphs of various
     sizes into a single batch.
@@ -25,13 +25,14 @@ class CollatedDataset(TaskDataset_2):
         spatial_pos_max: int = 8000,
         max_attn_distance: int = 8000,
         block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
-        use_flattened_collator: bool = True,
+        graph_collate_type: str = "all",
         **kwargs,
     ):
-        self.use_flattened_collator = use_flattened_collator
         self.block_size = block_size
         self.spatial_pos_max = spatial_pos_max
         self.max_attn_distance = max_attn_distance
+        assert graph_collate_type in ["all", "pyg"], graph_collate_type
+        self.graph_collate_type = "all"
         super().__init__(*args, **kwargs)
 
     @abstractmethod
@@ -116,8 +117,8 @@ class CollatedDataset(TaskDataset_2):
             collator_utils.extract_and_merge_features(flattened_graphs)
         )
 
-        if self.use_flattened_collator:
-            collated_output = collator_utils_v2.generic_collator(
+        if self.graph_collate_type == "all":
+            collated_output = collator_utils.generic_collator(
                 graph_features,
                 text_features,
                 image_features,
@@ -125,17 +126,17 @@ class CollatedDataset(TaskDataset_2):
                 index_spatial_pos_max=self.spatial_pos_max,
                 max_attn_distance=self.max_attn_distance,
             )
-            batch_size = collated_output["num_total_graphs"]
-            num_nodes = collated_output["out_degree"].shape[0]
-        else:
-            collated_output = collator_utils.generic_collator(
-                graph_features,
-                text_features,
-                image_features,
-                self.spatial_pos_max,
+        elif self.graph_collate_type == "pyg":
+            collated_output = collator_utils.pyg_collator(
+                graph_features, text_features
             )
-            # TODO(liamhebert): If we swap to a flattened batch, this will break.
-            batch_size, num_nodes = collated_output["node_mask"].shape
+        else:
+            raise ValueError(f"Unknown collate type: {self.graph_collate_type}")
+
+        batch_size = collated_output["num_total_graphs"]
+        num_nodes = collated_output["num_total_nodes"]
+        assert isinstance(batch_size, int)
+        assert isinstance(num_nodes, int)
 
         # TODO(liamhebert): Consider making this generic to collate extra
         # features beyond just the labels.
@@ -216,40 +217,14 @@ class NodeBatchedDataDataset(CollatedDataset):
 
         out: dict[str, torch.Tensor] = {}
 
-        if self.use_flattened_collator:
-            out = {
-                Labels.Ys: torch.cat([item["y"][Labels.Ys] for item in batch]),
-            }
-            if max_nodes is not None:
-                have_nodes = out[Labels.Ys].shape[0]
-                padding = torch.full((max_nodes - have_nodes,), -100)
-                out[Labels.Ys] = torch.cat([out[Labels.Ys], padding.long()])
-
-            # TODO(liamhebert): Not sure what kind of assert would be good here,
-            # batch size maybe?
-
-            # for key in [Labels.Ys, Labels.YMask]:
-            #     assert out[key].shape == (
-            #         batch_size,
-            #     ), f"{key}: {out[key].shape} != {(batch_size, max_nodes)}"
-
+        out = {
+            Labels.Ys: torch.cat([item["y"][Labels.Ys] for item in batch]),
+        }
+        # TODO(liamhebert): Why do we need this assert?
+        if max_nodes is None:
+            return out
         else:
-            assert max_nodes is not None, "max_nodes must be provided"
-            out = {
-                Labels.Ys: torch.cat(
-                    [
-                        collator_utils.pad_1d_unsqueeze(
-                            item["y"][Labels.Ys], max_nodes, -100, False
-                        )
-                        for item in batch
-                    ]
-                ),
-            }
-
-            for key in [Labels.Ys, Labels.YMask]:
-                assert out[key].shape == (
-                    batch_size,
-                    max_nodes,
-                ), f"{key}: {out[key].shape} != {(batch_size, max_nodes)}"
-
+            have_nodes = out[Labels.Ys].shape[0]
+            padding = torch.full((max_nodes - have_nodes,), -100)
+            out[Labels.Ys] = torch.cat([out[Labels.Ys], padding.long()])
         return out

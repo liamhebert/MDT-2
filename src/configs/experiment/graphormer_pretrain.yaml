@@ -1,0 +1,57 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /modality_encoder: bert-vit-base
+  - override /dataset: giga_pretrain
+  - override /model/encoder: graphormer
+  - override /model/loss: anchor_contrastive_loss
+  - override /model/scheduler: pretrain
+  - override /trainer: gpu
+  - _self_
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["pretrain", "v1", "bert-vit-base", "graphormer"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 1
+  max_epochs: 10
+  # gradient_clip_val: 0.5
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "pretrain_graphormer"
+    project: "graphormer_pretrain"
+  aim:
+    experiment: "pretrain_graphormer"
+
+dataset:
+  dataset:
+    spatial_pos_max: 100
+    max_attn_distance: 100
+    force_tag: "pretrain_mdt_split" # they use the same encoders
+
+  train_batch_size: 20
+  test_batch_size: 20
+  max_total_length: null
+
+model:
+  loss:
+    num_classes: 6
+  encoder:
+    block_size: 1
+    graph_token_average: False
+    freeze_initial_encoders: True
+  scheduler:
+    dataset_steps: 34340 # Total is 412,080
+  optimizer:
+    lr: 1e-4
+
+task_name: "graphormer_pretrain"

@@ -19,10 +19,10 @@ graph_stack_factory:
   graph_tfmr_factory:
     _target_: components.v2.graph_encoder_layer.GraphTransformerBlock
     _partial_: True
-    n_heads: 6
-    n_kv_heads: 6
+    n_heads: 12
+    n_kv_heads: 12
     dim: "${model.encoder.embedding_dim}"
-    ffn_dim: 768
+    ffn_dim: 3072
     differential_attention: False
     use_rope: False
     rope_mixed: True
