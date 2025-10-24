@@ -1,0 +1,1045 @@
+[[36m2025-09-13 22:04:09,124[0m][[35mHYDRA[0m] Updating num of trials to 1 due to using GridSampler.[0m
+[[36m2025-09-13 22:04:09,124[0m][[35mHYDRA[0m] Study name: no-name-b9e19f0e-6b2c-49d0-b38b-7195a2b35cd8[0m
+[[36m2025-09-13 22:04:09,124[0m][[35mHYDRA[0m] Storage: None[0m
+[[36m2025-09-13 22:04:09,124[0m][[35mHYDRA[0m] Sampler: GridSampler[0m
+[[36m2025-09-13 22:04:09,125[0m][[35mHYDRA[0m] Directions: ['minimize'][0m
+[[36m2025-09-13 22:04:09,128[0m][[35mHYDRA[0m] Launching 1 jobs locally[0m
+[[36m2025-09-13 22:04:09,128[0m][[35mHYDRA[0m] 	#0 : model.encoder.graph_stack_factory.num_layers=4 model.encoder.graph_stack_factory.graph_tfmr_factory.use_rope=True model.encoder.graph_stack_factory.graph_tfmr_factory.rope_mixed=True model.encoder.graph_stack_factory.graph_tfmr_factory.differential_attention=False dataset.group_size=4 experiment=pretrain_v3_gemma_contrastive logger=wandb env=all hparams_search=pretrain_v3 trainer=fsdp trainer.max_epochs=3 trainer.min_epochs=3 dataset.dataset.debug=5[0m
+[[36m2025-09-13 22:04:09,725[0m][[34mutils.utils[0m][[32mINFO[0m] - [rank: 0] Enforcing tags! <cfg.extras.enforce_tags=True>[0m
+[[36m2025-09-13 22:04:09,758[0m][[34mutils.utils[0m][[32mINFO[0m] - [rank: 0] Printing config tree with Rich! <cfg.extras.print_config=True>[0m
+CONFIG
+├── dataset
+│   └── _target_: datamodule.DataModule
+│       train_batch_size: 4
+│       use_length_grouped_sampler: true
+│       max_total_length: null
+│       test_batch_size: 4
+│       num_workers: 6
+│       pin_memory: true
+│       cache_dataset: true
+│       group_size: 4
+│       dataset:
+│         _target_: tasks.contrastive_learning.contrastive_dataset.ContrastivePr
+│         root: ./tasks/contrastive_learning/giga_raw_files/
+│         raw_graph_path: '*/*'
+│         output_graph_path: ./data//processed_files
+│         block_size: 1
+│         graph_collate_type: all
+│         group_size: 4
+│         train_size: 0.8
+│         valid_size: 0.1
+│         test_size: 0.1
+│         split_seed: 42
+│         image_tokenizer_key: null
+│         text_config:
+│           text_model_name: google/embeddinggemma-300m
+│           has_token_type_ids: false
+│           add_position_ids: false
+│         split_graphs: false
+│         strict: true
+│         max_distance_length: 6
+│         force_reload: false
+│         debug: 5
+│         skip_invalid_label_graphs: true
+│         max_graph_size: 51
+│         politics_and_gender_only: false
+│         force_tag: giga_pretrain
+│
+├── modality_encoder
+│   └── text_config:
+│         text_model_name: google/embeddinggemma-300m
+│         has_token_type_ids: false
+│         add_position_ids: false
+│       vision_model_name: null
+│
+├── model
+│   └── loss:
+│         _target_: losses.ContrastiveLoss
+│         soft_negative_weight: 1.0
+│         adaptive_soft_negative_weight: false
+│         temperature: 10
+│         bias: -5.0
+│         learnable_temperature: true
+│         aux_cos_loss_weight: 0.3
+│         aux_norm_loss_weight: 0.03
+│         num_classes: 6
+│       encoder:
+│         _target_: components.v3.discussion_transformer_simple.DiscussionTransf
+│         embedding_dim: 768
+│         graph_stack_factory:
+│           _target_: components.v2.graph_encoder_layer.BaseGraphTransformer
+│           _partial_: true
+│           num_layers: 4
+│           graph_tfmr_factory:
+│             _target_: components.v2.graph_encoder_layer.GraphTransformerBlock
+│             _partial_: true
+│             n_heads: 12
+│             n_kv_heads: 12
+│             dim: 768
+│             ffn_dim: 3072
+│             differential_attention: false
+│             use_rope: true
+│             rope_mixed: true
+│         num_out_degree: 5
+│         use_out_degree_emb: false
+│         block_size: 1
+│       scheduler:
+│         _target_: lr_schedules.schedules.PretrainSchedule
+│         max_epochs: 3
+│         dataset_steps: 18737
+│         warmup_percentage: 0.05
+│         start_lr: 1.0e-06
+│       _target_: model.Model
+│       optimizer:
+│         _target_: torch.optim.AdamW
+│         _partial_: true
+│         lr: 0.0003
+│         weight_decay: 0.0
+│         betas:
+│         - 0.9
+│         - 0.999
+│       compile: false
+│
+├── callbacks
+│   └── model_checkpoint:
+│         _target_: lightning.pytorch.callbacks.ModelCheckpoint
+│         dirpath: /u2/l2hebert/MDT-2/src/logs/pretrain3/multiruns/2025-09-13_22
+│         filename: epoch_{epoch:03d}
+│         monitor: val/loss
+│         verbose: false
+│         save_last: true
+│         save_top_k: 1
+│         mode: min
+│         auto_insert_metric_name: false
+│         save_weights_only: false
+│         every_n_train_steps: null
+│         train_time_interval: null
+│         every_n_epochs: null
+│         save_on_train_epoch_end: null
+│       model_summary:
+│         _target_: lightning.pytorch.callbacks.RichModelSummary
+│         max_depth: 2
+│
+├── logger
+│   └── wandb:
+│         _target_: lightning.pytorch.loggers.wandb.WandbLogger
+│         save_dir: /u2/l2hebert/MDT-2/src/logs/pretrain3/multiruns/2025-09-13_2
+│         offline: false
+│         id: null
+│         anonymous: null
+│         project: DisCo
+│         log_model: false
+│         prefix: ''
+│         entity: multi-modal-uwaterloo
+│         group: giga_pretrain_gemma
+│         tags:
+│         - GIGA-pretrain
+│         - v3
+│         - gemma
+│         - disco
+│         job_type: ''
+│       aim:
+│         experiment: giga_pretrain_gemma
+│
+├── trainer
+│   └── _target_: lightning.pytorch.trainer.Trainer
+│       default_root_dir: /u2/l2hebert/MDT-2/src/logs/pretrain3/multiruns/2025-0
+│       min_epochs: 3
+│       max_epochs: 3
+│       accelerator: gpu
+│       devices: 2
+│       precision: bf16-mixed
+│       check_val_every_n_epoch: 1
+│       deterministic: false
+│       strategy:
+│         _target_: lightning.pytorch.strategies.FSDPStrategy
+│       use_distributed_sampler: false
+│       num_nodes: 1
+│
+├── paths
+│   └── root_dir: .
+│       data_dir: ./data/
+│       log_dir: ./logs/
+│       output_dir: /u2/l2hebert/MDT-2/src/logs/pretrain3/multiruns/2025-09-13_2
+│       work_dir: /u2/l2hebert/MDT-2/src
+│
+├── extras
+│   └── ignore_warnings: false
+│       enforce_tags: true
+│       print_config: true
+│
+├── optimized_metric
+│   └── val/loss_epoch
+├── task_name
+│   └── pretrain3
+├── train
+│   └── True
+├── test
+│   └── True
+├── ckpt_path
+│   └── None
+├── seed
+│   └── 12345
+└── tags
+    └── ['GIGA-pretrain', 'v3', 'gemma', 'disco']
+[[36m2025-09-13 22:04:09,813[0m][[34m__main__[0m][[32mINFO[0m] - [rank: 0] Instantiating loggers...[0m
+[[36m2025-09-13 22:04:09,813[0m][[34mutils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating logger <lightning.pytorch.loggers.wandb.WandbLogger>[0m
+[[36m2025-09-13 22:04:09,818[0m][[34m__main__[0m][[32mINFO[0m] - [rank: 0] Instantiating callbacks...[0m
+[[36m2025-09-13 22:04:09,818[0m][[34mutils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating callback <lightning.pytorch.callbacks.ModelCheckpoint>[0m
+[[36m2025-09-13 22:04:09,826[0m][[34mutils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating callback <lightning.pytorch.callbacks.RichModelSummary>[0m
+[[36m2025-09-13 22:04:09,827[0m][[34m__main__[0m][[32mINFO[0m] - [rank: 0] Instantiating trainer <lightning.pytorch.trainer.Trainer>[0m
+[[36m2025-09-13 22:04:09,877[0m][[34m__main__[0m][[32mINFO[0m] - [rank: 0] Instantiating datamodule <datamodule.DataModule>[0m
+[[36m2025-09-13 22:04:11,561[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[32mINFO[0m] - [rank: 0] Using all subreddits.[0m
+[[36m2025-09-13 22:04:11,562[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Overriding tag self.tag='all_pretrain' with force_tag='giga_pretrain'[0m
+[[36m2025-09-13 22:04:11,562[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Force skipping invalid graphs in PROD mode[0m
+[[36m2025-09-13 22:04:11,562[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Output graph path: ./data//processed_files_debug/giga_pretrain-processed_graphs.hdf5[0m
+[[36m2025-09-13 22:04:11,563[0m][[34m__main__[0m][[32mINFO[0m] - [rank: 0] Instantiating model <model.Model>[0m
+[[36m2025-09-13 22:04:15,358[0m][[34msentence_transformers.SentenceTransformer[0m][[32mINFO[0m] - Use pytorch device_name: cuda:0[0m
+[[36m2025-09-13 22:04:15,358[0m][[34msentence_transformers.SentenceTransformer[0m][[32mINFO[0m] - Load pretrained SentenceTransformer: google/embeddinggemma-300m[0m
+[[36m2025-09-13 22:04:21,007[0m][[34msentence_transformers.SentenceTransformer[0m][[32mINFO[0m] - 14 prompts are loaded, with the keys: ['query', 'document', 'BitextMining', 'Clustering', 'Classification', 'InstructionRetrieval', 'MultilabelClassification', 'PairClassification', 'Reranking', 'Retrieval', 'Retrieval-query', 'Retrieval-document', 'STS', 'Summarization'][0m
+[[36m2025-09-13 22:04:22,479[0m][[34m__main__[0m][[32mINFO[0m] - [rank: 0] ckpt_path: None[0m
+[[36m2025-09-13 22:04:22,479[0m][[34m__main__[0m][[32mINFO[0m] - [rank: 0] Logging hyperparameters![0m
+[[36m2025-09-13 22:04:27,236[0m][[34m__main__[0m][[32mINFO[0m] - [rank: 0] Starting training![0m
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[[36m2025-09-13 22:04:27,494[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] NOT in PROD mode, opening HDF5 file in write mode[0m
+[[36m2025-09-13 22:04:27,506[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: GunsAreCool[0m
+[[36m2025-09-13 22:04:27,507[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:29,198[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing GunsAreCool[0m
+[[36m2025-09-13 22:04:29,200[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: OpenChristian[0m
+[[36m2025-09-13 22:04:29,201[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:29,323[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing OpenChristian[0m
+[[36m2025-09-13 22:04:29,326[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: lastweektonight[0m
+[[36m2025-09-13 22:04:29,326[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:29,432[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing lastweektonight[0m
+[[36m2025-09-13 22:04:29,435[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: AskAnAmerican[0m
+[[36m2025-09-13 22:04:29,435[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:29,568[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing AskAnAmerican[0m
+[[36m2025-09-13 22:04:29,574[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: Conservative[0m
+[[36m2025-09-13 22:04:29,574[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:29,729[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing Conservative[0m
+[[36m2025-09-13 22:04:29,733[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: CGPGrey[0m
+[[36m2025-09-13 22:04:29,734[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:29,824[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing CGPGrey[0m
+[[36m2025-09-13 22:04:29,828[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: askhillarysupporters[0m
+[[36m2025-09-13 22:04:29,828[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:29,860[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 3 success while processing askhillarysupporters[0m
+[[36m2025-09-13 22:04:29,862[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: EnoughLibertarianSpam[0m
+[[36m2025-09-13 22:04:29,863[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:29,932[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing EnoughLibertarianSpam[0m
+[[36m2025-09-13 22:04:29,934[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: liberalgunowners[0m
+[[36m2025-09-13 22:04:29,934[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:30,034[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing liberalgunowners[0m
+[[36m2025-09-13 22:04:30,038[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: TrueChristian[0m
+[[36m2025-09-13 22:04:30,039[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:30,202[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing TrueChristian[0m
+[[36m2025-09-13 22:04:30,205[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: askaconservative[0m
+[[36m2025-09-13 22:04:30,205[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:30,349[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing askaconservative[0m
+[[36m2025-09-13 22:04:30,355[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: KotakuInAction[0m
+[[36m2025-09-13 22:04:30,356[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:30,509[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing KotakuInAction[0m
+[[36m2025-09-13 22:04:30,512[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: AskTrumpSupporters[0m
+[[36m2025-09-13 22:04:30,513[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:30,680[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing AskTrumpSupporters[0m
+[[36m2025-09-13 22:04:30,684[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: democrats[0m
+[[36m2025-09-13 22:04:30,685[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:30,756[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing democrats[0m
+[[36m2025-09-13 22:04:30,758[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: excatholic[0m
+[[36m2025-09-13 22:04:30,759[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:30,870[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing excatholic[0m
+[[36m2025-09-13 22:04:30,872[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: Catholicism[0m
+[[36m2025-09-13 22:04:30,873[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:30,990[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing Catholicism[0m
+[[36m2025-09-13 22:04:30,993[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: progun[0m
+[[36m2025-09-13 22:04:30,993[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:31,066[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing progun[0m
+[[36m2025-09-13 22:04:31,069[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: GamerGhazi[0m
+[[36m2025-09-13 22:04:31,070[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:31,953[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing GamerGhazi[0m
+[[36m2025-09-13 22:04:31,957[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: Firearms[0m
+[[36m2025-09-13 22:04:31,958[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:32,037[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing Firearms[0m
+[[36m2025-09-13 22:04:32,039[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: The_Donald[0m
+[[36m2025-09-13 22:04:32,039[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:32,256[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing The_Donald[0m
+[[36m2025-09-13 22:04:32,263[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: hillaryclinton[0m
+[[36m2025-09-13 22:04:32,266[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:32,363[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing hillaryclinton[0m
+[[36m2025-09-13 22:04:32,371[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: SandersForPresident[0m
+[[36m2025-09-13 22:04:32,372[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:32,518[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing SandersForPresident[0m
+[[36m2025-09-13 22:04:32,523[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: PoliticalVideo[0m
+[[36m2025-09-13 22:04:32,524[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:32,614[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing PoliticalVideo[0m
+[[36m2025-09-13 22:04:32,617[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: BlueMidterm2018[0m
+[[36m2025-09-13 22:04:32,618[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:32,696[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing BlueMidterm2018[0m
+[[36m2025-09-13 22:04:32,698[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: uncensorednews[0m
+[[36m2025-09-13 22:04:32,700[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:33,560[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing uncensorednews[0m
+[[36m2025-09-13 22:04:33,567[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: GrassrootsSelect[0m
+[[36m2025-09-13 22:04:33,568[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:33,653[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing GrassrootsSelect[0m
+[[36m2025-09-13 22:04:33,655[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: PoliticalHumor[0m
+[[36m2025-09-13 22:04:33,656[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:33,823[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing PoliticalHumor[0m
+[[36m2025-09-13 22:04:33,827[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: DNCleaks[0m
+[[36m2025-09-13 22:04:33,828[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:33,911[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing DNCleaks[0m
+[[36m2025-09-13 22:04:33,914[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: ChoosingBeggars[0m
+[[36m2025-09-13 22:04:33,915[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,027[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing ChoosingBeggars[0m
+[[36m2025-09-13 22:04:34,030[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: HillaryForPrison[0m
+[[36m2025-09-13 22:04:34,031[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,104[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing HillaryForPrison[0m
+[[36m2025-09-13 22:04:34,106[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: dgu[0m
+[[36m2025-09-13 22:04:34,107[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,175[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing dgu[0m
+[[36m2025-09-13 22:04:34,178[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: AskThe_Donald[0m
+[[36m2025-09-13 22:04:34,179[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,279[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing AskThe_Donald[0m
+[[36m2025-09-13 22:04:34,285[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: badwomensanatomy[0m
+[[36m2025-09-13 22:04:34,286[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,389[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing badwomensanatomy[0m
+[[36m2025-09-13 22:04:34,394[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: trailrunning[0m
+[[36m2025-09-13 22:04:34,395[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,502[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing trailrunning[0m
+[[36m2025-09-13 22:04:34,506[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: TrueAtheism[0m
+[[36m2025-09-13 22:04:34,507[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,649[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing TrueAtheism[0m
+[[36m2025-09-13 22:04:34,656[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: pearljam[0m
+[[36m2025-09-13 22:04:34,656[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,738[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing pearljam[0m
+[[36m2025-09-13 22:04:34,742[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: relationship_advice[0m
+[[36m2025-09-13 22:04:34,743[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:34,914[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing relationship_advice[0m
+[[36m2025-09-13 22:04:34,919[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: teenagers[0m
+[[36m2025-09-13 22:04:34,920[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:35,083[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing teenagers[0m
+[[36m2025-09-13 22:04:35,087[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: RedHotChiliPeppers[0m
+[[36m2025-09-13 22:04:35,087[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:35,161[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing RedHotChiliPeppers[0m
+[[36m2025-09-13 22:04:35,164[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: hsxc[0m
+[[36m2025-09-13 22:04:35,165[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:35,210[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 4 success while processing hsxc[0m
+[[36m2025-09-13 22:04:35,212[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: saplings[0m
+[[36m2025-09-13 22:04:35,213[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:35,312[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing saplings[0m
+[[36m2025-09-13 22:04:35,316[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: eldertrees[0m
+[[36m2025-09-13 22:04:35,317[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:35,419[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing eldertrees[0m
+[[36m2025-09-13 22:04:35,421[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: teenrelationships[0m
+[[36m2025-09-13 22:04:35,423[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:35,493[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing teenrelationships[0m
+[[36m2025-09-13 22:04:35,495[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: canadacordcutters[0m
+[[36m2025-09-13 22:04:35,496[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:35,580[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing canadacordcutters[0m
+[[36m2025-09-13 22:04:35,583[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: RedditForGrownups[0m
+[[36m2025-09-13 22:04:35,585[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:36,469[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing RedditForGrownups[0m
+[[36m2025-09-13 22:04:36,476[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: bapccanada[0m
+[[36m2025-09-13 22:04:36,477[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:36,595[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing bapccanada[0m
+[[36m2025-09-13 22:04:36,598[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: running[0m
+[[36m2025-09-13 22:04:36,599[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:36,691[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing running[0m
+[[36m2025-09-13 22:04:36,694[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: trackandfield[0m
+[[36m2025-09-13 22:04:36,695[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:36,783[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing trackandfield[0m
+[[36m2025-09-13 22:04:36,786[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset Frugal but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,788[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset Frugal due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,789[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset fuckolly but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,789[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset fuckolly due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,790[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset AskACountry but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,790[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset AskACountry due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,790[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset almosthomeless but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,790[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset almosthomeless due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,791[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset travel but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,791[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset travel due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,791[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset IndieFolk but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,791[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset IndieFolk due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,792[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset hitchhiking but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,792[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset hitchhiking due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,792[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset gameofthrones but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,793[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset gameofthrones due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,793[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset hiking but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,793[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset hiking due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,794[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset KitchenConfidential but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,794[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset KitchenConfidential due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,794[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset vagabond but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,794[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset vagabond due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,795[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset DumpsterDiving but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,795[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset DumpsterDiving due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,795[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset personalfinance but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,796[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset personalfinance due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,796[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset Nightshift but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,796[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset Nightshift due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,796[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset FolkPunk but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,797[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset FolkPunk due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,797[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset fitbit but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,797[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset fitbit due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,798[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset alaska but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,798[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset alaska due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,798[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset backpacking but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,798[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset backpacking due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,798[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset CampingandHiking but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,799[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset CampingandHiking due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,799[0m][[34mtasks.contrastive_learning.contrastive_dataset[0m][[33mWARNING[0m] - [rank: 0] Attempted to get group hint for dataset Cooking but dataset is not in mapping. Returning -1... [0m
+[[36m2025-09-13 22:04:36,799[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Skipping dataset Cooking due to group hint < 0[0m
+[[36m2025-09-13 22:04:36,800[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: HaircareScience[0m
+[[36m2025-09-13 22:04:36,800[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:36,910[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing HaircareScience[0m
+[[36m2025-09-13 22:04:36,913[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: AskWomenOver30[0m
+[[36m2025-09-13 22:04:36,915[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:37,030[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing AskWomenOver30[0m
+[[36m2025-09-13 22:04:37,035[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: Mommit[0m
+[[36m2025-09-13 22:04:37,037[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:37,128[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing Mommit[0m
+[[36m2025-09-13 22:04:37,131[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: women[0m
+[[36m2025-09-13 22:04:37,133[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:37,229[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing women[0m
+[[36m2025-09-13 22:04:37,233[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: TrollYChromosome[0m
+[[36m2025-09-13 22:04:37,235[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:37,299[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing TrollYChromosome[0m
+[[36m2025-09-13 22:04:37,302[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: bigboobproblems[0m
+[[36m2025-09-13 22:04:37,303[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:37,399[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing bigboobproblems[0m
+[[36m2025-09-13 22:04:37,401[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: BabyBumps[0m
+[[36m2025-09-13 22:04:37,403[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:37,512[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing BabyBumps[0m
+[[36m2025-09-13 22:04:37,515[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: predaddit[0m
+[[36m2025-09-13 22:04:37,518[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:37,601[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing predaddit[0m
+[[36m2025-09-13 22:04:37,604[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: ROTC[0m
+[[36m2025-09-13 22:04:37,605[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:38,508[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing ROTC[0m
+[[36m2025-09-13 22:04:38,515[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: FierceFlow[0m
+[[36m2025-09-13 22:04:38,517[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:38,596[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing FierceFlow[0m
+[[36m2025-09-13 22:04:38,598[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: daddit[0m
+[[36m2025-09-13 22:04:38,600[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:38,672[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing daddit[0m
+[[36m2025-09-13 22:04:38,675[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: OneY[0m
+[[36m2025-09-13 22:04:38,676[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:38,791[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing OneY[0m
+[[36m2025-09-13 22:04:38,793[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: TallMeetTall[0m
+[[36m2025-09-13 22:04:38,795[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:38,867[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing TallMeetTall[0m
+[[36m2025-09-13 22:04:38,869[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: InteriorDesign[0m
+[[36m2025-09-13 22:04:38,870[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:38,947[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing InteriorDesign[0m
+[[36m2025-09-13 22:04:38,949[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: AskMen[0m
+[[36m2025-09-13 22:04:38,950[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:39,036[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing AskMen[0m
+[[36m2025-09-13 22:04:39,042[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: malelivingspace[0m
+[[36m2025-09-13 22:04:39,043[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:39,116[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing malelivingspace[0m
+[[36m2025-09-13 22:04:39,119[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: USMilitarySO[0m
+[[36m2025-09-13 22:04:39,120[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:39,200[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing USMilitarySO[0m
+[[36m2025-09-13 22:04:39,203[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: AskWomen[0m
+[[36m2025-09-13 22:04:39,204[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:39,336[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing AskWomen[0m
+[[36m2025-09-13 22:04:39,340[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: AskMenOver30[0m
+[[36m2025-09-13 22:04:39,340[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:39,435[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing AskMenOver30[0m
+[[36m2025-09-13 22:04:39,438[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing file: CraftyTrolls[0m
+[[36m2025-09-13 22:04:39,439[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Debug mode: processing first 5 graphs[0m
+[[36m2025-09-13 22:04:39,515[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Had 0 errors and 5 success while processing CraftyTrolls[0m
+[[36m2025-09-13 22:04:39,589[0m][[34mdatamodule[0m][[32mINFO[0m] - [rank: 0] TRAIN DEVICE BATCH SIZE: 4[0m
+[[36m2025-09-13 22:04:39,590[0m][[34mdatamodule[0m][[32mINFO[0m] - [rank: 0] TEST DEVICE BATCH SIZE 4[0m
+[[36m2025-09-13 22:04:39,590[0m][[34mdatamodule[0m][[32mINFO[0m] - [rank: 0] Setting test/val batch size 4 -> 1 (group_size=4)[0m
+[[36m2025-09-13 22:04:39,590[0m][[34mdatamodule[0m][[32mINFO[0m] - [rank: 0] Setting train batch size 4 -> 1 (group_size=4)[0m
+[[36m2025-09-13 22:04:39,607[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,608[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,608[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='GunsAreCool' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,610[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,613[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,613[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,614[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='OpenChristian' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,616[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,617[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,617[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,618[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='lastweektonight' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,618[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,619[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,619[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,619[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='AskAnAmerican' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,620[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,621[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,621[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,621[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='Conservative' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,622[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,622[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,623[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,623[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='CGPGrey' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,624[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,625[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,625[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,626[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='askhillarysupporters' with len(all_indices_for_dataset)=3[0m
+[[36m2025-09-13 22:04:39,627[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,627[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,628[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,628[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='EnoughLibertarianSpam' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,629[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,629[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,629[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,630[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='liberalgunowners' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,631[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,631[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,632[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,632[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='TrueChristian' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,633[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,633[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,634[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,634[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='askaconservative' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,635[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,635[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,635[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,636[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='KotakuInAction' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,636[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,637[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,637[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,637[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='AskTrumpSupporters' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,638[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,639[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,639[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,639[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='democrats' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,640[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,641[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,641[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,641[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='excatholic' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,642[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,642[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,642[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,643[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='Catholicism' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,643[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,644[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,644[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,645[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='progun' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,645[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,646[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,646[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,646[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='GamerGhazi' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,647[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,647[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,647[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,648[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='Firearms' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,648[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,649[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,649[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,649[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='The_Donald' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,650[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,650[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,650[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,651[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='hillaryclinton' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,651[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,652[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,652[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,652[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='SandersForPresident' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,653[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,653[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,653[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,653[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='PoliticalVideo' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,654[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,654[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,655[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,655[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='BlueMidterm2018' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,655[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,656[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,656[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,656[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='uncensorednews' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,657[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,657[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,658[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,658[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='GrassrootsSelect' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,659[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,659[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,659[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,659[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='PoliticalHumor' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,660[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,660[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,660[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,661[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='DNCleaks' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,661[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,662[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,662[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,662[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='ChoosingBeggars' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,663[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,663[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,663[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,663[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='HillaryForPrison' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,664[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,665[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,665[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,665[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='dgu' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,666[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,666[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,666[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,666[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='AskThe_Donald' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,667[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,668[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,668[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,669[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='badwomensanatomy' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,669[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,670[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,670[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,671[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='trailrunning' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,672[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,672[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,672[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,673[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='TrueAtheism' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,673[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,674[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,674[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,674[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='pearljam' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,675[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,675[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,675[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,676[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='relationship_advice' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,676[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,677[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,677[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,677[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='teenagers' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,678[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,678[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,679[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,679[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='RedHotChiliPeppers' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,679[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,680[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,680[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,681[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='hsxc' with len(all_indices_for_dataset)=4[0m
+[[36m2025-09-13 22:04:39,681[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,682[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,682[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,682[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='saplings' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,683[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,683[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,684[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,684[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='eldertrees' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,685[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,685[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,686[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,686[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='teenrelationships' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,687[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,687[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,687[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,688[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='canadacordcutters' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,689[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,690[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,690[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,690[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='RedditForGrownups' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,691[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,691[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,691[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,692[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='bapccanada' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,692[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,693[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,693[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,693[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='running' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,694[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,694[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,695[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,695[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='trackandfield' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,696[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,696[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset Frugal not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,696[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset fuckolly not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,697[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset AskACountry not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,697[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset almosthomeless not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,697[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset travel not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,698[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset IndieFolk not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,698[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset hitchhiking not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,698[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset gameofthrones not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,699[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset hiking not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,699[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset KitchenConfidential not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,699[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset vagabond not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,700[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset DumpsterDiving not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,700[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset personalfinance not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,700[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset Nightshift not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,700[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset FolkPunk not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,700[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset fitbit not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,701[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset alaska not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,701[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset backpacking not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,701[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset CampingandHiking not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,702[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Dataset Cooking not found in hdf5 dataset. Skipping.[0m
+[[36m2025-09-13 22:04:39,702[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,702[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,703[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='HaircareScience' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,704[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,704[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,704[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,705[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='AskWomenOver30' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,705[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,706[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,706[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,706[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='Mommit' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,707[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,708[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,708[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,709[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='women' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,709[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,710[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,710[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,710[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='TrollYChromosome' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,711[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,712[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,712[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,712[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='bigboobproblems' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,712[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,713[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,713[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,713[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='BabyBumps' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,714[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,715[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,715[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,715[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='predaddit' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,716[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,716[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,717[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,717[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='ROTC' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,718[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,718[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,719[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,719[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='FierceFlow' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,720[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,720[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,720[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,721[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='daddit' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,721[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,722[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,722[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,722[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='OneY' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,723[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,724[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,724[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,724[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='TallMeetTall' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,725[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,725[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,725[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,726[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='InteriorDesign' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,726[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,727[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,727[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,727[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='AskMen' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,728[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,728[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,729[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,729[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='malelivingspace' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,730[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,730[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,730[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,731[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='USMilitarySO' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,731[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,732[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,732[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,732[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='AskWomen' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,733[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,733[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,734[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,734[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='AskMenOver30' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,735[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,735[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Forcing auto split in debug mode[0m
+[[36m2025-09-13 22:04:39,735[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Generating splits: self.train_size=0.8, self.valid_size=0.1, self.test_size=0.1[0m
+[[36m2025-09-13 22:04:39,735[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Processing dataset_name='CraftyTrolls' with len(all_indices_for_dataset)=5[0m
+[[36m2025-09-13 22:04:39,736[0m][[34mtasks.dataset[0m][[33mWARNING[0m] - [rank: 0] Using test set for validation[0m
+[[36m2025-09-13 22:04:39,738[0m][[34mtasks.dataset[0m][[32mINFO[0m] - [rank: 0] Dataset sizes: {'AskAnAmerican': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'AskMen': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'AskMenOver30': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'AskThe_Donald': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'AskTrumpSupporters': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'AskWomen': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'AskWomenOver30': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'BabyBumps': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'BlueMidterm2018': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'CGPGrey': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'Catholicism': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'ChoosingBeggars': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'Conservative': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'CraftyTrolls': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'DNCleaks': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'EnoughLibertarianSpam': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'FierceFlow': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'Firearms': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'GamerGhazi': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'GrassrootsSelect': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'GunsAreCool': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'HaircareScience': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'HillaryForPrison': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'InteriorDesign': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'KotakuInAction': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'Mommit': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'OneY': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'OpenChristian': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'PoliticalHumor': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'PoliticalVideo': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'ROTC': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'RedHotChiliPeppers': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'RedditForGrownups': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'SandersForPresident': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'TallMeetTall': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'The_Donald': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'TrollYChromosome': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'TrueAtheism': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'TrueChristian': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'USMilitarySO': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'askaconservative': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'askhillarysupporters': {'test_idx': 1, 'train_idx': 2, 'valid_idx': 1},
+ 'badwomensanatomy': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'bapccanada': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'bigboobproblems': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'canadacordcutters': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'daddit': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'democrats': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'dgu': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'eldertrees': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'excatholic': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'hillaryclinton': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'hsxc': {'test_idx': 1, 'train_idx': 3, 'valid_idx': 1},
+ 'lastweektonight': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'liberalgunowners': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'malelivingspace': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'pearljam': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'predaddit': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'progun': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'relationship_advice': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'running': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'saplings': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'teenagers': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'teenrelationships': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'trackandfield': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'trailrunning': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'uncensorednews': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1},
+ 'women': {'test_idx': 1, 'train_idx': 4, 'valid_idx': 1}}[0m
+[[36m2025-09-13 22:04:39,796[0m][[34mdata.bucket_sampler[0m][[32mINFO[0m] - [rank: 0] Since max_total_length is None, we will use the mean length of examples (65) * batch_size (1) as the max total length (65).[0m
+[[36m2025-09-13 22:04:39,797[0m][[34mdata.bucket_sampler[0m][[32mINFO[0m] - [rank: 0] Will attempt to make 66 batches with a target length of 65.[0m
+[[36m2025-09-13 22:04:39,797[0m][[34mdata.bucket_sampler[0m][[32mINFO[0m] - [rank: 0] Starting fixed batch grouping of 66 examples into 66 batches, each with max 1 items and with a target length of 65.[0m
+[[36m2025-09-13 22:04:39,799[0m][[34mdata.bucket_sampler[0m][[32mINFO[0m] - [rank: 0] Done grouping examples into fixed batches. Created 66 batches with an average length of 65.32 (target: 65, min: 37, max: 132).[0m
+[[36m2025-09-13 22:04:39,799[0m][[34mdatamodule[0m][[32mINFO[0m] - [rank: 0] Loading distributed sampler[0m
+[[36m2025-09-13 22:04:39,799[0m][[34mdatamodule[0m][[32mINFO[0m] - [rank: 0] Loading distributed sampler[0m
+[[36m2025-09-13 22:04:39,800[0m][[34mdatamodule[0m][[32mINFO[0m] - [rank: 0] Loading distributed sampler[0m
+┏━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┓
+┃    ┃ Name                                    ┃ Type         ┃ Params ┃ Mode  ┃
+┡━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━┩
+│ 0  │ encoder                                 │ DiscussionT… │  420 M │ train │
+│ 1  │ encoder.encoder_embed_tokens            │ Gemma3TextS… │  201 M │ train │
+│ 2  │ encoder.encoder_rotary_emb              │ Gemma3Rotar… │      0 │ train │
+│ 3  │ encoder.encoder_rotary_emb_local        │ Gemma3Rotar… │      0 │ train │
+│ 4  │ encoder.blocks                          │ ModuleList   │  185 M │ train │
+│ 5  │ encoder.last_text_layer                 │ TextStackLa… │ 29.6 M │ train │
+│ 6  │ encoder.output_pooling                  │ SentenceTra… │  4.7 M │ train │
+│ 7  │ loss                                    │ Contrastive… │      3 │ train │
+│ 8  │ train_classification                    │ MetricColle… │      0 │ train │
+│ 9  │ train_classification.macro_f1           │ MulticlassF… │      0 │ train │
+│ 10 │ train_classification.macro_precision    │ MulticlassP… │      0 │ train │
+│ 11 │ train_classification.macro_recall       │ MulticlassR… │      0 │ train │
+│ 12 │ train_classification.weighted_accuracy  │ MulticlassA… │      0 │ train │
+│ 13 │ train_classification.weighted_f1        │ MulticlassF… │      0 │ train │
+│ 14 │ train_classification.weighted_precision │ MulticlassP… │      0 │ train │
+│ 15 │ train_classification.weighted_recall    │ MulticlassR… │      0 │ train │
+│ 16 │ train_classification.micro_f1           │ MulticlassF… │      0 │ train │
+│ 17 │ train_classification.micro_precision    │ MulticlassP… │      0 │ train │
+│ 18 │ train_classification.micro_recall       │ MulticlassR… │      0 │ train │
+│ 19 │ val_classification                      │ MetricColle… │      0 │ train │
+│ 20 │ val_classification.macro_f1             │ MulticlassF… │      0 │ train │
+│ 21 │ val_classification.macro_precision      │ MulticlassP… │      0 │ train │
+│ 22 │ val_classification.macro_recall         │ MulticlassR… │      0 │ train │
+│ 23 │ val_classification.weighted_accuracy    │ MulticlassA… │      0 │ train │
+│ 24 │ val_classification.weighted_f1          │ MulticlassF… │      0 │ train │
+│ 25 │ val_classification.weighted_precision   │ MulticlassP… │      0 │ train │
+│ 26 │ val_classification.weighted_recall      │ MulticlassR… │      0 │ train │
+│ 27 │ val_classification.micro_f1             │ MulticlassF… │      0 │ train │
+│ 28 │ val_classification.micro_precision      │ MulticlassP… │      0 │ train │
+│ 29 │ val_classification.micro_recall         │ MulticlassR… │      0 │ train │
+│ 30 │ test_classification                     │ MetricColle… │      0 │ train │
+│ 31 │ test_classification.macro_f1            │ MulticlassF… │      0 │ train │
+│ 32 │ test_classification.macro_precision     │ MulticlassP… │      0 │ train │
+│ 33 │ test_classification.macro_recall        │ MulticlassR… │      0 │ train │
+│ 34 │ test_classification.weighted_accuracy   │ MulticlassA… │      0 │ train │
+│ 35 │ test_classification.weighted_f1         │ MulticlassF… │      0 │ train │
+│ 36 │ test_classification.weighted_precision  │ MulticlassP… │      0 │ train │
+│ 37 │ test_classification.weighted_recall     │ MulticlassR… │      0 │ train │
+│ 38 │ test_classification.micro_f1            │ MulticlassF… │      0 │ train │
+│ 39 │ test_classification.micro_precision     │ MulticlassP… │      0 │ train │
+│ 40 │ test_classification.micro_recall        │ MulticlassR… │      0 │ train │
+└────┴─────────────────────────────────────────┴──────────────┴────────┴───────┘
+Trainable params: 420 M
+Non-trainable params: 1
+Total params: 420 M
+Total estimated model params size (MB): 1.7 K
+Modules in train mode: 635
+Modules in eval mode: 0
+Sanity Checking: |          | 0/? [00:00<?, ?it/s][[36m2025-09-13 22:04:40,053[0m][[34mdatamodule[0m][[33mWARNING[0m] - [rank: 0] Size: 15[0m
+Sanity Checking:   0%|          | 0/2 [00:00<?, ?it/s]Sanity Checking DataLoader 0:   0%|          | 0/2 [00:00<?, ?it/s]Sanity Checking DataLoader 0:  50%|█████     | 1/2 [00:02<00:02,  0.41it/s]Sanity Checking DataLoader 0: 100%|██████████| 2/2 [00:03<00:00,  0.55it/s]                                                                           [[36m2025-09-13 22:04:44,009[0m][[34mdatamodule[0m][[33mWARNING[0m] - [rank: 0] Has batch_sampler: True[0m
+[[36m2025-09-13 22:04:44,010[0m][[34mdatamodule[0m][[33mWARNING[0m] - [rank: 0] Size: 66[0m
+Training: |          | 0/? [00:00<?, ?it/s]Training:   0%|          | 0/33 [00:00<?, ?it/s]Epoch 0:   0%|          | 0/33 [00:00<?, ?it/s] [[36m2025-09-13 22:04:44,891[0m][[34mutils.utils[0m][[31mERROR[0m] - [rank: 0] [0m
+Traceback (most recent call last):
+  File "/u2/l2hebert/MDT-2/src/utils/utils.py", line 92, in wrap
+    metric_dict, object_dict = task_func(cfg=cfg)
+                               ^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/train.py", line 99, in train
+    trainer.fit(model=model, datamodule=datamodule)
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/trainer/trainer.py", line 560, in fit
+    call._call_and_handle_interrupt(
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/trainer/call.py", line 49, in _call_and_handle_interrupt
+    return trainer_fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/trainer/trainer.py", line 598, in _fit_impl
+    self._run(model, ckpt_path=ckpt_path)
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/trainer/trainer.py", line 1011, in _run
+    results = self._run_stage()
+              ^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/trainer/trainer.py", line 1055, in _run_stage
+    self.fit_loop.run()
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/fit_loop.py", line 216, in run
+    self.advance()
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/fit_loop.py", line 455, in advance
+    self.epoch_loop.run(self._data_fetcher)
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/training_epoch_loop.py", line 152, in run
+    self.advance(data_fetcher)
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/training_epoch_loop.py", line 348, in advance
+    batch_output = self.automatic_optimization.run(trainer.optimizers[0], batch_idx, kwargs)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/optimization/automatic.py", line 192, in run
+    self._optimizer_step(batch_idx, closure)
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/optimization/automatic.py", line 270, in _optimizer_step
+    call._call_lightning_module_hook(
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/trainer/call.py", line 177, in _call_lightning_module_hook
+    output = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/core/module.py", line 1366, in optimizer_step
+    optimizer.step(closure=optimizer_closure)
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/core/optimizer.py", line 154, in step
+    step_output = self._strategy.optimizer_step(self._optimizer, closure, **kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/strategies/strategy.py", line 239, in optimizer_step
+    return self.precision_plugin.optimizer_step(optimizer, model=model, closure=closure, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/plugins/precision/fsdp.py", line 157, in optimizer_step
+    return super().optimizer_step(optimizer, model=model, closure=closure, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/plugins/precision/precision.py", line 123, in optimizer_step
+    return optimizer.step(closure=closure, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/optim/lr_scheduler.py", line 133, in wrapper
+    return func.__get__(opt, opt.__class__)(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py", line 516, in wrapper
+    out = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/optim/optimizer.py", line 81, in _use_grad
+    ret = func(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/optim/adam.py", line 226, in step
+    loss = closure()
+           ^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/plugins/precision/precision.py", line 109, in _wrap_closure
+    closure_result = closure()
+                     ^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/optimization/automatic.py", line 146, in __call__
+    self._result = self.closure(*args, **kwargs)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 120, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/optimization/automatic.py", line 131, in closure
+    step_output = self._step_fn()
+                  ^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/loops/optimization/automatic.py", line 319, in _training_step
+    training_step_output = call._call_strategy_hook(trainer, "training_step", *kwargs.values())
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/trainer/call.py", line 329, in _call_strategy_hook
+    output = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/strategies/strategy.py", line 390, in training_step
+    return self._forward_redirection(self.model, self.lightning_module, "training_step", *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/strategies/strategy.py", line 641, in __call__
+    wrapper_output = wrapper_module(*args, **kwargs)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py", line 854, in forward
+    output = self._fsdp_wrapped_module(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/lightning/pytorch/strategies/strategy.py", line 634, in wrapped_forward
+    out = method(*_args, **_kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/model.py", line 235, in training_step
+    loss, ret_metrics = self.model_step(batch, self.metrics["train"])
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/model.py", line 117, in model_step
+    node_embeddings, graph_embeddings, aux_loss = self.forward(x)
+                                                  ^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/model.py", line 99, in forward
+    return self.encoder(**x)
+           ^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/components/v3/discussion_transformer_simple.py", line 431, in forward
+    prepared_text_inputs, recreation_loss = block.forward(
+                                            ^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/components/v3/discussion_transformer_simple.py", line 192, in forward
+    text_model_inputs = self.text_layer(text_model_inputs)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/components/v3/discussion_transformer_simple.py", line 163, in forward
+    gemma_out = layer(
+                ^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/transformers/modeling_layers.py", line 94, in __call__
+    return super().__call__(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/transformers/utils/deprecation.py", line 172, in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/transformers/models/gemma3/modeling_gemma3.py", line 389, in forward
+    hidden_states, self_attn_weights = self.self_attn(
+                                       ^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/transformers/utils/deprecation.py", line 172, in wrapped_func
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/transformers/models/gemma3/modeling_gemma3.py", line 319, in forward
+    query_states = self.q_norm(query_states)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u2/l2hebert/MDT-2/src/.venv/lib/python3.11/site-packages/transformers/models/gemma3/modeling_gemma3.py", line 143, in forward
+    output = self._norm(x.float())
+                        ^^^^^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 372.00 MiB. GPU 0 has a total capacity of 47.51 GiB of which 155.31 MiB is free. Process 1585997 has 47.35 GiB memory in use. Of the allocated memory 46.31 GiB is allocated by PyTorch, and 94.15 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[[36m2025-09-13 22:04:44,907[0m][[34mutils.utils[0m][[32mINFO[0m] - [rank: 0] Output dir: /u2/l2hebert/MDT-2/src/logs/pretrain3/multiruns/2025-09-13_22-04-07/0[0m
+[[36m2025-09-13 22:04:44,907[0m][[34mutils.utils[0m][[32mINFO[0m] - [rank: 0] Closing wandb![0m

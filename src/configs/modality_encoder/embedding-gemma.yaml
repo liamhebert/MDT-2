@@ -1,0 +1,6 @@
+text_config:
+  text_model_name: "google/embeddinggemma-300m"
+  has_token_type_ids: False
+  add_position_ids: False
+
+vision_model_name: null

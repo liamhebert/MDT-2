@@ -107,6 +107,9 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
         graph_token_average: bool = False,
         block_size: int = _DEFAULT_SPARSE_BLOCK_SIZE,
         concat_graph_to_node: bool = False,
+        use_gating: bool = False,
+        gate_per_dim: bool = False,
+        gate_hidden_dim: int | None = None,
     ) -> None:
         """The Discussion Transformer model, which fuses comment modalities with
         graph context.
@@ -183,10 +186,10 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
             freeze_initial_encoders (bool, optional): Whether to freeze the
                 pre-fusion layers of BERT and ViT. Defaults to False.
             graph_token_average (bool, optional): Whether to average the
-                embeddings of the node tokens as the output. If False, we use the
-                gCLS token instead. Defaults to False.
-            block_size (int, optional): The sparse block size to use for attention
-                masking. Defaults to _DEFAULT_SPARSE_BLOCK_SIZE (128).
+                embeddings of the node tokens as the output. If False, we use
+                the gCLS token instead. Defaults to False.
+            block_size (int, optional): The sparse block size to use for
+                attention masking. Defaults to _DEFAULT_SPARSE_BLOCK_SIZE (128).
         """
         super().__init__()
 
@@ -198,6 +201,12 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
         self.embedding_dim = embedding_dim
         self.graph_node_feature = graph_node_feature
         self.graph_token_average = graph_token_average
+        if self.graph_token_average:
+            self.pooler = torch.nn.Sequential(
+                nn.Linear(self.embedding_dim, 3072, bias=False),
+                nn.Linear(3072, self.embedding_dim, bias=False),
+            )
+
         self.concat_graph_to_node = concat_graph_to_node
 
         total_fusion_layers = fusion_stack_size * num_fusion_stack
@@ -206,7 +215,7 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
             **vit_model_config,
         )  # type: ignore[misc]
 
-        self.text_model, text_fusion_layers = self.build_bert_encoder(
+        self.text_model, text_fusion_layers = self.build_text_encoder(
             num_fusion_layers=total_fusion_layers,
             **text_model_config,
         )  # type: ignore[misc]
@@ -234,6 +243,9 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
             vit_dim=self.embedding_dim,
             bottleneck_dim=self.embedding_dim,
             use_projection=False,
+            use_gating=use_gating,
+            gate_per_dim=gate_per_dim,
+            gate_hidden_dim=gate_hidden_dim,
         )
 
         self.blocks = nn.ModuleList(
@@ -244,6 +256,9 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
                     vit_layer_stack=vit,
                     embedding_dim=self.embedding_dim,
                     num_bottlenecks=num_bottle_neck,
+                    use_gating=use_gating,
+                    gate_per_dim=gate_per_dim,
+                    gate_hidden_dim=gate_hidden_dim,
                 )
                 for i, (text, vit) in enumerate(
                     zip(grouped_text_layers[1:], grouped_vit_layers[1:])
@@ -393,7 +408,7 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
 
         return vit_model, vit_other_layers
 
-    def build_bert_encoder(
+    def build_text_encoder(
         self,
         bert_model_name: str,
         attention_dropout: float,
@@ -528,21 +543,23 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
         num_total_graphs: int,
         graph_mask: torch.Tensor,
         graph_ids: torch.Tensor,
+        cu_seqlens: torch.Tensor | None = None,
+        max_seqlen: int | None = None,
         **kwargs,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor] | None]:
         """The forward function of the Discussion Transformer model.
 
         Args:
             == Text inputs ==
             text_input (dict[str, torch.Tensor]): The tokenized text inputs,
                 containing:
-                - text_input_ids (torch.Tensor): batched tokenized text ids, with
-                    shape (batch_size * nodes, T)
-                - text_token_type_ids (torch.Tensor): batched token type ids, with
-                    shape (batch_size * nodes, T)
-                - text_attention_mask (torch.Tensor): batched text attention mask,
-                    with shape (batch_size * nodes, T), where 1 indicates a token
-                    that should be attended to and 0 indicates padding.
+                - text_input_ids (torch.Tensor): batched tokenized text ids,
+                    with shape (batch_size * nodes, T)
+                - text_token_type_ids (torch.Tensor): batched token type ids,
+                    with shape (batch_size * nodes, T)
+                - text_attention_mask (torch.Tensor): batched text attention
+                    mask, with shape (batch_size * nodes, T), where 1 indicates
+                    a token that should be attended to and 0 indicates padding.
 
             == Image inputs ==
             image_input (torch.Tensor): batched and tokenized image features,
@@ -552,9 +569,10 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
 
             == Graph inputs ==
             graph_ids (torch.Tensor): Id of the graph each node belongs to,
-                where padding nodes are assigned the value PADDING_GRAPH_ID, with
-                shape (batch_size * nodes). This is used to mask out attention.
-                It is assumed that the graph_ids are contiguous and start from 0.
+                where padding nodes are assigned the value PADDING_GRAPH_ID,
+                with shape (batch_size * nodes). This is used to mask out
+                attention. It is assumed that the graph_ids are contiguous and
+                start from 0.
             spatial_pos (torch.Tensor): Matrix with shape
                 (batch_size * nodes, batch_size * nodes, 2) indicating the
                 number of up hops and down hops between each node in the graph.
@@ -585,6 +603,9 @@ class DiscussionTransformerPrototype(ABC, nn.Module):
         vit_layer_stack: list[ViTLayer],
         embedding_dim: int,
         num_bottlenecks: int,
+        use_gating: bool = False,
+        gate_per_dim: bool = False,
+        gate_hidden_dim: int | None = None,
     ) -> DiscussionTransformerBlock: ...
 
 
@@ -611,6 +632,9 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
         vit_layer_stack: list[ViTLayer],
         embedding_dim: int,
         num_bottlenecks: int,
+        use_gating: bool = False,
+        gate_per_dim: bool = False,
+        gate_hidden_dim: int | None = None,
     ):
         """Returns a DiscussionTransformerBlock with the given parameters."""
         return DiscussionTransformerBlock(
@@ -619,6 +643,9 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
             vit_layer_stack=vit_layer_stack,
             embedding_dim=embedding_dim,
             num_bottlenecks=num_bottlenecks,
+            use_gating=use_gating,
+            gate_per_dim=gate_per_dim,
+            gate_hidden_dim=gate_hidden_dim,
         )
 
     def forward(
@@ -632,20 +659,20 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
         graph_mask: torch.Tensor,
         graph_ids: torch.Tensor,
         **kwargs,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, None]:
         """The forward function of the Discussion Transformer model.
 
         Args:
             == Text inputs ==
             text_input (dict[str, torch.Tensor]): The tokenized text inputs,
                 containing:
-                - text_input_ids (torch.Tensor): batched tokenized text ids, with
-                    shape (batch_size * nodes, T)
-                - text_token_type_ids (torch.Tensor): batched token type ids, with
-                    shape (batch_size * nodes, T)
-                - text_attention_mask (torch.Tensor): batched text attention mask,
-                    with shape (batch_size * nodes, T), where 1 indicates a token
-                    that should be attended to and 0 indicates padding.
+                - text_input_ids (torch.Tensor): batched tokenized text ids,
+                    with shape (batch_size * nodes, T)
+                - text_token_type_ids (torch.Tensor): batched token type ids,
+                    with shape (batch_size * nodes, T)
+                - text_attention_mask (torch.Tensor): batched text attention
+                    mask, with shape (batch_size * nodes, T), where 1 indicates
+                    a token that should be attended to and 0 indicates padding.
 
             == Image inputs ==
             image_input (torch.Tensor): batched and tokenized image features,
@@ -655,9 +682,10 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
 
             == Graph inputs ==
             graph_ids (torch.Tensor): Id of the graph each node belongs to,
-                where padding nodes are assigned the value PADDING_GRAPH_ID, with
-                shape (batch_size * nodes). This is used to mask out attention.
-                It is assumed that the graph_ids are contiguous and start from 0.
+                where padding nodes are assigned the value PADDING_GRAPH_ID,
+                with shape (batch_size * nodes). This is used to mask out
+                attention. It is assumed that the graph_ids are contiguous and
+                start from 0.
             spatial_pos (torch.Tensor): Matrix with shape
                 (batch_size * nodes, batch_size * nodes, 2) indicating the
                 number of up hops and down hops between each node in the graph.
@@ -711,13 +739,23 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
             bert_position_ids=None,
         )
         # This does not have the graph ids in them
-        graph_x = bottle_neck[:, 0, :]
+        # Derive initial per-node representation from textual (and optional
+        # image) content instead of relying on the first bottleneck token which
+        # is identical across nodes before any graph processing. This makes
+        # graph depth immediately impactful.
+        graph_x = bert_output[:, 0, :].contiguous()  # CLS / first token
+        # If vision features are present, vit_output aligns with image rows
+        # already
+        if vit_output is not None and image_padding_mask.any():
+            vit_cls = vit_output[:, 0, :].contiguous()
+            # Map back only to rows with images
+            graph_x[image_padding_mask] = 0.5 * (
+                graph_x[image_padding_mask] + vit_cls
+            )
         assert graph_x.size() == (flattened_batch, hidden_dim)
 
-        # This does
-        # graph_x, graph_ids = self.graph_node_feature(
-        #     graph_x, out_degree, graph_ids, num_total_graphs
-        # )
+        # Build graph/node stacked tensor.
+        # Graph tokens are prepended inside feature layer.
         graph_x = self.graph_node_feature(graph_x, out_degree, num_total_graphs)
 
         # assert graph_ids.shape == graph_x.shape[:1], (
@@ -751,6 +789,7 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
             global_embedding = self.average_embeddings_by_index(
                 graph_x[num_total_graphs:], graph_ids[num_total_graphs:]
             )
+            global_embedding = self.pooler(global_embedding)
         else:
             global_embedding = graph_x[:num_total_graphs, :]
 
@@ -766,4 +805,4 @@ class DiscussionTransformer(DiscussionTransformerPrototype):
                 dim=-1,
             )
 
-        return node_embedding, global_embedding
+        return node_embedding, global_embedding, None

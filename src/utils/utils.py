@@ -14,6 +14,7 @@ from omegaconf import DictConfig
 from utils import pylogger
 from utils import rich_utils
 import os
+import torch
 
 log = pylogger.RankedLogger(__name__, rank_zero_only=True)
 
@@ -88,13 +89,15 @@ def task_wrapper(task_func: Callable) -> Callable:
 
     def wrap(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         # execute the task
+        metric_dict, object_dict = {}, {}
         try:
             metric_dict, object_dict = task_func(cfg=cfg)
 
         # things to do if exception occurs
         except Exception as ex:
             # save exception to `.log` file
-            log.exception("")
+            log.exception(ex)
+            torch.distributed.destroy_process_group()
 
             # some hyperparameter combinations might be invalid or cause
             # out-of-memory errors so when using hparam search plugins like
@@ -106,6 +109,10 @@ def task_wrapper(task_func: Callable) -> Callable:
         finally:
             # display output dir path in terminal
             log.info(f"Output dir: {cfg.paths.output_dir}")
+            try:
+                torch.distributed.destroy_process_group()
+            except Exception:
+                pass
 
             # always close wandb run (even if exception occurs so multirun won't
             # fail)

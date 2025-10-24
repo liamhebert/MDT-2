@@ -4,4 +4,4 @@ export TOKENIZERS_PARALLELISM=false
 
 # conda activate flash
 
-nohup python train.py experiment=giga_pretrain_siglip_anchor logger=wandb env=rcohen hparams_search=pretrain &
+nohup uv run train.py experiment=pretrain_v3_gemma_sup_con logger=wandb env=rcohen hparams_search=pretrain_v3 &

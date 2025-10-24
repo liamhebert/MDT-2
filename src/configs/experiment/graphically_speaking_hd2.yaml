@@ -1,0 +1,55 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /modality_encoder: bert-vit-base
+  - override /dataset: hateful_discussions
+  - override /model/encoder: graphically_speaking
+  - override /model/loss: cross_entropy
+  - override /model/scheduler: finetune
+  - override /trainer: gpu
+  - _self_
+
+tags: ["HD2", "v1", "bert-vit", "gs"]
+
+
+trainer:
+  min_epochs: 1
+  max_epochs: 10
+  # gradient_clip_val: 0.5
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "gs_disco"
+    project: "gs_disco"
+  aim:
+    experiment: "gs_disco"
+
+model:
+  loss:
+    num_classes: 2
+  encoder:
+    block_size: 1
+    embedding_dim: 768
+    hidden_dim: 768
+  optimizer:
+    lr: 3e-5
+  scheduler:
+    dataset_steps: 36920
+
+dataset:
+  dataset:
+    force_tag: "HD2_mdt_split"
+    split_graphs: True
+    collate_type: "pyg"
+
+  train_batch_size: 24
+  test_batch_size: 24
+  max_total_length: null
+
+
+
+task_name: "gs_hd2"

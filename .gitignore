@@ -10,6 +10,8 @@ src/logs/
 *.parquet
 src/analysis/*.json
 src/wandb/
+*.npy
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

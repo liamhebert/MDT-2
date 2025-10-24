@@ -1,0 +1,53 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /modality_encoder: embedding-gemma
+  - override /dataset: giga_pretrain
+  - override /model/encoder: text_only
+  - override /model/scheduler: pretrain
+  - override /model/loss: contrastive_loss
+  - override /trainer: gpu
+  - _self_
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["GIGA-pretrain", "v3", "gemma", "disco"]
+
+seed: 12345
+
+trainer:
+  min_epochs: 1
+  max_epochs: 10
+  gradient_clip_val: 0.5
+
+logger:
+  wandb:
+    tags: ${tags}
+    group: "giga_pretrain_gemma"
+  aim:
+    experiment: "giga_pretrain_gemma"
+
+model:
+  loss:
+    num_classes: 6
+    learnable_temperature: True
+    adaptive_soft_negative_weight: False
+    soft_negative_weight: 1.0
+    temperature: 3.0
+    bias: 0
+  scheduler:
+    dataset_steps: 18737 # Total is 412,080
+  optimizer:
+    lr: 3e-4
+
+dataset:
+  train_batch_size: 10
+  max_total_length: null
+  test_batch_size: 10
+  group_size: 2
+
+task_name: "pretrain-text-only"

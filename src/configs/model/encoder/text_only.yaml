@@ -1,0 +1,2 @@
+_target_: components.TextOnly.text_only_aggregator.TextOnlyModel
+block_size: 1

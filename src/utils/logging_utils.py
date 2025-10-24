@@ -50,7 +50,7 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
 
     hparams["dataset"] = cfg["dataset"]
     hparams["trainer"] = cfg["trainer"]
-    hparams["model/modality_encoder"] = cfg["modality_encoder"]
+    hparams["model"]["modality_encoder"] = cfg["modality_encoder"]
 
     hparams["callbacks"] = cfg.get("callbacks")
     hparams["extras"] = cfg.get("extras")
@@ -59,6 +59,7 @@ def log_hyperparameters(object_dict: Dict[str, Any]) -> None:
     hparams["tags"] = cfg.get("tags")
     hparams["ckpt_path"] = cfg.get("ckpt_path")
     hparams["seed"] = cfg.get("seed")
+    hparams["paths"] = cfg.get("paths")
 
     # send hparams to all loggers
     for logger in trainer.loggers:

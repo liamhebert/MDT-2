@@ -12,7 +12,6 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from data.bucket_sampler import LengthGroupedSampler, LengthSubsetDataset
 from data.collated_datasets import CollatedDataset
 from utils import RankedLogger
-from typing import Iterable
 
 tqdm.pandas()
 log = RankedLogger(__name__, rank_zero_only=False)
@@ -44,15 +43,16 @@ class DataModule(LightningDataModule):
 
     # Datasets are loaded in lazily during "setup" to assist with DDP
     _train_dataset: Subset | LengthSubsetDataset | None = None
-    _val_dataset: Subset | None = None
-    _test_dataset: Subset | None = None
+    _val_dataset: Subset | LengthSubsetDataset | None = None
+    _test_dataset: Subset | LengthSubsetDataset | None = None
 
     _train_device_batch_size: int | None = None
     _test_device_batch_size: int | None = None
 
     batch_sampler: LengthGroupedSampler | None = None
-    _val_sampler: DistributedSampler | None = None
-    _test_sampler: DistributedSampler | None = None
+    hard_limit: int | None = None
+    _val_sampler: LengthGroupedSampler | DistributedSampler | None = None
+    _test_sampler: LengthGroupedSampler | DistributedSampler | None = None
     _train_sampler: DistributedSampler | None = None
 
     master_dataset: CollatedDataset
@@ -69,6 +69,7 @@ class DataModule(LightningDataModule):
         max_total_length: int | None = None,
         max_length_multiplier: float | None = None,
         group_size: int = 1,
+        block_size: int = 1,
     ):
         super().__init__()
         assert (
@@ -78,8 +79,20 @@ class DataModule(LightningDataModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.master_dataset = dataset
-        assert train_batch_size % group_size == 0
-        assert test_batch_size % group_size == 0
+        log.info("Using hard limit of block size %d", block_size)
+        self.hard_limit = block_size
+        if block_size == 1:
+            log.warning("No block size set, removing hard limit")
+            self.hard_limit = None
+
+        assert train_batch_size % group_size == 0, (
+            f"{train_batch_size=} % {group_size=} ="
+            f" {train_batch_size % group_size}"
+        )
+        assert test_batch_size % group_size == 0, (
+            f"{test_batch_size=} % {group_size=} ="
+            f" {test_batch_size % group_size}"
+        )
         self.save_hyperparameters(logger=False, ignore="dataset")
 
     def prepare_data(self):
@@ -100,20 +113,58 @@ class DataModule(LightningDataModule):
         if self.master_dataset._hdf5_file is not None:
             self.master_dataset._hdf5_file.close()
 
-    def build_sampler(self, dataset: Iterable) -> DistributedSampler | None:
+    def build_sampler(self, dataset: object) -> DistributedSampler | None:
         """Build a distributed sampler for the dataset."""
         if self.trainer:
             distributed_kwargs = self.trainer.distributed_sampler_kwargs
             if distributed_kwargs is not None:
                 log.info("Loading distributed sampler")
-                return DistributedSampler(
-                    dataset,
+                # We intentionally bypass strict typing here because we may
+                # pass in a range object representing batch indices.
+                return DistributedSampler(  # type: ignore[arg-type]
+                    dataset,  # type: ignore[arg-type]
                     **distributed_kwargs,
                     drop_last=True,  # type: ignore
                 )
             else:
                 return None
         return None
+
+    def prepare_dataset(
+        self, indices: list[int], batch_size: int, max_total_length: int | None
+    ) -> tuple[LengthSubsetDataset, LengthGroupedSampler]:
+        dataset = LengthSubsetDataset(self.master_dataset, indices)
+        dataset_indices = dataset.indices
+        # Rank 0 will compute lengths as part of accessing get_sizes; we still
+        # need to gather lengths on all ranks before constructing the sampler.
+        # We keep a minimal broadcast for lengths only; grouping is now
+        # encapsulated in LengthGroupedSampler.
+        import torch.distributed as dist
+
+        is_dist = dist.is_available() and dist.is_initialized()
+        rank_zero = (not is_dist) or dist.get_rank() == 0
+        if rank_zero:
+            example_lengths = self.master_dataset.get_sizes(dataset_indices)
+        else:
+            example_lengths = [0] * len(dataset_indices)
+
+        batch_sampler = LengthGroupedSampler(
+            example_lengths=example_lengths,
+            batch_size=batch_size,
+            shuffle=True,
+            shuffle_every_epoch=True,
+            drop_last=True,
+            max_total_length=max_total_length,
+            hard_limit=self.hard_limit,
+        )
+
+        sampler = self.build_sampler(range(len(batch_sampler)))
+        if sampler is None:
+            sampler = SequentialSampler(range(len(batch_sampler)))
+
+        batch_sampler.set_sampler(sampler)
+
+        return dataset, batch_sampler
 
     def setup(self, stage: str):
         """Load dataset for training/validation/testing.
@@ -172,6 +223,10 @@ class DataModule(LightningDataModule):
             f"Setting test/val batch size {self._test_device_batch_size} ->"
             f" {updated_size} ({group_size=})"
         )
+        assert updated_size > 0, (
+            f"Test batch size {self._test_device_batch_size} too small"
+            f" for {group_size=}"
+        )
         self._test_device_batch_size = updated_size
 
         group_size = self.hparams.group_size  # type: ignore
@@ -179,6 +234,10 @@ class DataModule(LightningDataModule):
         log.info(
             f"Setting train batch size {self._train_device_batch_size} ->"
             f" {updated_size} ({group_size=})"
+        )
+        assert updated_size > 0, (
+            f"Train batch size {self._train_device_batch_size} too small"
+            f" for {group_size=}"
         )
         self._train_device_batch_size = updated_size
 
@@ -193,60 +252,45 @@ class DataModule(LightningDataModule):
             log.warning(f"Skipping loading training data due to {stage=}")
 
         if self._train_dataset is None and stage != "inference":
-            # make training dataset
-            if self.hparams.use_length_grouped_sampler:  # type: ignore
-                self._train_dataset = LengthSubsetDataset(
-                    self.master_dataset,
-                    self.master_dataset.train_idx,
-                )
-                indices = self._train_dataset.indices
-                example_lengths = self.master_dataset.get_sizes(indices)
-                assert example_lengths is not None, "Graph sizes not loaded"
-                multiplier = self.hparams.max_length_multiplier  # type: ignore
-                if multiplier is not None:
-                    max_total_length = int(
-                        self._train_device_batch_size * multiplier
-                    )
-
-                # Since we do distributed training, this can't be shuffled
-                self.batch_sampler = LengthGroupedSampler(
-                    example_lengths=example_lengths,
-                    batch_size=self._train_device_batch_size,  # type: ignore
-                    shuffle=True,
-                    shuffle_every_epoch=True,
-                    drop_last=True,
-                    max_total_length=max_total_length,
+            multiplier = self.hparams.max_length_multiplier  # type: ignore
+            assert self._train_device_batch_size is not None
+            if multiplier is not None:
+                max_total_length = int(
+                    self._train_device_batch_size * multiplier
                 )
 
-                sampler = self.build_sampler(range(len(self.batch_sampler)))
-                if sampler is None:
-                    sampler = SequentialSampler(range(len(self.batch_sampler)))
-
-                self.batch_sampler.set_sampler(sampler)
-            else:
-                self._train_dataset = Subset(
-                    self.master_dataset, self.master_dataset.train_idx
-                )
-                self._train_sampler = self.build_sampler(
-                    self.master_dataset.train_idx
-                )
+            self._train_dataset, self.batch_sampler = self.prepare_dataset(
+                self.master_dataset.train_idx,
+                self._train_device_batch_size,
+                max_total_length,
+            )
 
         if self._val_dataset is None:
             # make validation dataset
-            self._val_dataset = Subset(
-                self.master_dataset, self.master_dataset.valid_idx
-            )
-            self._val_sampler = self.build_sampler(
-                self.master_dataset.valid_idx
+            multiplier = self.hparams.max_length_multiplier  # type: ignore
+            assert self._test_device_batch_size is not None
+            if multiplier is not None:
+                max_total_length = int(
+                    self._test_device_batch_size * multiplier
+                )
+            self._val_dataset, self._val_sampler = self.prepare_dataset(
+                self.master_dataset.valid_idx,
+                self._test_device_batch_size,
+                max_total_length,
             )
 
         if self._test_dataset is None:
             # Make test dataset
-            self._test_dataset = Subset(
-                self.master_dataset, self.master_dataset.test_idx
-            )
-            self._test_sampler = self.build_sampler(
-                self.master_dataset.test_idx
+            multiplier = self.hparams.max_length_multiplier  # type: ignore
+            assert self._test_device_batch_size is not None
+            if multiplier is not None:
+                max_total_length = int(
+                    self._test_device_batch_size * multiplier
+                )
+            self._test_dataset, self._test_sampler = self.prepare_dataset(
+                self.master_dataset.test_idx,
+                self._test_device_batch_size,
+                max_total_length,
             )
 
         # if flag_cache_later:
@@ -297,13 +341,13 @@ class DataModule(LightningDataModule):
         log.warning(f"Size: {len(self._val_dataset)}")
         return StatefulDataLoader(
             self._val_dataset,
-            sampler=self._val_sampler,
-            batch_size=self._test_device_batch_size,  # type: ignore
-            shuffle=False,
+            batch_sampler=self._val_sampler,
+            sampler=None,
+            batch_size=1,  # type: ignore
+            shuffle=None,
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
-            drop_last=True,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -314,11 +358,11 @@ class DataModule(LightningDataModule):
         log.warning(f"Size: {len(self._test_dataset)}")
         return StatefulDataLoader(
             self._test_dataset,
-            sampler=self._test_sampler,
-            batch_size=self._test_device_batch_size,  # type: ignore
-            shuffle=False,
+            batch_sampler=self._test_sampler,
+            sampler=None,
+            batch_size=1,  # type: ignore
+            shuffle=None,
             num_workers=self.hparams.num_workers,  # type: ignore
             pin_memory=self.hparams.pin_memory,  # type: ignore
             collate_fn=self.master_dataset.collate_fn,
-            drop_last=True,
         )

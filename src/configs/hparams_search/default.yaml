@@ -9,7 +9,7 @@ defaults:
 
 # choose metric which will be optimized by Optuna
 # make sure this is the correct name of some metric logged in lightning module!
-optimized_metric: "val/best_loss"
+optimized_metric: "val/loss_epoch"
 
 # here we define Optuna hyperparameter search
 # it optimizes for value returned from function with @hydra.main decorator
@@ -36,8 +36,6 @@ hydra:
     direction: minimize
 
     # total number of runs that will be executed
-    sampler:
-      seed: 42
 
     # choose Optuna hyperparameter sampler
     # you can choose bayesian sampler (tpe), random search (without optimization), grid sampler, and others

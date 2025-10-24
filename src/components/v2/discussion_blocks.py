@@ -21,6 +21,9 @@ class DiscussionTransformerBlock(nn.Module):
         vit_layer_stack: list[ViTLayer],
         embedding_dim: int = 768,
         num_bottlenecks: int = 1,
+        use_gating: bool = False,
+        gate_per_dim: bool = False,
+        gate_hidden_dim: int | None = None,
     ):
         super().__init__()
         self.fusion_layer = GraphFusionStack(
@@ -30,6 +33,9 @@ class DiscussionTransformerBlock(nn.Module):
             bottleneck_dim=embedding_dim,
             bert_dim=embedding_dim,
             vit_dim=embedding_dim,
+            use_gating=use_gating,
+            gate_per_dim=gate_per_dim,
+            gate_hidden_dim=gate_hidden_dim,
         )
         # self.pre_norm = RMSNorm(embedding_dim)
         self.graph_layer = graph_layer

@@ -108,6 +108,7 @@ def test_soft_negative_weight(weight):
         bias=0.0,
         adaptive_soft_negative_weight=(weight == "adaptive"),
         soft_negative_weight=0.3 if weight == "fixed" else 0.0,
+        symmetric=False,
     )
     batch_metrics = loss.build_batch_metric_aggregators()
     node_x = None
@@ -163,16 +164,13 @@ def test_soft_negative_weight(weight):
             ]
         )
 
-    num_valid_labels = torch.clamp((weight_matrix.sum(dim=1) > 0).sum(), min=1)
-
-    expected_loss = (
-        torch.einsum(
-            "ij, ij -> i",
-            -F.logsigmoid(expect_sim * expect_labels),
-            weight_matrix,
-        ).sum()
-        / num_valid_labels
-    )
+    # Row-wise normalized means then mean over valid rows (matches implementation)
+    pair_loss = -F.logsigmoid(expect_sim * expect_labels)
+    row_weight_sums = weight_matrix.sum(dim=1)
+    denoms = torch.clamp(row_weight_sums, min=1.0)
+    row_means = (pair_loss * weight_matrix).sum(dim=1) / denoms
+    valid_rows = row_weight_sums > 0
+    expected_loss = row_means[valid_rows].mean()
 
     test.assert_close(loss_value, expected_loss)
 
@@ -186,6 +184,7 @@ def test_contrastive_loss_value():
         bias=0.0,
         adaptive_soft_negative_weight=False,
         soft_negative_weight=0.0,
+        symmetric=False,
     )
     batch_metrics = loss.build_batch_metric_aggregators()
 
@@ -222,15 +221,13 @@ def test_contrastive_loss_value():
     )
     expect_labels = (expect_labels * 2) - 1
 
-    # Each row must sum to the number of labels, therefore, 1 each.
-    weight_matrix = torch.ones((3, 3))
-    weight_matrix = weight_matrix.fill_diagonal_(0)
-
-    expected_loss = torch.einsum(
-        "ij, ij -> i",
-        -F.logsigmoid(expect_sim * expect_labels),
-        weight_matrix,
-    ).mean()
+    # Row-wise normalization across non-diagonal entries
+    weight_matrix = torch.ones((3, 3)).fill_diagonal_(0)
+    pair_loss = -F.logsigmoid(expect_sim * expect_labels)
+    row_weight_sums = weight_matrix.sum(dim=1)
+    denoms = torch.clamp(row_weight_sums, min=1.0)
+    row_means = (pair_loss * weight_matrix).sum(dim=1) / denoms
+    expected_loss = row_means.mean()
 
     test.assert_close(loss_value, expected_loss)
 
@@ -292,18 +289,12 @@ def test_contrastive_loss_value():
         [[1.0, 0.0, 0.0], [0.0, 1.0, 1.0], [0.0, 1.0, 1.0]]
     )
     expect_labels = (expect_labels * 2) - 1
-    weight_matrix = torch.ones((3, 3))
-    weight_matrix = weight_matrix.fill_diagonal_(0)
-
-    num_valid_labels = torch.clamp((weight_matrix.sum(dim=1) > 0).sum(), min=1)
-    expected_loss = (
-        torch.einsum(
-            "ij, ij -> i",
-            -F.logsigmoid(expect_sim * expect_labels),
-            weight_matrix,
-        ).sum()
-        / num_valid_labels
-    )
+    weight_matrix = torch.ones((3, 3)).fill_diagonal_(0)
+    pair_loss = -F.logsigmoid(expect_sim * expect_labels)
+    row_weight_sums = weight_matrix.sum(dim=1)
+    denoms = torch.clamp(row_weight_sums, min=1.0)
+    row_means = (pair_loss * weight_matrix).sum(dim=1) / denoms
+    expected_loss = row_means.mean()
 
     test.assert_close(loss_value_2, expected_loss)
 
@@ -352,6 +343,7 @@ def test_distributed_contrastive_loss_value(num_gpus: int):
         num_classes=4,
         bias=0.0,
         force_all_gather=True,
+        symmetric=False,
     )
 
     batch_metrics = loss.build_batch_metric_aggregators()
@@ -374,8 +366,7 @@ def test_distributed_contrastive_loss_value(num_gpus: int):
         ContrastiveLabels.HardYs: torch.tensor([1, 0, 0, -100]),
     }
 
-    weight_matrix = torch.ones((3 * num_gpus, 3 * num_gpus))
-    weight_matrix = weight_matrix.fill_diagonal_(0)
+    weight_matrix = torch.ones((3 * num_gpus, 3 * num_gpus)).fill_diagonal_(0)
 
     expected_logits = torch.tensor(
         [
@@ -398,13 +389,116 @@ def test_distributed_contrastive_loss_value(num_gpus: int):
     print("expected_soft", weight_matrix)
     num_valid_labels = torch.clamp((weight_matrix.sum(dim=1) > 0).sum(), min=1)
     print("expected_pos", num_valid_labels)
-    expected_loss = (
-        torch.einsum(
-            "ij, ij -> i",
-            -F.logsigmoid(expected_logits * expected_labels),
-            weight_matrix,
-        ).sum()
-        / num_valid_labels
-    )
+    pair_loss = -F.logsigmoid(expected_logits * expected_labels)
+    row_weight_sums = weight_matrix.sum(dim=1)
+    denoms = torch.clamp(row_weight_sums, min=1.0)
+    row_means = (pair_loss * weight_matrix).sum(dim=1) / denoms
+    expected_loss = row_means[row_weight_sums > 0].mean()
 
     test.assert_close(loss_value, expected_loss)
+
+
+def test_contrastive_loss_symmetric_reduction():
+    """Symmetric=True should average row-wise and column-wise reductions.
+
+    We build a case with asymmetric row weights (adaptive soft negatives), so
+    row-wise and column-wise means differ. The symmetric loss should match the
+    average of the two.
+    """
+    loss = ContrastiveLoss(
+        temperature=1,
+        learnable_temperature=False,
+        num_classes=3,
+        bias=0.0,
+        adaptive_soft_negative_weight=True,
+        symmetric=True,
+    )
+    batch_metrics = loss.build_batch_metric_aggregators()
+
+    # Three samples, labels [0,1,1]; embeddings chosen to yield sim matrix
+    # [[1,0,0],[0,1,1],[0,1,1]] after normalization
+    node_x = None
+    graph_x = torch.tensor([[1.0, 0.0], [0.0, 1.0], [0.0, 1.0]])
+    ys = {
+        ContrastiveLabels.Ys: torch.tensor([0, 1, 1]),
+        ContrastiveLabels.HardYs: torch.tensor([2, 2, 2]),  # no hard matches
+    }
+
+    loss_value, _ = loss(node_x, graph_x, ys, batch_metrics)
+
+    # Manual expected using implementation details
+    norm_x = F.normalize(graph_x, p=2, dim=1)
+    sim = norm_x @ norm_x.T
+
+    targets = ys[ContrastiveLabels.Ys]
+    target_matrix = targets.unsqueeze(1).eq(targets).float()
+    target_matrix = target_matrix.fill_diagonal_(-1)
+
+    hard_targets = ys[ContrastiveLabels.HardYs]
+    hard_target_matrix = hard_targets.unsqueeze(1).eq(targets).float()
+    hard_target_matrix[target_matrix.lt(0)] = -1  # align with padding/diag
+
+    soft_labels = torch.logical_and(
+        target_matrix.eq(0), hard_target_matrix.eq(0)
+    )
+
+    num_hard_labels = (
+        torch.logical_or(target_matrix.eq(1), hard_target_matrix.eq(1))
+    ).sum(dim=1)
+    num_hard_labels = torch.clamp(num_hard_labels, min=1)
+
+    extra_weight = (
+        num_hard_labels / torch.clamp(soft_labels.sum(dim=1), min=1)
+    ).reshape(-1, 1)
+    weights = torch.where(soft_labels, extra_weight, 1.0)
+    weights = weights.fill_diagonal_(0)
+
+    target_pm = (target_matrix.clamp_min(0) * 2) - 1
+    pair_loss = -F.logsigmoid(sim * target_pm)
+
+    row_ws = weights.sum(dim=1)
+    row_means = (pair_loss * weights).sum(dim=1) / torch.clamp(row_ws, min=1.0)
+    valid_rows = row_ws > 0
+    loss_rows = row_means[valid_rows].mean()
+
+    col_ws = weights.sum(dim=0)
+    col_means = (pair_loss * weights).sum(dim=0) / torch.clamp(col_ws, min=1.0)
+    valid_cols = col_ws > 0
+    loss_cols = col_means[valid_cols].mean()
+
+    expected = 0.5 * (loss_rows + loss_cols)
+
+    test.assert_close(loss_value, expected)
+
+
+def test_contrastive_loss_padding_does_not_affect():
+    """Adding a padded sample (-100) must not change the loss for valid pairs."""
+    base_loss = ContrastiveLoss(
+        temperature=1,
+        learnable_temperature=False,
+        num_classes=2,
+        bias=0.0,
+        adaptive_soft_negative_weight=False,
+        soft_negative_weight=0.0,
+        symmetric=False,
+    )
+    batch_metrics = base_loss.build_batch_metric_aggregators()
+
+    # Two samples, different labels; orthogonal embeddings
+    node_x = None
+    small_graph = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+    small_y = {
+        ContrastiveLabels.Ys: torch.tensor([0, 1]),
+        ContrastiveLabels.HardYs: torch.tensor([2, 2]),
+    }
+    loss_small, _ = base_loss(node_x, small_graph, small_y, batch_metrics)
+
+    # Add a third padded sample; loss for valid rows should be unchanged
+    big_graph = torch.tensor([[1.0, 0.0], [0.0, 1.0], [0.7, 0.7]])
+    big_y = {
+        ContrastiveLabels.Ys: torch.tensor([0, 1, -100]),
+        ContrastiveLabels.HardYs: torch.tensor([2, 2, -100]),
+    }
+    loss_big, _ = base_loss(node_x, big_graph, big_y, batch_metrics)
+
+    test.assert_close(loss_small, loss_big)

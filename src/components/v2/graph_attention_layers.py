@@ -1,7 +1,7 @@
 """Custom attention layers for graph encoders, such as RoPe and DiffAttn."""
 
 from torch import nn
-import torch.nn.functional as F
+import flash_attn
 import torch
 from torch.nn.attention.flex_attention import BlockMask
 from torch.nn.attention.flex_attention import flex_attention
@@ -164,6 +164,8 @@ class Attention(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        cu_seqlens: torch.Tensor | None = None,
+        max_seqlen: int | None = None,
         mask: torch.Tensor | BlockMask | None = None,
         rope_spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -208,49 +210,22 @@ class Attention(nn.Module):
         xk = repeat_kv(xk, self.heads_per_group, dim=1)
         xv = repeat_kv(xv, self.heads_per_group, dim=1)
 
-        # sdpa requires H S D format
-        # S H D -> H S D
-        xq, xk, xv = map(lambda e: e.transpose(0, 1), (xq, xk, xv))
-        # Add a singleton dimension for the batch
-        # H S D -> 1 H S D
-        xq, xk, xv = xq.unsqueeze(0), xk.unsqueeze(0), xv.unsqueeze(0)
+        # Inputs are S H D
+        actual_seq_len = cu_seqlens[-1] if cu_seqlens is not None else seq_len
+        output = torch.zeros_like(xq)
+        output[:actual_seq_len] = flash_attn.flash_attn_varlen_func(
+            xq[:actual_seq_len],
+            xk[:actual_seq_len],
+            xv[:actual_seq_len],
+            cu_seqlens_k=cu_seqlens,
+            cu_seqlens_q=cu_seqlens,
+            max_seqlen_k=max_seqlen,
+            max_seqlen_q=max_seqlen,
+            dropout_p=0.0,
+            causal=False,
+        )
 
-        if isinstance(mask, torch.Tensor):
-            output = F.scaled_dot_product_attention(
-                xq,
-                xk,
-                xv,
-                is_causal=False,
-                attn_mask=mask,
-            )
-        elif isinstance(mask, BlockMask):
-
-            if xq.is_cuda:
-                divide = 2
-                kernel_options = {
-                    "BLOCK_M": int(64 / divide),
-                    "BLOCK_N": int(64 / divide),
-                    "BLOCK_M1": int(32 / divide),
-                    "BLOCK_N1": int(64 / divide),
-                    "BLOCK_M2": int(64 / divide),
-                    "BLOCK_N2": int(32 / divide),
-                }
-                # kernel_options = None
-            else:
-                kernel_options = None
-
-            output = flex_attention_comp(
-                xq, xk, xv, block_mask=mask, kernel_options=kernel_options
-            )
-            assert isinstance(output, torch.Tensor)
-        else:
-            raise ValueError("Mask must be a BlockMask or a torch.Tensor")
-
-        # 1 H S D -> H S D
-        xq, xk, xv = xq.squeeze(0), xk.squeeze(0), xv.squeeze(0)
-
-        # H S D -> S H D
-        output = output.transpose(0, 1).contiguous()
+        assert isinstance(output, torch.Tensor)
 
         output = self.wo(output.reshape(output_shape))
 
@@ -298,7 +273,8 @@ class DifferentialAttention(nn.Module):
     Attributes:
         num_heads (int): The number of query heads.
         num_kv_heads (int): The number of key/value heads.
-        head_dim (int): The dimension of each attention head (effectively halved).
+        head_dim (int): The dimension of each attention head (effectively
+            halved).
         dim (int): The input and output dimension.
         wq, wk, wv, wo (nn.Linear): Linear layers for projections.
         lambda_q1, lambda_k1, lambda_q2, lambda_k2 (nn.Parameter): Learnable
@@ -352,22 +328,22 @@ class DifferentialAttention(nn.Module):
 
         self.lambda_init = 0.8 - 0.6 * math.exp(-0.3 * depth)
         self.lambda_q1 = nn.Parameter(
-            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
+            torch.zeros(self.head_dim, dtype=torch.bfloat16).normal_(
                 mean=0, std=0.1
             )
         )
         self.lambda_k1 = nn.Parameter(
-            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
+            torch.zeros(self.head_dim, dtype=torch.bfloat16).normal_(
                 mean=0, std=0.1
             )
         )
         self.lambda_q2 = nn.Parameter(
-            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
+            torch.zeros(self.head_dim, dtype=torch.bfloat16).normal_(
                 mean=0, std=0.1
             )
         )
         self.lambda_k2 = nn.Parameter(
-            torch.zeros(self.head_dim, dtype=torch.float32).normal_(
+            torch.zeros(self.head_dim, dtype=torch.bfloat16).normal_(
                 mean=0, std=0.1
             )
         )
@@ -388,46 +364,30 @@ class DifferentialAttention(nn.Module):
         q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
-        mask: BlockMask | torch.Tensor,
+        cu_seqlens: torch.Tensor | None = None,
+        max_seqlen: int | None = None,
     ) -> torch.Tensor:
         """Utility to compute attention."""
 
-        if isinstance(mask, torch.Tensor):
-            output = F.scaled_dot_product_attention(
-                q,
-                k,
-                v,
-                is_causal=False,
-                attn_mask=mask,
-            )
-        elif isinstance(mask, BlockMask):
-
-            if q.is_cuda:
-                divide = 2
-                kernel_options = {
-                    "BLOCK_M": int(64 / divide),
-                    "BLOCK_N": int(64 / divide),
-                    "BLOCK_M1": int(32 / divide),
-                    "BLOCK_N1": int(64 / divide),
-                    "BLOCK_M2": int(64 / divide),
-                    "BLOCK_N2": int(32 / divide),
-                }
-                # kernel_options = None
-            else:
-                kernel_options = None
-
-            output = flex_attention_comp(
-                q, k, v, block_mask=mask, kernel_options=kernel_options
-            )
-            assert isinstance(output, torch.Tensor)
-        else:
-            raise ValueError("Mask must be a BlockMask or a torch.Tensor")
-
+        output = flash_attn.flash_attn_varlen_func(
+            q,
+            k,
+            v,
+            cu_seqlens_k=cu_seqlens,
+            cu_seqlens_q=cu_seqlens,
+            max_seqlen_k=max_seqlen,
+            max_seqlen_q=max_seqlen,
+            dropout_p=0.0,
+            causal=False,
+        )
+        assert isinstance(output, torch.Tensor)
         return output
 
     def forward(
         self,
         x: torch.Tensor,
+        cu_seqlens: torch.Tensor | None = None,
+        max_seqlen: int | None = None,
         mask: BlockMask | torch.Tensor | None = None,
         rope_spatial_pos: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -463,19 +423,12 @@ class DifferentialAttention(nn.Module):
             assert rope_spatial_pos is not None
             xq, xk = self.rope(xq, xk, rope_spatial_pos)
 
-        # xq = xq.reshape(1, seq_len, self.num_heads, 2, self.head_dim)
-        # xk = xk.reshape(1, seq_len, self.num_kv_heads, 2, self.head_dim)
-        # xv = xv.reshape(1, seq_len, self.num_kv_heads, 2 * self.head_dim)
-        # q/k: 1 S H 2 D -> 1 H S 2 D
-        # v: 1 S H D -> 1 H S D
-        xq, xk, xv = map(lambda e: e.unsqueeze(0).transpose(1, 2), (xq, xk, xv))
-
         # q/k: 1 H S 2 D -> 1 H S D
-        q1, q2 = xq[:, :, :, 0], xq[:, :, :, 1]
-        k1, k2 = xk[:, :, :, 0], xk[:, :, :, 1]
+        q1, q2 = xq[:, :, 0], xq[:, :, 1]
+        k1, k2 = xk[:, :, 0], xk[:, :, 1]
 
-        attn1 = self._attn_forward(q1, k1, xv, mask)
-        attn2 = self._attn_forward(q2, k2, xv, mask)
+        attn1 = self._attn_forward(q1, k1, xv, cu_seqlens, max_seqlen)
+        attn2 = self._attn_forward(q2, k2, xv, cu_seqlens, max_seqlen)
 
         lambda_1 = torch.exp(
             torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1).float()
@@ -494,7 +447,7 @@ class DifferentialAttention(nn.Module):
         return attn
 
     def reset_parameters(self, init_std=None, factor=1.0):
-        """Reset parameters of the Attention projections and lambdas to Normal."""
+        """Reset parameters of projections and lambdas to Normal."""
         init_std = init_std or (self.dim ** (-0.5))
 
         for w in [self.wq, self.wk, self.wv]:

@@ -121,17 +121,20 @@ def compute_axial_cis(
             `(N, dim // 2)`, where the first half of the last dimension encodes
             the x-position and the second half encodes the y-position.
     """
+    device = t_x.device
     freqs_x = 1.0 / (
-        theta ** (torch.arange(0, dim, 4)[: (dim // 4)].float() / dim)
+        theta
+        ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim)
     )
     freqs_y = 1.0 / (
-        theta ** (torch.arange(0, dim, 4)[: (dim // 4)].float() / dim)
+        theta
+        ** (torch.arange(0, dim, 4, device=device)[: (dim // 4)].float() / dim)
     )
 
     freqs_x = torch.outer(t_x, freqs_x)
     freqs_y = torch.outer(t_y, freqs_y)
-    freqs_cis_x = torch.polar(torch.ones_like(freqs_x), freqs_x)
-    freqs_cis_y = torch.polar(torch.ones_like(freqs_y), freqs_y)
+    freqs_cis_x = torch.polar(torch.ones_like(freqs_x, device=device), freqs_x)
+    freqs_cis_y = torch.polar(torch.ones_like(freqs_y, device=device), freqs_y)
     return torch.cat([freqs_cis_x, freqs_cis_y], dim=-1)
 
 
@@ -165,7 +168,6 @@ def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor):
         x_new = torch.einsum("shjk,shk->shjk", x_, freqs_cis)
     else:
         x_new = torch.einsum("shk,shk->shk", x_, freqs_cis)
-        torch.testing.assert_close(x_new, x_ * freqs_cis)
     x_out = torch.view_as_real(x_new)
 
     x_out = x_out.view_as(x)
@@ -279,9 +281,9 @@ class RoPE(nn.Module):
             #     2,
             #     (H * E) / 2,
             # ), f"{self.freqs.shape} != {2, int((H * E) / 2)}"
-
+            freqs = self.freqs.type_as(t_x)
             freqs_cis = compute_mixed_cis(
-                freqs=self.freqs, t_x=t_x, t_y=t_y, num_heads=self.num_heads
+                freqs=freqs, t_x=t_x, t_y=t_y, num_heads=self.num_heads
             )
 
         else:
@@ -297,8 +299,8 @@ class RoPE(nn.Module):
         # Now index freq_cis to get the correct values for the current spatial
         # position
 
-        q_rope = apply_rotary_emb(q, freqs_cis)
-        k_rope = apply_rotary_emb(k, freqs_cis)
+        q_rope = apply_rotary_emb(q, freqs_cis).type_as(q)
+        k_rope = apply_rotary_emb(k, freqs_cis).type_as(k)
 
         assert q_rope.shape == q.shape, f"{q_rope.shape} != {q.shape}"
         assert k_rope.shape == k.shape
