@@ -183,6 +183,8 @@ class GraphTransformerBlock(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        cu_seqlens: torch.Tensor | None = None,
+        max_seqlen: int | None = None,
         # freq_cis: torch.Tensor,
         mask: BlockMask | torch.Tensor | None = None,
         rope_spatial_pos: torch.Tensor | None = None,
@@ -192,6 +194,8 @@ class GraphTransformerBlock(nn.Module):
             self.attention_norm(x),
             mask=mask,
             rope_spatial_pos=rope_spatial_pos,
+            cu_seqlens=cu_seqlens,
+            max_seqlen=max_seqlen,
         )
         h = x + attn_out.type_as(x)
 
@@ -240,6 +244,8 @@ class BaseGraphTransformer(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
+        cu_seqlens: torch.Tensor | None = None,
+        max_seqlen: int | None = None,
         mask: BlockMask | torch.Tensor | None = None,
         rope_spatial_pos: torch.Tensor | None = None,
     ):
@@ -267,7 +273,13 @@ class BaseGraphTransformer(nn.Module):
         """
 
         for layer in self.layers:
-            x = layer(x, mask=mask, rope_spatial_pos=rope_spatial_pos)
+            x = layer(
+                x,
+                mask=mask,
+                rope_spatial_pos=rope_spatial_pos,
+                cu_seqlens=cu_seqlens,
+                max_seqlen=max_seqlen,
+            )
         return x
 
     def init_weights(self):

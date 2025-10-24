@@ -1,0 +1,20 @@
+# @package _global_
+
+# example hyperparameter optimization of some experiment with Optuna:
+# python train.py -m hparams_search=mnist_optuna experiment=example
+
+defaults:
+  - default
+
+# here we define Optuna hyperparameter search
+# it optimizes for value returned from function with @hydra.main decorator
+# docs: https://hydra.cc/docs/next/plugins/optuna_sweeper
+hydra:
+  sweeper:
+    # define hyperparameter search space
+    params:
+      model.encoder.graph_stack_factory.num_layers: choice(2, 4, 6) # choose between 4, 6
+      model.encoder.graph_stack_factory.graph_tfmr_factory.use_rope: True # choose between True, False
+      model.encoder.graph_stack_factory.graph_tfmr_factory.rope_mixed: True  # choose between True, False
+      model.encoder.graph_stack_factory.graph_tfmr_factory.differential_attention: False  # choose between True, False
+      dataset.group_size: 2 # choose between 2, 4 positives in a graph

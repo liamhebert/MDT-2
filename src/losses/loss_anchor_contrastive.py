@@ -134,7 +134,6 @@ class AnchorContrastiveLoss(Loss):
             torch.eye(self.num_classes, device=sim_anchor.device),
             reduction="mean",
         )
-
         loss = loss_graph + loss_anchor
 
         # add bias

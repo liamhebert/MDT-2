@@ -47,3 +47,7 @@ block_size: 1
 
 graph_token_average: False
 concat_graph_to_node: False
+
+use_gating: True
+gate_per_dim: False
+gate_hidden_dim: null

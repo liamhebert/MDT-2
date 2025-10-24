@@ -40,7 +40,7 @@ class CollatedDataset(TaskDataset):
         self,
         batch: list[Data],
         batch_size: int,
-        max_nodes: int | None = None,
+        max_nodes: int = 0,
     ) -> dict[str, torch.Tensor]: ...
 
     def collate_fn(self, batch: list[dict]) -> dict:
@@ -137,6 +137,21 @@ class CollatedDataset(TaskDataset):
         num_nodes = collated_output["num_total_nodes"]
         assert isinstance(batch_size, int)
         assert isinstance(num_nodes, int)
+        # print(
+        #     {
+        #         k: v.shape if isinstance(v, torch.Tensor) else v
+        #         for k, v in collated_output.items()
+        #     },
+        #     flush=True,
+        # )
+        # for k, v in collated_output.items():
+        #     if isinstance(v, dict):
+        #         for k2, v2 in v.items():
+        #             print(
+        #                 f"  {k2}:"
+        #                 f" {v2.shape if isinstance(v2, torch.Tensor) else v2}",
+        #                 flush=True,
+        #             )
 
         # TODO(liamhebert): Consider making this generic to collate extra
         # features beyond just the labels.
@@ -160,7 +175,7 @@ class ContrastiveTaskDataset(CollatedDataset):
         return True
 
     def label_collate_fn(
-        self, batch: list[Data], batch_size: int, max_nodes: int | None = None
+        self, batch: list[Data], batch_size: int, max_nodes: int = 0
     ) -> dict[str, torch.Tensor]:
         """Collate function specific to contrastive learning tasks.
 
@@ -172,14 +187,27 @@ class ContrastiveTaskDataset(CollatedDataset):
             belongs to
         """
         # TODO(liamhebert): Update docstring
+        needs_padding = (max_nodes % self.block_size) != 0
 
         out = {
-            key: torch.cat([item["y"][key] for item in batch]).flatten()
+            key: (
+                torch.cat(
+                    [item["y"][key] for item in batch]
+                    + (
+                        [torch.tensor([-100])]
+                        if needs_padding
+                        else [torch.tensor([])]
+                    )
+                ).flatten()
+            )
             for key in [
                 ContrastiveLabels.Ys,
                 ContrastiveLabels.HardYs,
             ]
         }
+
+        if needs_padding:
+            batch_size += 1
 
         for key in [
             ContrastiveLabels.HardYs,
@@ -205,7 +233,7 @@ class NodeBatchedDataDataset(CollatedDataset):
         return False
 
     def label_collate_fn(
-        self, batch: list[Data], batch_size: int, max_nodes: int | None = None
+        self, batch: list[Data], batch_size: int, max_nodes: int = 0
     ) -> dict[str, torch.Tensor]:
         """Collate function specific to node prediction tasks.
 
@@ -220,8 +248,8 @@ class NodeBatchedDataDataset(CollatedDataset):
         out = {
             Labels.Ys: torch.cat([item["y"][Labels.Ys] for item in batch]),
         }
-        # TODO(liamhebert): Why do we need this assert?
-        if max_nodes is None:
+
+        if max_nodes == 0:
             return out
         else:
             have_nodes = out[Labels.Ys].shape[0]

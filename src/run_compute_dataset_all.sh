@@ -7,6 +7,5 @@
 #SBATCH --mail-user=l2hebert@uwaterloo.ca
 #SBATCH --mail-type=ALL
 #SBATCH --ntasks-per-node=1
-#SBATCH --gres=gpu:1
 
 python compute_dataset.py "$@" env=all hydra.launcher=local

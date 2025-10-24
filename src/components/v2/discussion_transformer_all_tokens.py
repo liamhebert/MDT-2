@@ -143,6 +143,9 @@ class DiscussionTransformerAllTokens(DiscussionTransformerPrototype):
         vit_layer_stack: list[ViTLayer],
         embedding_dim: int,
         num_bottlenecks: int,
+        use_gating: bool = False,
+        gate_per_dim: bool = False,
+        gate_hidden_dim: int | None = None,
     ) -> DiscussionTransformerBlock:
         """Returns a DiscussionTransformerBlock with the given parameters."""
         return DiscussionTransformerBlockAllTokens(
@@ -151,6 +154,9 @@ class DiscussionTransformerAllTokens(DiscussionTransformerPrototype):
             vit_layer_stack=vit_layer_stack,
             embedding_dim=embedding_dim,
             num_bottlenecks=num_bottlenecks,
+            use_gating=use_gating,
+            gate_per_dim=gate_per_dim,
+            gate_hidden_dim=gate_hidden_dim,
         )
 
     def forward(

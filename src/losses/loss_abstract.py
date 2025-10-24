@@ -82,6 +82,7 @@ class Loss(abc.ABC, torch.nn.Module):
         graph_embeddings: torch.Tensor,
         ys: Mapping[str, torch.Tensor],
         batch_metrics: dict[str, Metric | MetricCollection] | None = None,
+        aux_loss: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """Compute the cross-entropy loss.
 

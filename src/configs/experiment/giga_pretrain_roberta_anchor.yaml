@@ -50,9 +50,9 @@ model:
     lr: 3e-5
 
 dataset:
-  train_batch_size: 20
+  train_batch_size: 24
   max_total_length: null
-  test_batch_size: 20
-  group_size: 1
+  test_batch_size: 24
+  group_size: 2
 
 task_name: "pretrain"

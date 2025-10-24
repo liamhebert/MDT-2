@@ -100,7 +100,7 @@ class TaskDataset(Dataset, ABC):
     split_graphs: bool = False
     raw_graph_path: str | list[str]
     output_graph_path: str
-    image_tokenizer_key: str
+    image_tokenizer_key: str | None
     text_tokenizer_key: str
     max_distance_length: int
 
@@ -111,7 +111,7 @@ class TaskDataset(Dataset, ABC):
     spatial_pos_max: int = 100
     max_graph_size: int = 49
 
-    _splits: dict[str, list[list[tuple[str, int]]]] | None
+    _splits: dict[str, list[list[tuple[str, int]]]] | None = None
     _hdf5_file: h5py.File | None = None
     _hdf5_filename: str | None = None
 
@@ -134,7 +134,7 @@ class TaskDataset(Dataset, ABC):
         valid_size: int | float | None = 0.1,
         test_size: int | float | None = 0.1,
         split_seed: int = 42,
-        image_tokenizer_key: str = "google/vit-base-patch16-224",
+        image_tokenizer_key: str | None = "google/vit-base-patch16-224",
         text_config: dict[str, str | bool] | None = None,
         split_graphs: bool = False,
         strict: bool = False,
@@ -239,7 +239,7 @@ class TaskDataset(Dataset, ABC):
 
         if self.debug:
             self.output_graph_path += "_debug"
-            self.force_reload = True
+            self.force_reload = False
 
         os.makedirs(self.output_graph_path, exist_ok=True)
 
@@ -534,7 +534,6 @@ class TaskDataset(Dataset, ABC):
         if self._text_tokenizer is None:
             self._text_tokenizer = AutoTokenizer.from_pretrained(
                 self.text_config["text_model_name"],
-                clean_up_tokenization_spaces=True,
                 use_fast=True,
             )
         return self._text_tokenizer
@@ -549,7 +548,10 @@ class TaskDataset(Dataset, ABC):
         Returns:
             An instance of `AutoImageProcessor`.
         """
-        if self._image_tokenizer is None:
+        if (
+            self._image_tokenizer is None
+            and self.image_tokenizer_key is not None
+        ):
             self._image_tokenizer = AutoImageProcessor.from_pretrained(
                 self.image_tokenizer_key, use_fast=True
             )
@@ -874,9 +876,15 @@ class TaskDataset(Dataset, ABC):
                     result["y"].append(self.retrieve_label(node))
 
                 text = (
-                    f"Title: {node['title']}\nBody: {node['body']}"
+                    f"{node['title']}\n\n{node['body']}"
                     if is_root
-                    else f"Comment: {node['body']}"
+                    else f"{node['body']}"
+                )
+                text = dut.clean_text(text)
+                # gemma 3 encoder text:
+                text = (
+                    f"task: classification | query: {text} | discussion"
+                    " context: <unused0>"
                 )
                 result["text"].append(dut.clean_text(text))
 
@@ -945,48 +953,43 @@ class TaskDataset(Dataset, ABC):
             padding="max_length",
             truncation=True,
             return_tensors="np",
-            max_length=self.text_config.get("max_length", None),
+            max_length=256,
             return_attention_mask=True,
             return_token_type_ids=self.text_config.get(
                 "has_token_type_ids", False
             ),
         )  # type: ignore
 
-        image_mask = []
-        images = []
-        for img in flattened_graph["images"]:
-            if img:
-                try:
-                    img = Image.open(os.path.join(self.root, img)).convert(
-                        "RGB"
-                    )
-                except Exception as e:
-                    log.warning(f"Error checking image path: {e}")
-                    img = None
-
-            if img is not None:
-                images.append(img)
-                image_mask.append(True)
-            else:
-                image_mask.append(False)
-
-        image_mask = np.array(image_mask, dtype=np.bool)
-
-        image_mask = torch.tensor(
-            [img is not None for img in flattened_graph["images"]],
-            dtype=torch.bool,
-        )
-        images = [
-            Image.open(os.path.join(self.root, img)).convert("RGB")
-            for img in flattened_graph["images"]
-            if img
-        ]
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        tokenized_images = (
-            self.image_tokenizer(images, return_tensors="pt")  # type: ignore
-            if images
-            else None
-        )
+        if self.image_tokenizer is not None:
+            image_mask = []
+            images = []
+            for img in flattened_graph["images"]:
+                if img:
+                    try:
+                        img = Image.open(os.path.join(self.root, img)).convert(
+                            "RGB"
+                        )
+                    except Exception as e:
+                        log.warning(f"Error checking image path: {e}")
+                        img = None
+
+                if img is not None:
+                    images.append(img)
+                    image_mask.append(True)
+                else:
+                    image_mask.append(False)
+
+            image_mask = torch.tensor(image_mask, dtype=torch.bool)
+
+            tokenized_images = (
+                self.image_tokenizer(images, return_tensors="pt")  # type: ignore
+                if images
+                else None
+            )
+        else:
+            tokenized_images = None
+            image_mask = None
 
         combined_distance = [
             sorted(
@@ -1134,7 +1137,8 @@ class TaskDataset(Dataset, ABC):
         for key, tensor in data["y"].items():
             y_group.create_dataset(key, data=tensor)
 
-        group.create_dataset("image_mask", data=data["image_mask"])
+        if data["image_mask"] is not None:
+            group.create_dataset("image_mask", data=data["image_mask"])
         if data["images"] is not None:
             images_group = group.create_group("images")
             for key, tensor in data["images"].items():
@@ -1176,17 +1180,23 @@ class TaskDataset(Dataset, ABC):
             key: torch.from_numpy(np_array[()])
             for key, np_array in cast(h5py.Group, group["y"]).items()
         }
-        image_mask = torch.from_numpy(
-            cast(h5py.Dataset, group["image_mask"])[()]
-        )
-        images_data = (
-            {
-                key: torch.from_numpy(np_array[()])
-                for key, np_array in cast(h5py.Group, group["images"]).items()
-            }
-            if "images" in group
-            else None
-        )
+        if self.image_tokenizer is not None:
+            image_mask = torch.from_numpy(
+                cast(h5py.Dataset, group["image_mask"])[()]
+            )
+            images_data = (
+                {
+                    key: torch.from_numpy(np_array[()])
+                    for key, np_array in cast(
+                        h5py.Group, group["images"]
+                    ).items()
+                }
+                if "images" in group
+                else None
+            )
+        else:
+            image_mask = None
+            images_data = None
         distance = torch.from_numpy(group["distance"][()])
         rotary_position = torch.from_numpy(group["rotary_position"][()])
         out_degree = torch.from_numpy(group["out_degree"][()])

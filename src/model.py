@@ -11,6 +11,8 @@ from losses.loss_abstract import Loss
 from utils import RankedLogger
 from lr_schedules.schedules import LearningRateSchedulePrototype
 
+# from lightning.pytorch.utilities import grad_norm
+
 logger = RankedLogger(__name__)
 
 
@@ -21,6 +23,7 @@ class Model(L.LightningModule):
 
     encoder: nn.Module
     loss: Loss
+    aux_loss_weight: float = 1.0
 
     @torch.compiler.disable
     def log(self, *args, **kwargs):
@@ -32,6 +35,7 @@ class Model(L.LightningModule):
         scheduler: LearningRateSchedulePrototype,
         encoder: nn.Module,
         loss: Loss,
+        aux_loss_weight: float = 1.0,
         compile: bool = False,
     ) -> None:
         super().__init__()
@@ -45,6 +49,7 @@ class Model(L.LightningModule):
         self.encoder = encoder
 
         self.loss = loss
+        self.aux_loss_weight = aux_loss_weight
 
         self.metrics = {
             state: self.loss.build_batch_metric_aggregators()
@@ -82,7 +87,7 @@ class Model(L.LightningModule):
 
     def forward(
         self, x: dict[str, torch.Tensor]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor | None]]:
         """Compute the forward pass of the model.
 
         Args:
@@ -91,7 +96,23 @@ class Model(L.LightningModule):
         Returns:
             The predicted values (y_hat).
         """
-
+        # logger.warning("MODEL FORWARD")
+        # print(
+        #     {
+        #         k: v.shape if isinstance(v, torch.Tensor) else v
+        #         for k, v in x.items()
+        #     },
+        #     flush=True,
+        # )
+        # for k, v in x.items():
+        #     if isinstance(v, dict):
+        #         for k2, v2 in v.items():
+        #             print(
+        #                 f"  {k2}:"
+        #                 f" {v2.shape if isinstance(v2, torch.Tensor) else v2}",
+        #                 flush=True,
+        #             )
+        # logger.warning("okay actually starting now")
         return self.encoder(**x)
 
     def model_step(
@@ -108,11 +129,14 @@ class Model(L.LightningModule):
         Returns:
             The loss value for that batch, using self.loss.
         """
+        self.trainer.strategy.barrier("start model step")
         x, y = batch["x"], batch["y"]
 
-        node_embeddings, graph_embeddings = self.forward(x)
+        node_embeddings, graph_embeddings, aux_loss = self.forward(x)
 
-        loss, metrics = self.loss(node_embeddings, graph_embeddings, y, metrics)
+        loss, metrics = self.loss(
+            node_embeddings, graph_embeddings, y, metrics, aux_loss
+        )
         return loss, metrics
 
     def on_train_start(self) -> None:
@@ -206,7 +230,7 @@ class Model(L.LightningModule):
                 self.log(
                     f"{stage}/{key}",
                     metric_set,
-                    on_step=False if m_key != "loss" else True,
+                    on_step=False if key != "loss" else True,
                     on_epoch=True,
                     prog_bar=False,
                     batch_size=weight,
@@ -230,7 +254,8 @@ class Model(L.LightningModule):
 
         self.log_metrics(ret_metrics, stage="train")
 
-        self.log("train/lr", self.scheduler.get_last_lr(), on_step=True)
+        if self.scheduler is not None:
+            self.log("train/lr", self.scheduler.get_last_lr(), on_step=True)
 
         # return loss or backpropagation will fail
         return loss
@@ -287,6 +312,8 @@ class Model(L.LightningModule):
     #     # Compute the 2-norm for each layer
     #     # If using mixed precision, the gradients are already unscaled here
     #     norms = grad_norm(self.encoder, norm_type=2)
+    #     self.log_dict(norms)
+    #     norms = grad_norm(self.loss, norm_type=2)
     #     self.log_dict(norms)
 
     def configure_optimizers(self):

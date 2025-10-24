@@ -123,8 +123,11 @@ class MDTDiscussionTransformer(DiscussionTransformerPrototype):
         vit_layer_stack: list[ViTLayer],
         embedding_dim: int,
         num_bottlenecks: int,
+        *args,
+        **kwargs,
     ):
         """Returns a DiscussionTransformerBlock with the given parameters."""
+        del args, kwargs
         return MDTBlock(
             graph_layer=graph_layer,
             bert_layer_stack=bert_layer_stack,

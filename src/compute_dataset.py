@@ -14,10 +14,9 @@ log = RankedLogger(__name__, rank_zero_only=True)
 @hydra.main(version_base=None, config_path="configs", config_name="train.yaml")
 def main(cfg: DictConfig):
     """Entry point for dataset processing."""
-    paths = cfg.paths
 
     log.info("Will write using following config:")
-    rich_utils.print_config_tree(paths, resolve=True, save_to_file=False)
+    rich_utils.print_config_tree(cfg, resolve=True, save_to_file=False)
 
     log.info(f"Instantiating datamodule <{cfg.dataset._target_}>")
     cfg.dataset.dataset.force_reload = True

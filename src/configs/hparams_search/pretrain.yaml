@@ -13,7 +13,9 @@ hydra:
   sweeper:
     # define hyperparameter search space
     params:
-      model.encoder.graph_stack_factory.num_layers: 4 # choose between 3, 4
-      model.encoder.graph_stack_factory.graph_tfmr_factory.use_rope: choice(False, True) # choose between True, False
-      model.encoder.graph_stack_factory.graph_tfmr_factory.differential_attention: choice(False, True)  # choose between True, False
-      dataset.group_size: 4 # choose between 2, 4 positives in a graph
+      model.encoder.graph_stack_factory.num_layers: choice(2, 4) # choose between 4, 6
+      model.encoder.fusion_stack_size: 2 # choose between 2, 4 layers in each fusion stack
+      model.encoder.graph_stack_factory.graph_tfmr_factory.use_rope: choice(True, False) # choose between True, False
+      model.encoder.graph_stack_factory.graph_tfmr_factory.rope_mixed: choice(True, False)  # choose between True, False
+      model.encoder.graph_stack_factory.graph_tfmr_factory.differential_attention: False  # choose between True, False
+      dataset.group_size: 2 # choose between 2, 4 positives in a graph

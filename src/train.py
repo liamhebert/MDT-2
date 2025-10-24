@@ -20,6 +20,8 @@ from utils import instantiate_loggers
 from utils import log_hyperparameters
 from utils import RankedLogger
 from utils import task_wrapper
+from components.v2.graph_encoder_layer import GraphTransformerBlock
+from transformers.models.gemma3 import modeling_gemma3
 
 log = RankedLogger(__name__, rank_zero_only=False)
 
@@ -50,9 +52,31 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(
-        cfg.trainer, callbacks=callbacks, logger=logger
-    )
+    if hasattr(cfg.trainer, "strategy") and hasattr(
+        cfg.trainer.strategy, "_target_"
+    ):
+        if (
+            cfg.trainer.strategy._target_
+            == "lightning.pytorch.strategies.FSDPStrategy"
+        ):
+            log.info("Using FSDP with Gemma/GraphTransformerBlock auto wrap")
+            strategy = hydra.utils.instantiate(cfg.trainer.strategy)(
+                auto_wrap_policy=set(
+                    [
+                        type(GraphTransformerBlock),
+                        type(modeling_gemma3.Gemma3DecoderLayer),
+                    ]
+                )
+            )
+        else:
+            strategy = hydra.utils.instantiate(cfg.trainer.strategy)
+        trainer: Trainer = hydra.utils.instantiate(
+            cfg.trainer, callbacks=callbacks, logger=logger, strategy=strategy
+        )
+    else:
+        trainer: Trainer = hydra.utils.instantiate(
+            cfg.trainer, callbacks=callbacks, logger=logger
+        )
 
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)

@@ -1,4 +1,21 @@
-"""Contrastive loss function for pretraining with contrastive learning."""
+"""SigLIP-style intra-modality contrastive loss.
+
+This module implements a pairwise BCE-with-logits objective over the full
+in-batch similarity matrix (SigLIP-style). It supports an additive bias term
+and temperature scaling of the similarities. Because this project performs
+intra-modality contrastive learning, the diagonal entries are removed from the
+loss (a sample isn't contrasted with itself), while all off-diagonal pairs are
+included as negatives by default. Optionally, hard negatives can be passed to
+adjust soft-negative weights.
+
+Key features
+- Pairwise BCE-with-logits over similarity matrix with learned log-temperature
+    and bias.
+- Diagonal removed for intra-modality setup; all other pairs are used.
+- Optional weighting of soft negatives; adaptive or fixed.
+- Optional symmetric reduction (row-wise and column-wise) or row-wise only to
+    match SigLIP Algorithm 1 exactly.
+"""
 
 import torch.nn as nn
 import torch
@@ -18,25 +35,17 @@ logger = RankedLogger(__name__)
 
 
 class ContrastiveLoss(Loss):
-    """Contrastive loss function between the roi and candidate embeddings using
-    in-batch negatives.
+    """SigLIP-style contrastive loss with in-batch negatives.
 
-    This is done by aligning the positive roi regions to the positive candidate
-    embedding, and the treating all other candidate embeddings as negatives. The
-    implementation is similar to a cross entropy loss, where the "probability
-    logits" of each class (candidates) is the cosine similarity score between the
-    roi and candidate embeddings.
+    The loss is computed on the full similarity matrix S = T * cos(A @ A^T) + b
+    where A are normalized graph embeddings, T is the temperature (learnable by
+    default; stored in log-space), and b is an additive bias (learnable if
+    desired). Labels identify positives; all other pairs are treated as
+    negatives. For intra-modality training, the diagonal is removed. Optional
+    hard negatives are supported via ``hard_y`` to reweight soft negatives.
 
-    This implementation is as proposed by InfoNCE, but with a modification that
-    handles duplicate positive pairs.
-
-    Since we use in-batch negatives, it is possible that multiple items within
-    the same batch have the same positive candidate. However, InfoNCE only works
-    with a single positive class (due to cross entropy loss). To handle this, we
-    have an optional parameter ("remove_duplicates") that will check for and then
-    remove duplicate positive and negative pairs.
-
-    See: https://paperswithcode.com/method/infonce for more details.
+    Reduction can be row-wise only (to match SigLIP Algorithm 1) or symmetric
+    row/column-wise by setting ``symmetric=True``.
     """
 
     cosine_similarity: nn.CosineSimilarity = torch.nn.CosineSimilarity(dim=2)
@@ -48,14 +57,17 @@ class ContrastiveLoss(Loss):
     def __init__(
         self,
         num_classes: int,
-        soft_negative_weight: float = 0.0,
+        soft_negative_weight: float = 1.0,
         adaptive_soft_negative_weight: bool = False,
         temperature: float = 10.0,
         bias: float = -10.0,
         learnable_temperature: bool = True,
         force_all_gather: bool = False,
+        symmetric: bool = True,
+        aux_cos_loss_weight: float = 1.0,
+        aux_norm_loss_weight: float = 1.0,
     ):
-        """Initializes the contrastive loss.
+        """Initializes the SigLIP-style contrastive loss.
 
         Args:
             num_classes (int): The number of classes in the dataset,
@@ -66,15 +78,19 @@ class ContrastiveLoss(Loss):
             adaptive_soft_negative_weight (bool, optional): Whether to adapt
                 the soft negative weight based on the number of positive pairs
                 and negative pairs. Flag is exclusive against soft_negative_weight
-            temperature (float, optional): The temperature to use for the softmax
-                function. A higher value will make the distribution more uniform,
-                while a lower value will make the distribution more peaky.
-                Defaults to 10.
-            bias (float): The bias to add to the similarity matrix. Defaults to
-                -10.
+            temperature (float, optional): Initial temperature; stored as log(T)
+                and exponentiated during the forward pass. Higher T smooths
+                similarities; lower T sharpens them. Defaults to 10.0.
+            bias (float): Additive bias applied to all pairwise similarities.
+                Defaults to -10.0.
             learnable_temperature (bool, optional): Whether to learn the
-                temperature parameter. The initial value of the temperature will
-                be `temperature`. Defaults to False.
+                temperature and bias parameters. Defaults to True.
+            force_all_gather (bool, optional): If True or if torch.distributed is
+                initialized, embeddings and labels are gathered across workers
+                before loss computation. Defaults to False.
+            symmetric (bool, optional): If True, compute both row-wise and
+                column-wise reductions and average them; if False, compute
+                row-wise only (closer to SigLIP Algorithm 1). Defaults to True.
         """
         super().__init__()
 
@@ -90,18 +106,24 @@ class ContrastiveLoss(Loss):
         self.bias = nn.Parameter(
             torch.tensor([bias]).float(), requires_grad=learnable_temperature
         )
-        self.num_classes = num_classes
-        self.force_all_gather = force_all_gather
+        self.num_classes = int(num_classes)
+        self.force_all_gather = bool(force_all_gather)
+        # SigLIP-style options
+        self.symmetric = bool(symmetric)
+
+        self.aux_cos_loss_weight = aux_cos_loss_weight
+        self.aux_norm_loss_weight = aux_norm_loss_weight
 
     @torch.compiler.disable
     def forward(
         self,
         node_embeddings: torch.Tensor | None,
         graph_embeddings: torch.Tensor,
-        ys: Mapping[ContrastiveLabels, torch.Tensor],
+        ys: Mapping[str, torch.Tensor],
         batch_metrics: dict[str, Metric | MetricCollection] | None = None,
+        aux_loss: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        """Compute the contrastive pretraining loss.
+        """Compute the SigLIP-style intra-modality contrastive loss.
 
         Args:
             node_embeddings: The embedding for each node in the batch. Shape
@@ -111,16 +133,19 @@ class ContrastiveLoss(Loss):
                 (B, D).
             ys: Dictionary for the labels in the batch. Within that dictionary,
                 this loss uses
-                - y: The true positive label for each graph. Shape (B,). Nodes
-                    with a label of -100 are ignored in the loss.
-                - hard_y: The true hard negative label for each graph. Shape (B,).
+                - y: Integer class label per graph. Shape (B,). Entries with
+                  value -100 are ignored (padding) and masked out of the loss.
+                - hard_y: Optional hard-negative label per graph. Shape (B,).
+                  Used to down-weight soft negatives; can be omitted.
             batch_metrics:
                 A dictionary of metric objects to update with the batch metrics.
                 This should be called with "compute_batch_metrics". If None, no
                 metrics will be computed and only the loss will be returned.
 
         Returns:
-            The cross-entropy loss value.
+            A tuple of (loss, metrics), where loss is a scalar tensor and
+            metrics is a dict[str, Tensor] containing per-batch values such as
+            loss, weight, bias, temperature, and classification metrics.
         """
         del node_embeddings
 
@@ -128,11 +153,30 @@ class ContrastiveLoss(Loss):
         graph_embeddings = graph_embeddings.to(torch.float32)
         normalized_A = F.normalize(graph_embeddings, p=2, dim=-1)
 
-        device_targets = ys[ContrastiveLabels.Ys]
-        device_hard_targets = ys[ContrastiveLabels.HardYs]
+        # Support enum or string keys for labels
+        device_targets = (
+            ys.get(ContrastiveLabels.Ys)  # type: ignore[arg-type]
+            if hasattr(ys, "get")
+            else None
+        )
+        if device_targets is None:
+            device_targets = ys.get("y")  # type: ignore[index]
+        if device_targets is None:
+            raise ValueError("Targets 'y' not found in ys mapping.")
+
+        device_hard_targets = (
+            ys.get(ContrastiveLabels.HardYs)  # type: ignore[arg-type]
+            if hasattr(ys, "get")
+            else None
+        )
+        if device_hard_targets is None:
+            device_hard_targets = ys.get("hard_y")  # type: ignore[index]
+        if device_hard_targets is None:
+            device_hard_targets = torch.full_like(device_targets, -100)
         use_all_gather = (
             self.force_all_gather or torch.distributed.is_initialized()
         )
+        # use_all_gather = False
 
         if use_all_gather:
             all_targets, all_hard_targets, all_graph_embeddings = (
@@ -141,7 +185,6 @@ class ContrastiveLoss(Loss):
             )
             assert isinstance(all_graph_embeddings, torch.Tensor)
             graph_shape = graph_embeddings.shape
-            num_gpus = all_graph_embeddings.shape[0]
             targets, hard_targets, graph_embeddings = (
                 all_targets.reshape(-1),
                 all_hard_targets.reshape(-1),
@@ -150,11 +193,10 @@ class ContrastiveLoss(Loss):
         else:
             targets, hard_targets = device_targets, device_hard_targets
             graph_embeddings = normalized_A
-            num_gpus = 1
 
         # scaling factor
         sim = torch.matmul(graph_embeddings, graph_embeddings.t())
-        sim = sim * self.temperature.exp() + self.bias
+        sim = sim * self.temperature.exp()  # + self.bias
 
         # Targets is an array of int labels, discussions sharing the same label
         # are from the same community/topic
@@ -209,24 +251,54 @@ class ContrastiveLoss(Loss):
         target_matrix[padding_mask] = 0
         target_matrix = target_matrix.fill_diagonal_(0)
 
-        # Map 0, 1 labels to -1, 1
-        target_matrix = (target_matrix * 2) - 1
-        log_probs = F.logsigmoid(sim * target_matrix)
+        # Map 0, 1 labels to -1, 1 so we can use logsigmoid for both pos/neg
+        target_pm = (target_matrix * 2) - 1
+        pair_log_probs = F.logsigmoid(sim * target_pm)
 
-        loss = torch.einsum("ij, ij -> i", -log_probs, soft_matrix)
+        # Pairwise weighted BCE-style objective. Directional reductions ensure
+        # row-wise and column-wise terms are not redundant.
+        pair_loss = -pair_log_probs  # shape [N, N]
+        weights = soft_matrix  # shape [N, N]
 
-        # Calculate normalization factors safely
-        # We remove 1 from the number of positive labels to remove
-        # self-similarity from the loss.
-        total_positive_labels = target_matrix.eq(1).sum(dim=1)
-        num_positive_labels = torch.clamp(total_positive_labels, min=1)
-        num_valid_labels = torch.clamp(
-            (soft_matrix.sum(dim=1) > 0).sum(), min=1
+        # Row-wise mean: for each i, mean over j of loss[i, j] weighted by w[i, j]
+        row_weight_sums = weights.sum(dim=1)
+        row_denoms = torch.clamp(row_weight_sums, min=1.0)
+        row_means = (pair_loss * weights).sum(dim=1) / row_denoms
+        valid_rows = row_weight_sums > 0
+        loss_rows = (
+            row_means[valid_rows].mean()
+            if valid_rows.any()
+            else row_means.mean()
         )
-        # Apply normalization safely
 
-        loss = loss / num_positive_labels
-        loss = loss.sum() / num_valid_labels
+        if self.symmetric:
+            # Column-wise mean: for each j,
+            # mean over i of loss[i, j] weighted by w[i, j]
+            col_weight_sums = weights.sum(dim=0)
+            col_denoms = torch.clamp(col_weight_sums, min=1.0)
+            col_means = (pair_loss * weights).sum(dim=0) / col_denoms
+            valid_cols = col_weight_sums > 0
+            loss_cols = (
+                col_means[valid_cols].mean()
+                if valid_cols.any()
+                else col_means.mean()
+            )
+            loss = 0.5 * (loss_rows + loss_cols)
+        else:
+            loss = loss_rows
+
+        if aux_loss is not None:
+            norm_loss = self.aux_norm_loss_weight * aux_loss.get(
+                "norm_loss", 0.0
+            )
+            cos_loss = self.aux_cos_loss_weight * aux_loss.get("cos_loss", 0.0)
+            total_loss = loss + norm_loss + cos_loss
+            # logger.warning(
+            #     f"TOTAL LOSS: {loss=} {norm_loss=} {cos_loss=} "
+            #     f" ** {total_loss=} **"
+            # )
+        else:
+            total_loss = loss
 
         # Apply padding mask to only include non-padded examples
 
@@ -240,15 +312,25 @@ class ContrastiveLoss(Loss):
 
                 metric_sim[padding_mask] = -1e9
 
-                metrics = self.compute_batch_metrics(
+                batch_metrics_out = self.compute_batch_metrics(
                     metric_sim,
                     targets.detach(),
-                    loss.detach(),
+                    total_loss.detach(),
                     batch_metrics,
                 )
+                # Ensure return type is dict[str, Tensor]
+                metrics = {
+                    k: v
+                    for k, v in batch_metrics_out.items()
+                    if isinstance(v, torch.Tensor)
+                }
+                metrics["original_loss"] = loss.detach()
+                if aux_loss is not None:
+                    for k, v in aux_loss.items():
+                        metrics[f"aux_{k}"] = v.detach()
         else:
             metrics = {}
-        return loss, metrics
+        return total_loss, metrics
 
 
 class ContrastiveLossWithMetrics(ContrastiveLoss):

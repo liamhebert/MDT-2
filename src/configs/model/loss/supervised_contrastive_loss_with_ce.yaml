@@ -1,0 +1,9 @@
+_target_: losses.SupConWithCELoss
+
+embedding_dim: "${model.encoder.embedding_dim}"
+projection_dim: 3072
+num_classes: 8
+temperature: 0.05
+learnable_temperature: True
+aux_cos_loss_weight: 1.0
+aux_norm_loss_weight: 0.03

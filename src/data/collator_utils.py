@@ -188,7 +188,11 @@ def generic_collator(
 
     # assert that each property is a list of torch tensors
     assert all(isinstance(i, torch.Tensor) for i in out_degrees)
-    assert all(isinstance(i, torch.Tensor) for i in image_masks)
+
+    image_masks = None
+    if image_masks is not None:
+        assert all(isinstance(i, torch.Tensor) for i in image_masks)
+
     assert all(isinstance(i, torch.Tensor) for i in distances)
     assert all(isinstance(i, torch.Tensor) for i in rotary_poses)
 
@@ -203,7 +207,8 @@ def generic_collator(
     num_graphs = len(out_degrees)  # We have one list for each graph
     total_num_nodes = sum([len(i) for i in out_degrees])
     # We add num_graphs because of the bonus tokens we add
-    num_padding = block_size - ((total_num_nodes + num_graphs) % block_size)
+    # num_padding = block_size - ((total_num_nodes + num_graphs) % block_size)
+    num_padding = block_size - ((total_num_nodes) % block_size)
     if num_padding == block_size:
         num_padding = 0
 
@@ -229,6 +234,7 @@ def generic_collator(
         # sequence, so padding with 0s is not always correct.
         # We should be fine here.
         collated_text_features[key] = torch.cat(value, dim=0)
+        orig_shape = collated_text_features[key].shape
         collated_text_features[key] = torch.cat(
             [collated_text_features[key], padding]
         )
@@ -242,7 +248,13 @@ def generic_collator(
     graph_indices = torch.arange(num_graphs)
 
     # Then compute the sizes of each graph (ex: (2, 3, 4))
-    graph_sizes = torch.tensor([len(i) for i in out_degrees])
+    sizes = [len(i) for i in out_degrees]
+    graph_sizes = torch.tensor(sizes)
+    cu_seqlens = torch.cumsum(graph_sizes, dim=0)
+    max_seqlen = max(sizes)
+    cu_seqlens = torch.cat((torch.tensor([0]), cu_seqlens), dim=0).to(
+        torch.int32
+    )
 
     # Then repeat the indices by the sizes (ex: (0, 0, 1, 1, 1, 2, 2, 2, 2))
     graph_ids = torch.repeat_interleave(graph_indices, graph_sizes)
@@ -266,15 +278,19 @@ def generic_collator(
     else:
         filtered_image = torch.Tensor([])
 
-    image_padding = torch.cat(image_masks)
+    if image_masks is not None:
+        image_padding = torch.cat(image_masks)
+    else:
+        image_padding = None
 
     # Add padding to the in_degrees, image_masks, distances, and distance_indices
     virtual_distance_pad = torch.zeros((num_padding, 2), dtype=torch.long)
-    virtual_distance_graph = torch.zeros((num_graphs, 2), dtype=torch.long)
+    # virtual_distance_graph = torch.zeros((num_graphs, 2), dtype=torch.long)
     rotary_pos = torch.cat(rotary_poses) + 1
-    rotary_pos = torch.cat(
-        [virtual_distance_graph, rotary_pos, virtual_distance_pad], dim=0
-    )
+    # rotary_pos = torch.cat(
+    #     [virtual_distance_graph, rotary_pos, virtual_distance_pad], dim=0
+    # )
+    rotary_pos = torch.cat([rotary_pos, virtual_distance_pad], dim=0)
 
     # Since distance has a 2 dimension for ups and downs, we need to sum it.
     indexing_distances = [
@@ -290,10 +306,12 @@ def generic_collator(
     )
     spatial_pos = torch.block_diag(*[x.sum(dim=-1) + 2 for x in distances])
     out_degree = torch.cat(out_degrees) + 1
+    total_nodes = out_degree.shape[0]
 
     padding_1d = torch.zeros((num_padding,), dtype=torch.long)
     out_degree = torch.cat([out_degree, padding_1d])
-    image_padding = torch.cat([image_padding, padding_1d.bool()])
+    if image_padding is not None:
+        image_padding = torch.cat([image_padding, padding_1d.bool()])
 
     padding_graph_index = torch.full(
         (num_padding,), PADDING_GRAPH_ID, dtype=torch.long
@@ -309,34 +327,44 @@ def generic_collator(
     virtual_distance_pad = torch.zeros_like(spatial_pos[0, :]).expand(
         (num_padding, -1)
     )
-    virtual_distance_graph = torch.zeros_like(spatial_pos[0, :]).expand(
-        (total_num_graphs, -1)
-    )
-    spatial_pos = torch.cat(
-        (virtual_distance_graph + 1, spatial_pos, virtual_distance_pad), dim=0
-    )
-    indexing_pos = torch.cat(
-        (virtual_distance_graph + 1, indexing_pos, virtual_distance_pad), dim=0
-    )
+    # virtual_distance_graph = torch.zeros_like(spatial_pos[0, :]).expand(
+    #     (total_num_graphs, -1)
+    # )
+    # spatial_pos = torch.cat(
+    #     (virtual_distance_graph + 1, spatial_pos, virtual_distance_pad), dim=0
+    # )
+    # indexing_pos = torch.cat(
+    #     (virtual_distance_graph + 1, indexing_pos, virtual_distance_pad), dim=0
+    # )
+    spatial_pos = torch.cat((spatial_pos, virtual_distance_pad), dim=0)
+    indexing_pos = torch.cat((indexing_pos, virtual_distance_pad), dim=0)
 
     # add on the query dimension
     virtual_distance_pad = torch.zeros_like(spatial_pos[:, 0]).expand(
         (num_padding, -1)
     )
-    virtual_distance_graph = torch.zeros_like(spatial_pos[:, 0]).expand(
-        (total_num_graphs, -1)
-    )
+    # virtual_distance_graph = torch.zeros_like(spatial_pos[:, 0]).expand(
+    #     (total_num_graphs, -1)
+    # )
+    # spatial_pos = torch.cat(
+    #     (virtual_distance_graph.T + 1, spatial_pos, virtual_distance_pad.T),
+    #     dim=1,
+    # )
+    # indexing_pos = torch.cat(
+    #     (virtual_distance_graph.T + 1, indexing_pos, virtual_distance_pad.T),
+    #     dim=1,
+    # )
     spatial_pos = torch.cat(
-        (virtual_distance_graph.T + 1, spatial_pos, virtual_distance_pad.T),
+        (spatial_pos, virtual_distance_pad.T),
         dim=1,
     )
     indexing_pos = torch.cat(
-        (virtual_distance_graph.T + 1, indexing_pos, virtual_distance_pad.T),
+        (indexing_pos, virtual_distance_pad.T),
         dim=1,
     )
 
     num_graphs = len(out_degrees)
-    graph_ids = torch.cat((torch.arange(0, num_graphs), graph_ids), dim=0)
+    # graph_ids = torch.cat((torch.arange(0, num_graphs), graph_ids), dim=0)
 
     flex_block_mask = generate_graph_attn_mask_tensor(
         graph_ids,
@@ -351,15 +379,19 @@ def generic_collator(
         # Since we are using undirected graphs, in_degree == out_degree
         "out_degree": out_degree,
         "text_input": collated_text_features,
-        "image_input": {"pixel_values": filtered_image},
-        "image_padding_mask": image_padding,
+        # "image_input": {"pixel_values": filtered_image},
+        "image_input": None,
+        # "image_padding_mask": image_padding,
+        "image_padding_mask": None,
         "num_total_graphs": len(out_degrees),
-        "num_total_nodes": out_degree.shape[0],
+        "num_total_nodes": int(total_nodes),
         "rotary_pos": rotary_pos,
         "spatial_pos": spatial_pos,
         "indexing_spatial_pos": indexing_pos,
         "graph_mask": flex_block_mask,
         "graph_ids": graph_ids,
+        "cu_seqlens": cu_seqlens,
+        "max_seqlen": max_seqlen,
     }
 
 
