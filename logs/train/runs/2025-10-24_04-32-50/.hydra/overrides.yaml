@@ -1,0 +1,4 @@
+- dataset=default
+- dataset.dataset.raw_graph_path=src/test_data.json
+- dataset.dataset.output_graph_path=tmp_graphs
+- dataset.dataset.force_reload=True

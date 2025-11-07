@@ -1,0 +1,144 @@
+modality_encoder:
+  text_config:
+    text_model_name: WhereIsAI/UAE-Large-V1
+    has_token_type_ids: false
+    add_position_ids: true
+    max_length: 128
+  vision_model_name: google/siglip2-large-patch16-256
+model:
+  loss:
+    _target_: losses.NodeCrossEntropyLoss
+    weights:
+    - 1.0
+    - 1.5
+    num_classes: 2
+    output_head:
+      _target_: components.output_head.SimpleOutputHead
+      input_dim: ${model.encoder.embedding_dim}
+      output_dim: ${model.loss.num_classes}
+  encoder:
+    _target_: components.v2.discussion_transformer_all_tokens.DiscussionTransformerAllTokens
+    embedding_dim: 768
+    graph_node_feature:
+      _target_: components.v2.feature_layers.GraphNodeFeature
+      num_out_degree: 10
+      hidden_dim: ${model.encoder.embedding_dim}
+    graph_stack_factory:
+      _target_: components.v2.graph_encoder_layer.BaseGraphTransformer
+      _partial_: true
+      num_layers: 2
+      graph_tfmr_factory:
+        _target_: components.v2.graph_encoder_layer.GraphTransformerBlock
+        _partial_: true
+        n_heads: 12
+        n_kv_heads: 12
+        dim: ${model.encoder.embedding_dim}
+        ffn_dim: 3072
+        differential_attention: false
+        use_rope: false
+        rope_mixed: true
+    text_model_config:
+      bert_model_name: ${modality_encoder.text_config.text_model_name}
+      attention_dropout: 0.3
+      activation_dropout: 0.3
+    vit_model_config:
+      vit_model_name: ${modality_encoder.vision_model_name}
+      attention_dropout: 0.3
+      activation_dropout: 0.3
+    num_bottle_neck: 4
+    num_fusion_stack: 4
+    fusion_stack_size: 2
+    num_graph_layers_to_freeze: 0
+    freeze_initial_encoders: false
+    block_size: 1
+    graph_token_average: false
+    concat_graph_to_node: false
+  scheduler:
+    _target_: lr_schedules.schedules.FineTuneSchedule
+    max_epochs: ${trainer.max_epochs}
+    dataset_steps: ???
+  _target_: model.Model
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true
+    lr: 0.0001
+    weight_decay: 0.0
+    betas:
+    - 0.9
+    - 0.95
+  compile: false
+dataset:
+  _target_: datamodule.DataModule
+  train_batch_size: 24
+  use_length_grouped_sampler: true
+  max_total_length: 384
+  test_batch_size: 24
+  num_workers: 8
+  pin_memory: true
+  cache_dataset: true
+  group_size: 2
+  dataset:
+    _target_: ???
+    root: ???
+    raw_graph_path: src/test_data.json
+    output_graph_path: tmp_graphs
+    block_size: ${model.encoder.block_size}
+    graph_collate_type: all
+    group_size: ${dataset.group_size}
+    train_size: 0.8
+    valid_size: 0.1
+    test_size: 0.1
+    split_seed: 42
+    image_tokenizer_key: ${modality_encoder.vision_model_name}
+    text_config: ${modality_encoder.text_config}
+    split_graphs: false
+    strict: true
+    max_distance_length: 6
+    force_reload: true
+    debug: false
+    skip_invalid_label_graphs: true
+    max_graph_size: 49
+callbacks:
+  model_checkpoint:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: ${paths.output_dir}/checkpoints
+    filename: epoch_{epoch:03d}
+    monitor: val/loss
+    verbose: false
+    save_last: true
+    save_top_k: 1
+    mode: min
+    auto_insert_metric_name: false
+    save_weights_only: false
+    every_n_train_steps: null
+    train_time_interval: null
+    every_n_epochs: null
+    save_on_train_epoch_end: null
+  model_summary:
+    _target_: lightning.pytorch.callbacks.RichModelSummary
+    max_depth: 2
+trainer:
+  _target_: lightning.pytorch.trainer.Trainer
+  default_root_dir: ${paths.output_dir}
+  min_epochs: 1
+  max_epochs: 5
+  accelerator: cpu
+  devices: 1
+  precision: bf16-mixed
+  check_val_every_n_epoch: 1
+  deterministic: false
+paths:
+  root_dir: .
+  data_dir: ${paths.root_dir}/data/
+  log_dir: ${paths.root_dir}/logs/
+  output_dir: ${hydra:runtime.output_dir}
+  work_dir: ${hydra:runtime.cwd}
+extras:
+  ignore_warnings: false
+  enforce_tags: true
+  print_config: true
+task_name: train
+train: true
+test: true
+ckpt_path: null
+seed: 12345
