@@ -31,8 +31,8 @@ from data import collator_utils
 from tasks import dataset_utils as dut
 
 # ---- Pathing ----
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.extend([ROOT, os.path.join(ROOT, "src")])
+import rootutils 
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True) 
 
 
 #  Convert a tree jsn to feature dicts, the graph
