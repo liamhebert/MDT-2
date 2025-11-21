@@ -13,9 +13,6 @@ python src/test_embedding.py \
 
 """
 
-# the batch size command is removed as it actually valids the parameters,
-# need to see why
-
 import os
 import sys
 import json
