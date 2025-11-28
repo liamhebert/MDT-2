@@ -61,7 +61,7 @@ def tree_to_graph_features(tree, text_tokenizer, image_processor, root_dir="."):
 
     traverse(tree)
 
-    # --- Build graph tensors ---
+    # --- building graphtensors ---
     n = len(flat["id"])
     id_map = {nid: i for i, nid in enumerate(flat["id"])}
     edges = torch.tensor(
