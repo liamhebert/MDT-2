@@ -111,7 +111,7 @@ class TaskDataset(Dataset, ABC):
     spatial_pos_max: int = 100
     max_graph_size: int = 49
 
-    _splits: dict[str, list[list[tuple[str, int]]]] | None
+    _splits: dict[str, list[list[tuple[str, int]]]] | None = None
     _hdf5_file: h5py.File | None = None
     _hdf5_filename: str | None = None
 
@@ -714,7 +714,7 @@ class TaskDataset(Dataset, ABC):
                         for idx, label_index in enumerate(mask.nonzero()[0]):
                             new_data = copy.deepcopy(data)
                             ys = new_data["y"][Labels.Ys]
-                            y_mask = np.ones_like(ys).astype(np.bool)
+                            y_mask = np.ones_like(ys).astype(bool)
                             y_mask[label_index] = False
                             new_data["y"][Labels.Ys][y_mask] = -100
 
@@ -970,7 +970,7 @@ class TaskDataset(Dataset, ABC):
             else:
                 image_mask.append(False)
 
-        image_mask = np.array(image_mask, dtype=np.bool)
+        image_mask = np.array(image_mask, dtype=bool)
 
         image_mask = torch.tensor(
             [img is not None for img in flattened_graph["images"]],

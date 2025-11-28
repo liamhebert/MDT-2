@@ -263,7 +263,10 @@ class GraphFusionLayer(nn.Module, ModuleUtilsMixinWrapper):
         # if output_hidden_states:
         #     all_hidden_states = all_hidden_states + (hidden_states,)
 
-        layer_outputs = self.vit_encoder(hidden_states)
+        if isinstance(self.vit_encoder, ViTLayer):
+            layer_outputs = self.vit_encoder(hidden_states)
+        else:
+            layer_outputs = self.vit_encoder(hidden_states, attention_mask=None)
         if isinstance(layer_outputs, tuple):
             # TODO(liamhebert): I have no idea why sometimes it's a tuple and
             # other times it is not. Putting this here to fix that issue.

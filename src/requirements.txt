@@ -24,3 +24,7 @@ sentencepiece
 torchdata
 orjson
 h5py
+hydra-optuna-sweeper
+optuna
+hydra-submitit-launcher
+submitit
