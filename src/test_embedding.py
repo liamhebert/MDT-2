@@ -14,7 +14,8 @@ python src/test_embedding.py \
 """
 
 import os
-import sys
+
+# import sys
 import json
 import torch
 import argparse
@@ -28,8 +29,9 @@ from data import collator_utils
 from tasks import dataset_utils as dut
 
 # ---- Pathing ----
-import rootutils 
-rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True) 
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 
 #  Convert a tree jsn to feature dicts, the graph
@@ -55,7 +57,11 @@ def tree_to_graph_features(tree, text_tokenizer, image_processor, root_dir="."):
         flat["images"].append(
             node.get("images", [None])[0] if node.get("images") else None
         )
-        flat["rotary_position"].append(node.get("rotary_position", [0, 0]))
+        # flat["rotary_position"].append(node.get("rotary_position", [0, 0]))
+        assert (
+            "rotary_position" in node
+        ), f"Missing rotary_position for node {node['id']}"
+        flat["rotary_position"].append(node["rotary_position"])
         for c in node.get("tree", []):
             traverse(c, node["id"])
 
@@ -63,7 +69,9 @@ def tree_to_graph_features(tree, text_tokenizer, image_processor, root_dir="."):
 
     # --- building graphtensors ---
     n = len(flat["id"])
-    id_map = {nid: i for i, nid in enumerate(flat["id"])}
+    # id_map = {nid: i for i, nid in enumerate(flat["id"])}
+    id_map = {node_id: i for i, node_id in enumerate(flat["id"])}
+
     edges = torch.tensor(
         [list(id_map.values()), list(id_map.values())], dtype=torch.long
     )
